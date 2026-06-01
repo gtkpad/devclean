@@ -11,14 +11,20 @@ import (
 type EcosystemConfig struct {
 	Enabled      bool     `mapstructure:"enabled"`
 	MaxAgeDays   int      `mapstructure:"max_age_days"`
+	FailMode     string   `mapstructure:"fail_mode"`
 	ExcludePaths []string `mapstructure:"exclude_paths"`
 }
 
 // ToRules converts an EcosystemConfig to a domain.EcosystemRules.
 func (ec EcosystemConfig) ToRules() domain.EcosystemRules {
+	fm := ec.FailMode
+	if fm == "" {
+		fm = "continue"
+	}
 	return domain.EcosystemRules{
 		Enabled:      ec.Enabled,
 		MaxAgeDays:   ec.MaxAgeDays,
+		FailMode:     fm,
 		ExcludePaths: ec.ExcludePaths,
 	}
 }
@@ -47,18 +53,23 @@ func Load(configPath string) (*Config, error) {
 	v.SetDefault("protected_patterns", defaults.ProtectedPatterns)
 	v.SetDefault("ecosystems.docker.enabled", defaults.Ecosystems.Docker.Enabled)
 	v.SetDefault("ecosystems.docker.max_age_days", defaults.Ecosystems.Docker.MaxAgeDays)
+	v.SetDefault("ecosystems.docker.fail_mode", defaults.Ecosystems.Docker.FailMode)
 	v.SetDefault("ecosystems.docker.exclude_paths", defaults.Ecosystems.Docker.ExcludePaths)
 	v.SetDefault("ecosystems.node.enabled", defaults.Ecosystems.Node.Enabled)
 	v.SetDefault("ecosystems.node.max_age_days", defaults.Ecosystems.Node.MaxAgeDays)
+	v.SetDefault("ecosystems.node.fail_mode", defaults.Ecosystems.Node.FailMode)
 	v.SetDefault("ecosystems.node.exclude_paths", defaults.Ecosystems.Node.ExcludePaths)
 	v.SetDefault("ecosystems.go.enabled", defaults.Ecosystems.Go.Enabled)
 	v.SetDefault("ecosystems.go.max_age_days", defaults.Ecosystems.Go.MaxAgeDays)
+	v.SetDefault("ecosystems.go.fail_mode", defaults.Ecosystems.Go.FailMode)
 	v.SetDefault("ecosystems.go.exclude_paths", defaults.Ecosystems.Go.ExcludePaths)
 	v.SetDefault("ecosystems.dotnet.enabled", defaults.Ecosystems.DotNet.Enabled)
 	v.SetDefault("ecosystems.dotnet.max_age_days", defaults.Ecosystems.DotNet.MaxAgeDays)
+	v.SetDefault("ecosystems.dotnet.fail_mode", defaults.Ecosystems.DotNet.FailMode)
 	v.SetDefault("ecosystems.dotnet.exclude_paths", defaults.Ecosystems.DotNet.ExcludePaths)
 	v.SetDefault("ecosystems.python.enabled", defaults.Ecosystems.Python.Enabled)
 	v.SetDefault("ecosystems.python.max_age_days", defaults.Ecosystems.Python.MaxAgeDays)
+	v.SetDefault("ecosystems.python.fail_mode", defaults.Ecosystems.Python.FailMode)
 	v.SetDefault("ecosystems.python.exclude_paths", defaults.Ecosystems.Python.ExcludePaths)
 
 	if configPath != "" {

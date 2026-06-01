@@ -7,11 +7,11 @@ func Defaults() Config {
 		ScanPaths:         []string{},
 		ProtectedPatterns: []string{},
 		Ecosystems: EcosystemsConfig{
-			Docker: EcosystemConfig{Enabled: true, MaxAgeDays: 30, ExcludePaths: []string{}},
-			Node:   EcosystemConfig{Enabled: true, MaxAgeDays: 14, ExcludePaths: []string{}},
-			Go:     EcosystemConfig{Enabled: true, MaxAgeDays: 60, ExcludePaths: []string{}},
-			DotNet: EcosystemConfig{Enabled: true, MaxAgeDays: 45, ExcludePaths: []string{}},
-			Python: EcosystemConfig{Enabled: true, MaxAgeDays: 30, ExcludePaths: []string{}},
+			Docker: EcosystemConfig{Enabled: true, MaxAgeDays: 30, FailMode: "continue", ExcludePaths: []string{}},
+			Node:   EcosystemConfig{Enabled: true, MaxAgeDays: 14, FailMode: "continue", ExcludePaths: []string{}},
+			Go:     EcosystemConfig{Enabled: true, MaxAgeDays: 60, FailMode: "continue", ExcludePaths: []string{}},
+			DotNet: EcosystemConfig{Enabled: true, MaxAgeDays: 45, FailMode: "continue", ExcludePaths: []string{}},
+			Python: EcosystemConfig{Enabled: true, MaxAgeDays: 30, FailMode: "continue", ExcludePaths: []string{}},
 		},
 	}
 }

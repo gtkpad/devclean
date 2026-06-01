@@ -36,6 +36,7 @@ type ScanResult struct {
 type EcosystemRules struct {
 	Enabled      bool
 	MaxAgeDays   int
+	FailMode     string
 	ExcludePaths []string
 }
 
