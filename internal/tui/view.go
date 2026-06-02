@@ -141,3 +141,52 @@ func ecosystemTotals(m model, ecosystem string) (int64, int) {
 	}
 	return total, count
 }
+
+func viewConfirming(m model) string {
+	var b strings.Builder
+	totalBytes, count := m.selectedTotal()
+
+	b.WriteString("\n")
+	b.WriteString(headerStyle.Render("  Confirm deletion?"))
+	b.WriteString("\n\n")
+	b.WriteString(fmt.Sprintf("  Targets: %d selected\n", count))
+	b.WriteString(fmt.Sprintf("  Space to free: %s\n", humanSize(totalBytes)))
+	b.WriteString("\n  Paths:\n")
+
+	shown := 0
+	for _, ft := range m.flatTargets {
+		if !m.selected[ft.target.ID] {
+			continue
+		}
+		if shown >= 10 {
+			remaining := count - shown
+			b.WriteString(fmt.Sprintf("    + %d more\n", remaining))
+			break
+		}
+		b.WriteString(fmt.Sprintf("    %s\n", ft.target.Path))
+		shown++
+	}
+
+	b.WriteString("\n")
+	b.WriteString(helpStyle.Render("  [y] confirm  [n] cancel"))
+	b.WriteString("\n")
+
+	return b.String()
+}
+
+func viewDeleting(m model) string {
+	return fmt.Sprintf("\n  %s Deleting targets...\n\n", m.spinner.View())
+}
+
+func viewDone(m model) string {
+	if m.emptyResult {
+		return "\n  ✅ All clean! No targets found.\n\n"
+	}
+	var b strings.Builder
+	b.WriteString("\n")
+	b.WriteString(headerStyle.Render(fmt.Sprintf("  ✓ Done! Freed %s from %d targets.", humanSize(m.freedBytes), m.freedCount)))
+	b.WriteString("\n\n")
+	b.WriteString(helpStyle.Render("  Press any key to exit."))
+	b.WriteString("\n")
+	return b.String()
+}

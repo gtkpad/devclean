@@ -85,6 +85,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case stateSelecting:
 			return m.updateSelecting(msg)
+		case stateConfirming:
+			return m.updateConfirming(msg)
+		case stateDone:
+			return m, tea.Quit
 		}
 		return m, nil
 
@@ -106,8 +110,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.state = stateSelecting
 		return m, nil
+
+	case deleteCompleteMsg:
+		m.freedBytes = msg.freed
+		m.freedCount = msg.count
+		m.state = stateDone
+		return m, nil
 	}
 
+	return m, nil
+}
+
+func (m model) updateConfirming(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case msg.Type == tea.KeyCtrlC:
+		return m, tea.Quit
+	case msg.Type == tea.KeyRunes && string(msg.Runes) == "y":
+		m.state = stateDeleting
+		return m, tea.Batch(m.spinner.Tick, deleteCmd(m))
+	case msg.Type == tea.KeyRunes && (string(msg.Runes) == "n" || string(msg.Runes) == "q"):
+		m.state = stateSelecting
+	}
 	return m, nil
 }
 
@@ -221,16 +244,11 @@ func (m model) View() string {
 	case stateSelecting:
 		return viewSelecting(m)
 	case stateConfirming:
-		return "  Confirm deletion\n"
+		return viewConfirming(m)
 	case stateDeleting:
-		return fmt.Sprintf("\n  %s Deleting %d/%d... %s\n\n",
-			m.spinner.View(), m.deleteProgress, m.deleteTotal, m.deletePath)
+		return viewDeleting(m)
 	case stateDone:
-		if m.emptyResult {
-			return "\n  ✅ All clean! No targets found.\n\n"
-		}
-		return fmt.Sprintf("\n  Done! Freed %s from %d targets.\n\n",
-			humanSize(m.freedBytes), m.freedCount)
+		return viewDone(m)
 	}
 	return ""
 }
@@ -273,4 +291,40 @@ func humanSize(bytes int64) string {
 		i++
 	}
 	return fmt.Sprintf("%.1f %s", size, units[i])
+}
+
+func deleteCmd(m model) tea.Cmd {
+	// Capture values needed by the closure
+	blacklist := m.blacklist
+	eng := m.engine
+	flatTargets := m.flatTargets
+	selected := m.selected
+
+	return func() tea.Msg {
+		byEcosystem := make(map[string][]domain.Target)
+		for _, ft := range flatTargets {
+			if selected[ft.target.ID] {
+				if !blacklist.IsBlacklisted(ft.target.Path) {
+					byEcosystem[ft.ecosystem] = append(byEcosystem[ft.ecosystem], ft.target)
+				}
+			}
+		}
+
+		var totalFreed int64
+		var totalCount int
+		for eco, targets := range byEcosystem {
+			cleaner := eng.GetCleaner(eco)
+			if cleaner == nil {
+				continue
+			}
+			if err := cleaner.Clean(targets); err != nil {
+				continue
+			}
+			for _, t := range targets {
+				totalFreed += t.SizeBytes
+				totalCount++
+			}
+		}
+		return deleteCompleteMsg{freed: totalFreed, count: totalCount}
+	}
 }
