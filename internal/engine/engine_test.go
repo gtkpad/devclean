@@ -18,8 +18,8 @@ type fakeCleaner struct {
 	scanFn    func(domain.EcosystemRules) ([]domain.Target, error)
 }
 
-func (f *fakeCleaner) Name() string        { return f.name }
-func (f *fakeCleaner) IsInstalled() bool    { return f.installed }
+func (f *fakeCleaner) Name() string                  { return f.name }
+func (f *fakeCleaner) IsInstalled() bool             { return f.installed }
 func (f *fakeCleaner) Clean(_ []domain.Target) error { return nil }
 func (f *fakeCleaner) Scan(rules domain.EcosystemRules) ([]domain.Target, error) {
 	if f.scanFn != nil {
@@ -30,7 +30,7 @@ func (f *fakeCleaner) Scan(rules domain.EcosystemRules) ([]domain.Target, error)
 
 type fakeResolver struct{}
 
-func (r *fakeResolver) Resolve() platform.Paths       { return platform.Paths{} }
+func (r *fakeResolver) Resolve() platform.Paths      { return platform.Paths{} }
 func (r *fakeResolver) IsNetworkMount(_ string) bool { return false }
 
 func defaultConfig() *config.Config {

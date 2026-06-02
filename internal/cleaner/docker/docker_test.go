@@ -59,7 +59,7 @@ func TestDockerCleaner_IsInstalled_False(t *testing.T) {
 func TestDockerCleaner_Scan_DanglingImages(t *testing.T) {
 	oldTime := time.Now().AddDate(0, 0, -60)
 	api := &fakeDockerAPI{
-		ctxName: "default",
+		ctxName:  "default",
 		ctxEndpt: "unix:///var/run/docker.sock",
 		images: []imageInfo{
 			{ID: "sha256:abc123", Size: 500_000_000, Created: oldTime, Tags: []string{"<none>:<none>"}},
