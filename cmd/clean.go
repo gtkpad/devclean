@@ -6,23 +6,24 @@ import (
 	"os"
 	"time"
 
-	"github.com/gabrielvp/devclean/internal/cleaner/docker"
-	"github.com/gabrielvp/devclean/internal/cleaner/dotnet"
-	"github.com/gabrielvp/devclean/internal/cleaner/golang"
-	"github.com/gabrielvp/devclean/internal/cleaner/node"
-	"github.com/gabrielvp/devclean/internal/cleaner/python"
-	"github.com/gabrielvp/devclean/internal/config"
-	"github.com/gabrielvp/devclean/internal/domain"
-	"github.com/gabrielvp/devclean/internal/engine"
-	"github.com/gabrielvp/devclean/internal/platform"
-	"github.com/gabrielvp/devclean/internal/safety"
-	"github.com/gabrielvp/devclean/internal/scheduler"
+	"github.com/gtkpad/devclean/internal/cleaner/docker"
+	"github.com/gtkpad/devclean/internal/cleaner/dotnet"
+	"github.com/gtkpad/devclean/internal/cleaner/golang"
+	"github.com/gtkpad/devclean/internal/cleaner/node"
+	"github.com/gtkpad/devclean/internal/cleaner/python"
+	"github.com/gtkpad/devclean/internal/config"
+	"github.com/gtkpad/devclean/internal/domain"
+	"github.com/gtkpad/devclean/internal/engine"
+	"github.com/gtkpad/devclean/internal/platform"
+	"github.com/gtkpad/devclean/internal/safety"
+	"github.com/gtkpad/devclean/internal/scheduler"
 	"github.com/spf13/cobra"
 )
 
 func newCleanCmd() *cobra.Command {
 	var auto bool
 	var force bool
+	var dryRun bool
 	var ecosystem string
 
 	cmd := &cobra.Command{
@@ -95,13 +96,19 @@ Run 'devclean scan' to preview what would be cleaned.`)
 
 				for _, t := range targets {
 					if !quiet {
-						fmt.Fprintf(os.Stdout, "Deleting: %s\n", t.Path)
+						if dryRun {
+							fmt.Fprintf(os.Stdout, "Would delete: %s (%s)\n", t.Path, humanSize(t.SizeBytes))
+						} else {
+							fmt.Fprintf(os.Stdout, "Deleting: %s\n", t.Path)
+						}
 					}
 				}
 
-				if err := cleaner.Clean(targets); err != nil {
-					fmt.Fprintf(os.Stderr, "Error cleaning %s: %v\n", r.Ecosystem, err)
-					continue
+				if !dryRun {
+					if err := cleaner.Clean(ctx, targets); err != nil {
+						fmt.Fprintf(os.Stderr, "Error cleaning %s: %v\n", r.Ecosystem, err)
+						continue
+					}
 				}
 
 				for _, t := range targets {
@@ -115,7 +122,7 @@ Run 'devclean scan' to preview what would be cleaned.`)
 				os.Exit(2)
 			}
 
-			if auto {
+			if auto && !dryRun {
 				_ = scheduler.RecordRun(paths.ConfigDir, scheduler.RunResult{
 					Timestamp:    time.Now(),
 					TargetsCount: totalCount,
@@ -124,13 +131,18 @@ Run 'devclean scan' to preview what would be cleaned.`)
 				})
 			}
 
-			fmt.Fprintf(os.Stdout, "\nFreed: %s from %d targets\n", humanSize(totalFreed), totalCount)
+			if dryRun {
+				fmt.Fprintf(os.Stdout, "\nDry-run: would free %s from %d targets\n", humanSize(totalFreed), totalCount)
+			} else {
+				fmt.Fprintf(os.Stdout, "\nFreed: %s from %d targets\n", humanSize(totalFreed), totalCount)
+			}
 			return nil
 		},
 	}
 
 	cmd.Flags().BoolVar(&auto, "auto", false, "apply TTL rules from config and delete matching targets")
 	cmd.Flags().BoolVar(&force, "force", false, "delete ALL scan targets without TTL filter")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "preview what would be deleted without removing anything")
 	cmd.Flags().StringVarP(&ecosystem, "ecosystem", "e", "", "filter by ecosystem name")
 
 	return cmd
