@@ -11,7 +11,7 @@ import (
 )
 
 func TestDotNetCleaner_Name(t *testing.T) {
-	c := New(platform.Paths{})
+	c := New(platform.Paths{}, nil)
 	if c.Name() != "dotnet" {
 		t.Errorf("expected 'dotnet', got %q", c.Name())
 	}
@@ -37,7 +37,7 @@ func TestDotNetCleaner_Scan_AllCaches(t *testing.T) {
 		DotNetHTTP:  http,
 		DotNetTemp:  temp,
 	}
-	c := New(paths)
+	c := New(paths, nil)
 	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 30}
 
 	targets, err := c.Scan(rules)
@@ -60,7 +60,7 @@ func TestDotNetCleaner_Scan_NonExistentPaths(t *testing.T) {
 		DotNetHTTP:  "/nonexistent/http",
 		DotNetTemp:  "/nonexistent/temp",
 	}
-	c := New(paths)
+	c := New(paths, nil)
 	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 30}
 
 	targets, err := c.Scan(rules)
@@ -79,7 +79,7 @@ func TestDotNetCleaner_Scan_ExcludePaths(t *testing.T) {
 	_ = os.Chtimes(nuget, oldTime, oldTime)
 
 	paths := platform.Paths{DotNetNuGet: nuget}
-	c := New(paths)
+	c := New(paths, nil)
 	rules := domain.EcosystemRules{
 		Enabled:      true,
 		MaxAgeDays:   30,
@@ -102,5 +102,105 @@ func writeFile(t *testing.T, path string, size int) {
 	}
 	if err := os.WriteFile(path, make([]byte, size), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestDotNetCleaner_LocalScan_WithManifest(t *testing.T) {
+	root := t.TempDir()
+
+	// Create a .NET project with bin/ and obj/
+	projectDir := filepath.Join(root, "MyApp")
+	os.MkdirAll(projectDir, 0o755)
+	os.WriteFile(filepath.Join(projectDir, "MyApp.csproj"), []byte("<Project/>"), 0o644)
+	writeFile(t, filepath.Join(projectDir, "bin", "Debug", "app.dll"), 2048)
+	writeFile(t, filepath.Join(projectDir, "obj", "project.assets.json"), 1024)
+
+	c := New(platform.Paths{}, []string{root})
+	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 0}
+
+	targets, err := c.Scan(rules)
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if len(targets) != 2 {
+		t.Fatalf("expected 2 targets (bin + obj), got %d", len(targets))
+	}
+
+	for _, tgt := range targets {
+		if tgt.Category != "dotnet-build" {
+			t.Errorf("expected category 'dotnet-build', got %q", tgt.Category)
+		}
+		if tgt.Risk != domain.RiskLow {
+			t.Errorf("expected RiskLow, got %s", tgt.Risk)
+		}
+	}
+}
+
+func TestDotNetCleaner_LocalScan_WithoutManifest(t *testing.T) {
+	root := t.TempDir()
+
+	// Create bin/ and obj/ without any project manifest
+	randomDir := filepath.Join(root, "random")
+	os.MkdirAll(randomDir, 0o755)
+	writeFile(t, filepath.Join(randomDir, "bin", "output.exe"), 4096)
+	writeFile(t, filepath.Join(randomDir, "obj", "temp.cache"), 512)
+
+	c := New(platform.Paths{}, []string{root})
+	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 0}
+
+	targets, err := c.Scan(rules)
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if len(targets) != 0 {
+		t.Errorf("expected 0 targets (no manifest), got %d", len(targets))
+	}
+}
+
+func TestDotNetCleaner_LocalScan_ExcludedPath(t *testing.T) {
+	root := t.TempDir()
+
+	projectDir := filepath.Join(root, "excluded-project")
+	os.MkdirAll(projectDir, 0o755)
+	os.WriteFile(filepath.Join(projectDir, "App.csproj"), []byte("<Project/>"), 0o644)
+	writeFile(t, filepath.Join(projectDir, "bin", "app.dll"), 1024)
+
+	c := New(platform.Paths{}, []string{root})
+	rules := domain.EcosystemRules{
+		Enabled:      true,
+		MaxAgeDays:   0,
+		ExcludePaths: []string{"excluded-project/**"},
+	}
+
+	targets, err := c.Scan(rules)
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if len(targets) != 0 {
+		t.Errorf("expected 0 targets (excluded), got %d", len(targets))
+	}
+}
+
+func TestDotNetCleaner_LocalScan_FsprojManifest(t *testing.T) {
+	root := t.TempDir()
+
+	// F# project
+	projectDir := filepath.Join(root, "FSharpApp")
+	os.MkdirAll(projectDir, 0o755)
+	os.WriteFile(filepath.Join(projectDir, "FSharpApp.fsproj"), []byte("<Project/>"), 0o644)
+	writeFile(t, filepath.Join(projectDir, "obj", "cache.json"), 512)
+
+	c := New(platform.Paths{}, []string{root})
+	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 0}
+
+	targets, err := c.Scan(rules)
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if len(targets) != 1 {
+		t.Fatalf("expected 1 target (obj), got %d", len(targets))
+	}
+	if targets[0].Category != "dotnet-build" {
+		t.Errorf("expected category 'dotnet-build', got %q", targets[0].Category)
 	}
 }

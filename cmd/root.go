@@ -40,7 +40,7 @@ var rootCmd = &cobra.Command{
 		eng.Register(docker.New())
 		eng.Register(golang.New())
 		eng.Register(node.New(cfg.ScanPaths))
-		eng.Register(dotnet.New(paths))
+		eng.Register(dotnet.New(paths, cfg.ScanPaths))
 		eng.Register(python.New(paths.PythonUVCache))
 
 		bl := safety.NewBlacklist(cfg.ProtectedPatterns)

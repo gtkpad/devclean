@@ -53,7 +53,7 @@ Run 'devclean scan' to preview what would be cleaned.`)
 			eng.Register(docker.New())
 			eng.Register(golang.New())
 			eng.Register(node.New(cfg.ScanPaths))
-			eng.Register(dotnet.New(paths))
+			eng.Register(dotnet.New(paths, cfg.ScanPaths))
 			eng.Register(python.New(paths.PythonUVCache))
 
 			ctx := context.Background()
