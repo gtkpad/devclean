@@ -106,7 +106,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if len(m.flatTargets) == 0 {
 			m.state = stateDone
 			m.emptyResult = true
-			return m, tea.Quit
+			return m, nil
 		}
 		m.state = stateSelecting
 		return m, nil

@@ -180,7 +180,7 @@ func viewDeleting(m model) string {
 
 func viewDone(m model) string {
 	if m.emptyResult {
-		return "\n  ✅ All clean! No targets found.\n\n"
+		return "\n  ✅ All clean! No targets found.\n\n  Press any key to exit.\n\n"
 	}
 	var b strings.Builder
 	b.WriteString("\n")
