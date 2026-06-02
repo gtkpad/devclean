@@ -86,12 +86,14 @@ func (e *Engine) Scan(ctx context.Context) <-chan domain.ScanResult {
 					}
 					return nil // continue mode
 				}
+				// Use non-blocking send with fallback: even if context is
+				// cancelled (abort from another cleaner), deliver completed results.
 				select {
 				case results <- domain.ScanResult{
 					Ecosystem: n,
 					Targets:   targets,
 				}:
-				case <-gctx.Done():
+				default:
 				}
 				return nil
 			})

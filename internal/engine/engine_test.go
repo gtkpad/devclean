@@ -243,3 +243,49 @@ func TestScan_ContextCancellation(t *testing.T) {
 		t.Fatal("Collect blocked after context cancellation")
 	}
 }
+
+func TestScan_AbortPreservesCompletedResults(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.Ecosystems.Go.FailMode = "abort"
+
+	e := New(cfg, &fakeResolver{})
+
+	// Fast cleaner completes before abort
+	e.Register(&fakeCleaner{
+		name:      "docker",
+		installed: true,
+		scanFn: func(_ domain.EcosystemRules) ([]domain.Target, error) {
+			return []domain.Target{{ID: "docker-img", Category: "dangling-image"}}, nil
+		},
+	})
+
+	// Slow cleaner triggers abort
+	e.Register(&fakeCleaner{
+		name:      "go",
+		installed: true,
+		scanFn: func(_ domain.EcosystemRules) ([]domain.Target, error) {
+			time.Sleep(50 * time.Millisecond)
+			return nil, errors.New("go cache corrupt")
+		},
+	})
+
+	ctx := context.Background()
+	results := Collect(ctx, e.Scan(ctx))
+
+	var hasDocker, hasGoErr bool
+	for _, r := range results {
+		if r.Ecosystem == "docker" && len(r.Targets) == 1 {
+			hasDocker = true
+		}
+		if r.Ecosystem == "go" && r.Error != nil {
+			hasGoErr = true
+		}
+	}
+
+	if !hasDocker {
+		t.Error("expected docker result to be preserved despite go abort")
+	}
+	if !hasGoErr {
+		t.Error("expected go error result")
+	}
+}
