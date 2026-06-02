@@ -16,6 +16,7 @@ import (
 	"github.com/gabrielvp/devclean/internal/engine"
 	"github.com/gabrielvp/devclean/internal/platform"
 	"github.com/gabrielvp/devclean/internal/safety"
+	"github.com/gabrielvp/devclean/internal/scheduler"
 	"github.com/spf13/cobra"
 )
 
@@ -29,6 +30,8 @@ func newCleanCmd() *cobra.Command {
 		Short: "Delete scan targets to free disk space",
 		Long:  "Removes build artifacts, caches, and unused dependencies. Requires --auto or --force flag.",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			startTime := time.Now()
+
 			if !auto && !force {
 				fmt.Fprintln(os.Stdout, `No deletion mode specified. Use:
   devclean clean --auto   Apply TTL rules from config
@@ -110,6 +113,15 @@ Run 'devclean scan' to preview what would be cleaned.`)
 			if totalCount == 0 {
 				fmt.Fprintln(os.Stderr, "Nothing to clean")
 				os.Exit(2)
+			}
+
+			if auto {
+				_ = scheduler.RecordRun(paths.ConfigDir, scheduler.RunResult{
+					Timestamp:    time.Now(),
+					TargetsCount: totalCount,
+					BytesFreed:   totalFreed,
+					Duration:     time.Since(startTime).Round(time.Millisecond).String(),
+				})
 			}
 
 			fmt.Fprintf(os.Stdout, "\nFreed: %s from %d targets\n", humanSize(totalFreed), totalCount)
