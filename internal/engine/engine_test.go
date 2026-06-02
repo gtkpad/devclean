@@ -18,8 +18,8 @@ type fakeCleaner struct {
 	scanFn    func(domain.EcosystemRules) ([]domain.Target, error)
 }
 
-func (f *fakeCleaner) Name() string                                    { return f.name }
-func (f *fakeCleaner) IsInstalled() bool                               { return f.installed }
+func (f *fakeCleaner) Name() string                                     { return f.name }
+func (f *fakeCleaner) IsInstalled() bool                                { return f.installed }
 func (f *fakeCleaner) Clean(_ context.Context, _ []domain.Target) error { return nil }
 func (f *fakeCleaner) Scan(_ context.Context, rules domain.EcosystemRules) ([]domain.Target, error) {
 	if f.scanFn != nil {
