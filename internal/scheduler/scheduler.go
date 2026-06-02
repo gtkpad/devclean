@@ -1,0 +1,44 @@
+package scheduler
+
+import (
+	"errors"
+	"time"
+)
+
+// ErrAlreadyInstalled is returned when a schedule is already registered.
+var ErrAlreadyInstalled = errors.New("schedule already installed")
+
+// ErrNotInstalled is returned when no schedule exists to remove.
+var ErrNotInstalled = errors.New("schedule not installed")
+
+// Schedule holds the parameters for registering a scheduled cleanup.
+type Schedule struct {
+	CronExpr   string
+	BinaryPath string
+}
+
+// Status represents the current state of the scheduled task.
+type Status struct {
+	Active       bool
+	CronExpr     string
+	BinaryPath   string
+	LastRun      *time.Time
+	LastResult   *RunResult
+	NextEstimate *time.Time
+}
+
+// RunResult records the outcome of an automated cleanup execution.
+type RunResult struct {
+	Timestamp    time.Time `json:"timestamp"`
+	TargetsCount int       `json:"targets_count"`
+	BytesFreed   int64     `json:"bytes_freed"`
+	Duration     string    `json:"duration"`
+}
+
+// Scheduler manages platform-specific scheduled task registration.
+type Scheduler interface {
+	Install(Schedule) error
+	Remove() error
+	Status() (*Status, error)
+	IsInstalled() bool
+}
