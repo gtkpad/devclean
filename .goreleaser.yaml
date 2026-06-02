@@ -12,7 +12,7 @@ builds:
     flags:
       - -trimpath
     ldflags:
-      - -s -w -X github.com/gabrielvp/devclean/cmd.version={{.Version}} -X github.com/gabrielvp/devclean/cmd.commit={{.Commit}} -X github.com/gabrielvp/devclean/cmd.date={{.CommitDate}}
+      - -s -w -X github.com/gtkpad/devclean/cmd.version={{.Version}} -X github.com/gtkpad/devclean/cmd.commit={{.Commit}} -X github.com/gtkpad/devclean/cmd.date={{.CommitDate}}
     mod_timestamp: "{{ .CommitTimestamp }}"
 
 archives:
@@ -49,6 +49,6 @@ signs:
 
 release:
   github:
-    owner: gabrielvp
+    owner: gtkpad
     name: devclean
   draft: false

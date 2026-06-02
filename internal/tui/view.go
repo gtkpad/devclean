@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/gabrielvp/devclean/internal/domain"
+	"github.com/gtkpad/devclean/internal/domain"
 )
 
 func viewSelecting(m model) string {

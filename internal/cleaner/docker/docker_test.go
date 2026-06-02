@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gabrielvp/devclean/internal/domain"
+	"github.com/gtkpad/devclean/internal/domain"
 )
 
 type fakeDockerAPI struct {

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gabrielvp/devclean/internal/domain"
-	"github.com/gabrielvp/devclean/internal/fs"
+	"github.com/gtkpad/devclean/internal/domain"
+	"github.com/gtkpad/devclean/internal/fs"
 )
 
 type goCleaner struct {

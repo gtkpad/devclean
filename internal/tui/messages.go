@@ -1,6 +1,7 @@
 package tui
+package tui
 
-import "github.com/gabrielvp/devclean/internal/domain"
+import "github.com/gtkpad/devclean/internal/domain"
 
 type scanCompleteMsg struct {
 	results []domain.ScanResult

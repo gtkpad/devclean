@@ -15,7 +15,7 @@ import (
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/client"
-	"github.com/gabrielvp/devclean/internal/domain"
+	"github.com/gtkpad/devclean/internal/domain"
 )
 
 // dockerAPI abstracts Docker SDK operations for testability.

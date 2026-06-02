@@ -1,4 +1,4 @@
-module github.com/gabrielvp/devclean
+module github.com/gtkpad/devclean
 
 go 1.25.0
 

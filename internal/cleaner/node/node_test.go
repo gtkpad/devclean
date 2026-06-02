@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gabrielvp/devclean/internal/domain"
+	"github.com/gtkpad/devclean/internal/domain"
 )
 
 func setupFixture(t *testing.T) string {
@@ -96,11 +96,11 @@ func TestNodeCleaner_Scan_Discovery(t *testing.T) {
 	// symlink-dir should be skipped
 	// nested inner node_modules should NOT be found (SkipDir after outer)
 	expectedPaths := map[string]bool{
-		filepath.Join(root, "project-a", "node_modules"):                    true,
-		filepath.Join(root, "project-b", "node_modules"):                    true,
-		filepath.Join(root, "project-c", "node_modules"):                    true,
-		filepath.Join(root, "nested", "outer", "node_modules"):              true,
-		filepath.Join(root, "excluded", "project-d", "node_modules"):        true,
+		filepath.Join(root, "project-a", "node_modules"):             true,
+		filepath.Join(root, "project-b", "node_modules"):             true,
+		filepath.Join(root, "project-c", "node_modules"):             true,
+		filepath.Join(root, "nested", "outer", "node_modules"):       true,
+		filepath.Join(root, "excluded", "project-d", "node_modules"): true,
 	}
 
 	if len(targets) != len(expectedPaths) {

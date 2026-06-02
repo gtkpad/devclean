@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/gabrielvp/devclean/internal/platform"
+	"github.com/gtkpad/devclean/internal/platform"
 )
 
 const networkMountTimeout = 2 * time.Second

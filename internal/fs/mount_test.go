@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/gabrielvp/devclean/internal/platform"
+	"github.com/gtkpad/devclean/internal/platform"
 )
 
 // mountTestResolver implements platform.Resolver for tests.

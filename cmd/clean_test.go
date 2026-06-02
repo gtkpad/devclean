@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gabrielvp/devclean/internal/config"
-	"github.com/gabrielvp/devclean/internal/domain"
-	"github.com/gabrielvp/devclean/internal/safety"
+	"github.com/gtkpad/devclean/internal/config"
+	"github.com/gtkpad/devclean/internal/domain"
+	"github.com/gtkpad/devclean/internal/safety"
 )
 
 func TestFilterByTTL_OlderThanTTL(t *testing.T) {

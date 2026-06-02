@@ -12,9 +12,9 @@ import (
 	"time"
 
 	"github.com/bmatcuk/doublestar/v4"
-	"github.com/gabrielvp/devclean/internal/domain"
-	devfs "github.com/gabrielvp/devclean/internal/fs"
-	"github.com/gabrielvp/devclean/internal/safety"
+	"github.com/gtkpad/devclean/internal/domain"
+	devfs "github.com/gtkpad/devclean/internal/fs"
+	"github.com/gtkpad/devclean/internal/safety"
 )
 
 type nodeCleaner struct {
@@ -32,11 +32,11 @@ func (c *nodeCleaner) IsInstalled() bool { return true }
 
 func (c *nodeCleaner) Scan(rules domain.EcosystemRules) ([]domain.Target, error) {
 	var (
-		mu          sync.Mutex
-		allPaths    []string
-		firstErr    error
-		wg          sync.WaitGroup
-		sem         = make(chan struct{}, runtime.NumCPU())
+		mu       sync.Mutex
+		allPaths []string
+		firstErr error
+		wg       sync.WaitGroup
+		sem      = make(chan struct{}, runtime.NumCPU())
 	)
 
 	for _, root := range c.scanPaths {

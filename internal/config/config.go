@@ -3,8 +3,8 @@ package config
 import (
 	"os"
 
-	"github.com/gabrielvp/devclean/internal/domain"
-	"github.com/gabrielvp/devclean/internal/platform"
+	"github.com/gtkpad/devclean/internal/domain"
+	"github.com/gtkpad/devclean/internal/platform"
 	"github.com/spf13/viper"
 )
 

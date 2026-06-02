@@ -7,8 +7,8 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/gabrielvp/devclean/internal/platform"
-	"github.com/gabrielvp/devclean/internal/scheduler"
+	"github.com/gtkpad/devclean/internal/platform"
+	"github.com/gtkpad/devclean/internal/scheduler"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )

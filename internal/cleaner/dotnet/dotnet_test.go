@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gabrielvp/devclean/internal/domain"
-	"github.com/gabrielvp/devclean/internal/platform"
+	"github.com/gtkpad/devclean/internal/domain"
+	"github.com/gtkpad/devclean/internal/platform"
 )
 
 func TestDotNetCleaner_Name(t *testing.T) {

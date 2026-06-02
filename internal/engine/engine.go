@@ -5,10 +5,10 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/gabrielvp/devclean/internal/config"
-	"github.com/gabrielvp/devclean/internal/domain"
-	"github.com/gabrielvp/devclean/internal/fs"
-	"github.com/gabrielvp/devclean/internal/platform"
+	"github.com/gtkpad/devclean/internal/config"
+	"github.com/gtkpad/devclean/internal/domain"
+	"github.com/gtkpad/devclean/internal/fs"
+	"github.com/gtkpad/devclean/internal/platform"
 	"golang.org/x/sync/errgroup"
 )
 

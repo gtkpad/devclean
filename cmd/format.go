@@ -6,7 +6,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/gabrielvp/devclean/internal/domain"
+	"github.com/gtkpad/devclean/internal/domain"
 )
 
 func formatOutput(w io.Writer, results []domain.ScanResult, format string, verbose bool) error {

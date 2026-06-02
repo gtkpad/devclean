@@ -14,10 +14,10 @@ import (
 	"time"
 
 	"github.com/bmatcuk/doublestar/v4"
-	"github.com/gabrielvp/devclean/internal/domain"
-	devfs "github.com/gabrielvp/devclean/internal/fs"
-	"github.com/gabrielvp/devclean/internal/platform"
-	"github.com/gabrielvp/devclean/internal/safety"
+	"github.com/gtkpad/devclean/internal/domain"
+	devfs "github.com/gtkpad/devclean/internal/fs"
+	"github.com/gtkpad/devclean/internal/platform"
+	"github.com/gtkpad/devclean/internal/safety"
 )
 
 // projectManifests are the files that indicate a .NET project root.

@@ -6,15 +6,15 @@ import (
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/gabrielvp/devclean/internal/domain"
-	"github.com/gabrielvp/devclean/internal/engine"
-	"github.com/gabrielvp/devclean/internal/safety"
+	"github.com/gtkpad/devclean/internal/domain"
+	"github.com/gtkpad/devclean/internal/engine"
+	"github.com/gtkpad/devclean/internal/safety"
 )
 
 type viewState int
 
 const (
-	stateScanning   viewState = iota
+	stateScanning viewState = iota
 	stateSelecting
 	stateConfirming
 	stateDeleting
