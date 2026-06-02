@@ -62,6 +62,7 @@ func init() {
 	rootCmd.AddCommand(newScheduleCmd())
 	rootCmd.AddCommand(newUnscheduleCmd())
 	rootCmd.AddCommand(newVersionCmd())
+	rootCmd.AddCommand(newMCPCmd())
 	rootCmd.Version = version
 }
 
