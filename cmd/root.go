@@ -22,6 +22,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&quiet, "quiet", false, "suppress non-essential output")
 
 	rootCmd.AddCommand(newScanCmd())
+	rootCmd.AddCommand(newCleanCmd())
 }
 
 func Execute() error {

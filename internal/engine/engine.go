@@ -36,6 +36,11 @@ func (e *Engine) Register(c domain.Cleaner) {
 	e.cleaners[c.Name()] = c
 }
 
+// GetCleaner returns a registered cleaner by ecosystem name.
+func (e *Engine) GetCleaner(name string) domain.Cleaner {
+	return e.cleaners[name]
+}
+
 // Scan runs all registered cleaners in parallel and streams results.
 // Channel is closed when all cleaners finish.
 func (e *Engine) Scan(ctx context.Context) <-chan domain.ScanResult {
