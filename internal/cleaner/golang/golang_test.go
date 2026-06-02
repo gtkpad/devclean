@@ -1,6 +1,7 @@
 package golang
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -43,7 +44,7 @@ func TestGoCleaner_Scan_WithFakeCaches(t *testing.T) {
 	c := New()
 	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 30}
 
-	targets, err := c.Scan(rules)
+	targets, err := c.Scan(context.Background(), rules)
 	if err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
@@ -73,7 +74,7 @@ func TestGoCleaner_Scan_RecentCacheFiltered(t *testing.T) {
 	c := New()
 	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 30}
 
-	targets, err := c.Scan(rules)
+	targets, err := c.Scan(context.Background(), rules)
 	if err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
@@ -89,7 +90,7 @@ func TestGoCleaner_Scan_NonExistentPath(t *testing.T) {
 	c := New()
 	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 30}
 
-	targets, err := c.Scan(rules)
+	targets, err := c.Scan(context.Background(), rules)
 	if err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
@@ -106,7 +107,7 @@ func TestGoCleaner_Clean_ReadOnlyFiles(t *testing.T) {
 	}
 
 	c := New()
-	err := c.Clean([]domain.Target{{Path: dir}})
+	err := c.Clean(context.Background(), []domain.Target{{Path: dir}})
 	if err != nil {
 		t.Fatalf("Clean failed: %v", err)
 	}
@@ -132,7 +133,7 @@ func TestGoCleaner_Scan_ExcludePaths(t *testing.T) {
 		ExcludePaths: []string{modDir},
 	}
 
-	targets, err := c.Scan(rules)
+	targets, err := c.Scan(context.Background(), rules)
 	if err != nil {
 		t.Fatalf("Scan: %v", err)
 	}

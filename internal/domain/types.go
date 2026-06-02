@@ -1,6 +1,9 @@
 package domain
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 type RiskLevel string
 
@@ -43,6 +46,6 @@ type EcosystemRules struct {
 type Cleaner interface {
 	Name() string
 	IsInstalled() bool
-	Scan(rules EcosystemRules) ([]Target, error)
-	Clean(targets []Target) error
+	Scan(ctx context.Context, rules EcosystemRules) ([]Target, error)
+	Clean(ctx context.Context, targets []Target) error
 }

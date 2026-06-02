@@ -1,6 +1,7 @@
 package python
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -27,7 +28,7 @@ func TestPythonCleaner_Scan_CacheExists(t *testing.T) {
 	c := New(dir)
 	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 30}
 
-	targets, err := c.Scan(rules)
+	targets, err := c.Scan(context.Background(), rules)
 	if err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
@@ -49,7 +50,7 @@ func TestPythonCleaner_Scan_NonExistent(t *testing.T) {
 	c := New("/nonexistent/uv/cache")
 	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 30}
 
-	targets, err := c.Scan(rules)
+	targets, err := c.Scan(context.Background(), rules)
 	if err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
@@ -66,7 +67,7 @@ func TestPythonCleaner_Scan_RecentCacheFiltered(t *testing.T) {
 	c := New(dir)
 	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 30}
 
-	targets, err := c.Scan(rules)
+	targets, err := c.Scan(context.Background(), rules)
 	if err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
@@ -88,7 +89,7 @@ func TestPythonCleaner_Scan_ExcludePaths(t *testing.T) {
 		ExcludePaths: []string{dir},
 	}
 
-	targets, err := c.Scan(rules)
+	targets, err := c.Scan(context.Background(), rules)
 	if err != nil {
 		t.Fatalf("Scan: %v", err)
 	}

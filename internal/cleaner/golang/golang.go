@@ -1,6 +1,7 @@
 package golang
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -28,7 +29,7 @@ func (c *goCleaner) IsInstalled() bool {
 	return err == nil
 }
 
-func (c *goCleaner) Scan(rules domain.EcosystemRules) ([]domain.Target, error) {
+func (c *goCleaner) Scan(_ context.Context, rules domain.EcosystemRules) ([]domain.Target, error) {
 	c.resolvePaths()
 
 	var targets []domain.Target
@@ -48,7 +49,7 @@ func (c *goCleaner) Scan(rules domain.EcosystemRules) ([]domain.Target, error) {
 	return targets, nil
 }
 
-func (c *goCleaner) Clean(targets []domain.Target) error {
+func (c *goCleaner) Clean(_ context.Context, targets []domain.Target) error {
 	for _, t := range targets {
 		// Go module cache files are read-only; chmod before removing
 		_ = filepath.WalkDir(t.Path, func(path string, d os.DirEntry, err error) error {

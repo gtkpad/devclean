@@ -30,7 +30,7 @@ func (c *nodeCleaner) Name() string { return "node" }
 
 func (c *nodeCleaner) IsInstalled() bool { return true }
 
-func (c *nodeCleaner) Scan(rules domain.EcosystemRules) ([]domain.Target, error) {
+func (c *nodeCleaner) Scan(_ context.Context, rules domain.EcosystemRules) ([]domain.Target, error) {
 	var (
 		mu       sync.Mutex
 		allPaths []string
@@ -94,7 +94,7 @@ func (c *nodeCleaner) Scan(rules domain.EcosystemRules) ([]domain.Target, error)
 	return targets, nil
 }
 
-func (c *nodeCleaner) Clean(targets []domain.Target) error {
+func (c *nodeCleaner) Clean(_ context.Context, targets []domain.Target) error {
 	for _, t := range targets {
 		if err := os.RemoveAll(t.Path); err != nil {
 			return err

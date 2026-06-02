@@ -1,6 +1,7 @@
 package dotnet
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -40,7 +41,7 @@ func TestDotNetCleaner_Scan_AllCaches(t *testing.T) {
 	c := New(paths, nil)
 	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 30}
 
-	targets, err := c.Scan(rules)
+	targets, err := c.Scan(context.Background(), rules)
 	if err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
@@ -63,7 +64,7 @@ func TestDotNetCleaner_Scan_NonExistentPaths(t *testing.T) {
 	c := New(paths, nil)
 	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 30}
 
-	targets, err := c.Scan(rules)
+	targets, err := c.Scan(context.Background(), rules)
 	if err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
@@ -86,7 +87,7 @@ func TestDotNetCleaner_Scan_ExcludePaths(t *testing.T) {
 		ExcludePaths: []string{nuget},
 	}
 
-	targets, err := c.Scan(rules)
+	targets, err := c.Scan(context.Background(), rules)
 	if err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
@@ -118,7 +119,7 @@ func TestDotNetCleaner_LocalScan_WithManifest(t *testing.T) {
 	c := New(platform.Paths{}, []string{root})
 	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 0}
 
-	targets, err := c.Scan(rules)
+	targets, err := c.Scan(context.Background(), rules)
 	if err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
@@ -148,7 +149,7 @@ func TestDotNetCleaner_LocalScan_WithoutManifest(t *testing.T) {
 	c := New(platform.Paths{}, []string{root})
 	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 0}
 
-	targets, err := c.Scan(rules)
+	targets, err := c.Scan(context.Background(), rules)
 	if err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
@@ -172,7 +173,7 @@ func TestDotNetCleaner_LocalScan_ExcludedPath(t *testing.T) {
 		ExcludePaths: []string{"excluded-project/**"},
 	}
 
-	targets, err := c.Scan(rules)
+	targets, err := c.Scan(context.Background(), rules)
 	if err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
@@ -193,7 +194,7 @@ func TestDotNetCleaner_LocalScan_FsprojManifest(t *testing.T) {
 	c := New(platform.Paths{}, []string{root})
 	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 0}
 
-	targets, err := c.Scan(rules)
+	targets, err := c.Scan(context.Background(), rules)
 	if err != nil {
 		t.Fatalf("Scan: %v", err)
 	}

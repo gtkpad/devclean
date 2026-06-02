@@ -1,6 +1,7 @@
 package python
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"strings"
@@ -29,7 +30,7 @@ func (c *pythonCleaner) IsInstalled() bool {
 	return err == nil
 }
 
-func (c *pythonCleaner) Scan(rules domain.EcosystemRules) ([]domain.Target, error) {
+func (c *pythonCleaner) Scan(_ context.Context, rules domain.EcosystemRules) ([]domain.Target, error) {
 	if c.cachePath == "" {
 		return nil, nil
 	}
@@ -69,7 +70,7 @@ func (c *pythonCleaner) Scan(rules domain.EcosystemRules) ([]domain.Target, erro
 	}, nil
 }
 
-func (c *pythonCleaner) Clean(targets []domain.Target) error {
+func (c *pythonCleaner) Clean(_ context.Context, targets []domain.Target) error {
 	for _, t := range targets {
 		if err := os.RemoveAll(t.Path); err != nil {
 			return err

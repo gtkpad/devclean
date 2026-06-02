@@ -317,7 +317,7 @@ func deleteCmd(m model) tea.Cmd {
 			if cleaner == nil {
 				continue
 			}
-			if err := cleaner.Clean(targets); err != nil {
+			if err := cleaner.Clean(context.Background(), targets); err != nil {
 				continue
 			}
 			for _, t := range targets {

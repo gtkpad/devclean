@@ -69,7 +69,7 @@ func TestDockerCleaner_Scan_DanglingImages(t *testing.T) {
 	c := &dockerCleaner{api: api}
 	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 30}
 
-	targets, err := c.Scan(rules)
+	targets, err := c.Scan(context.Background(), rules)
 	if err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
@@ -94,7 +94,7 @@ func TestDockerCleaner_Scan_MaxAgeDaysFilter(t *testing.T) {
 	c := &dockerCleaner{api: api}
 	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 30}
 
-	targets, err := c.Scan(rules)
+	targets, err := c.Scan(context.Background(), rules)
 	if err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestDockerCleaner_Scan_OrphanVolumes(t *testing.T) {
 	c := &dockerCleaner{api: api}
 	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 30}
 
-	targets, err := c.Scan(rules)
+	targets, err := c.Scan(context.Background(), rules)
 	if err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
@@ -138,7 +138,7 @@ func TestDockerCleaner_Scan_BuildCache(t *testing.T) {
 	c := &dockerCleaner{api: api}
 	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 30}
 
-	targets, err := c.Scan(rules)
+	targets, err := c.Scan(context.Background(), rules)
 	if err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestDockerCleaner_Scan_SDKFailureTriggersFallback(t *testing.T) {
 	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 30}
 
 	// This will attempt CLI fallback which may fail in test env — that's ok
-	_, _ = c.Scan(rules)
+	_, _ = c.Scan(context.Background(), rules)
 	// Just verify no panic occurs
 }
 
@@ -173,7 +173,7 @@ func TestDockerCleaner_Scan_ContextInfo(t *testing.T) {
 	c := &dockerCleaner{api: api}
 	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 30}
 
-	_, _ = c.Scan(rules)
+	_, _ = c.Scan(context.Background(), rules)
 
 	if c.contextName != "prod-context" {
 		t.Errorf("expected context 'prod-context', got %q", c.contextName)

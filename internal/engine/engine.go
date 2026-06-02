@@ -72,7 +72,7 @@ func (e *Engine) Scan(ctx context.Context) <-chan domain.ScanResult {
 			n := name
 
 			g.Go(func() error {
-				targets, err := c.Scan(rules)
+				targets, err := c.Scan(gctx, rules)
 				if err != nil {
 					results <- domain.ScanResult{
 						Ecosystem: n,

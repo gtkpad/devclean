@@ -60,8 +60,8 @@ func (c *dockerCleaner) IsInstalled() bool {
 	return c.api.ping(ctx) == nil
 }
 
-func (c *dockerCleaner) Scan(rules domain.EcosystemRules) ([]domain.Target, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+func (c *dockerCleaner) Scan(ctx context.Context, rules domain.EcosystemRules) ([]domain.Target, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
 	c.contextName, c.endpoint = c.api.contextInfo(ctx)
@@ -127,8 +127,8 @@ func (c *dockerCleaner) Scan(rules domain.EcosystemRules) ([]domain.Target, erro
 	return targets, nil
 }
 
-func (c *dockerCleaner) Clean(targets []domain.Target) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+func (c *dockerCleaner) Clean(ctx context.Context, targets []domain.Target) error {
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())

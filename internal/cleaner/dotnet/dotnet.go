@@ -40,7 +40,7 @@ func (c *dotnetCleaner) IsInstalled() bool {
 	return err == nil
 }
 
-func (c *dotnetCleaner) Scan(rules domain.EcosystemRules) ([]domain.Target, error) {
+func (c *dotnetCleaner) Scan(_ context.Context, rules domain.EcosystemRules) ([]domain.Target, error) {
 	targets, err := c.scanGlobalCaches(rules)
 	if err != nil {
 		return nil, err
@@ -172,7 +172,7 @@ func (c *dotnetCleaner) scanLocalBuildOutputs(rules domain.EcosystemRules) ([]do
 	return targets, nil
 }
 
-func (c *dotnetCleaner) Clean(targets []domain.Target) error {
+func (c *dotnetCleaner) Clean(_ context.Context, targets []domain.Target) error {
 	for _, t := range targets {
 		if err := os.RemoveAll(t.Path); err != nil {
 			return err

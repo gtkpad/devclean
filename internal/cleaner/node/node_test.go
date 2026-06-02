@@ -1,6 +1,7 @@
 package node
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -87,7 +88,7 @@ func TestNodeCleaner_Scan_Discovery(t *testing.T) {
 		MaxAgeDays: 30,
 	}
 
-	targets, err := c.Scan(rules)
+	targets, err := c.Scan(context.Background(), rules)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -132,7 +133,7 @@ func TestNodeCleaner_Scan_ExcludeGlobs(t *testing.T) {
 		ExcludePaths: []string{"excluded/**"},
 	}
 
-	targets, err := c.Scan(rules)
+	targets, err := c.Scan(context.Background(), rules)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -161,7 +162,7 @@ func TestNodeCleaner_Scan_SymlinkSkipped(t *testing.T) {
 		MaxAgeDays: 30,
 	}
 
-	targets, err := c.Scan(rules)
+	targets, err := c.Scan(context.Background(), rules)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -188,7 +189,7 @@ func TestNodeCleaner_Scan_RiskClassification(t *testing.T) {
 		MaxAgeDays: 30,
 	}
 
-	targets, err := c.Scan(rules)
+	targets, err := c.Scan(context.Background(), rules)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -229,7 +230,7 @@ func TestNodeCleaner_Scan_EmptyScanPaths(t *testing.T) {
 		MaxAgeDays: 30,
 	}
 
-	targets, err := c.Scan(rules)
+	targets, err := c.Scan(context.Background(), rules)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -248,7 +249,7 @@ func TestNodeCleaner_Clean(t *testing.T) {
 		{Path: filepath.Join(root, "test-project", "node_modules")},
 	}
 
-	if err := c.Clean(targets); err != nil {
+	if err := c.Clean(context.Background(), targets); err != nil {
 		t.Fatalf("Clean failed: %v", err)
 	}
 
