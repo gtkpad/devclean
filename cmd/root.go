@@ -61,6 +61,8 @@ func init() {
 	rootCmd.AddCommand(newCleanCmd())
 	rootCmd.AddCommand(newScheduleCmd())
 	rootCmd.AddCommand(newUnscheduleCmd())
+	rootCmd.AddCommand(newVersionCmd())
+	rootCmd.Version = version
 }
 
 func Execute() error {
