@@ -54,6 +54,7 @@ devclean schedule --daily
 | `devclean clean`      | Delete targets (requires `--auto` or `--force`) |
 | `devclean schedule`   | Register recurring cleanup                      |
 | `devclean unschedule` | Remove scheduled cleanup                        |
+| `devclean mcp`        | Start MCP server for AI agent integration       |
 | `devclean version`    | Show version info                               |
 
 ### Global Flags
@@ -141,6 +142,7 @@ See [docs/safety.md](docs/safety.md) for details.
 - [Scheduling](docs/scheduling.md) — Launchd/Cron setup, flags, history
 - [Safety](docs/safety.md) — Blacklist, risk levels, protections
 - [TUI](docs/tui.md) — Interactive interface guide
+- [MCP](docs/mcp.md) — AI agent integration via Model Context Protocol
 
 ## Requirements
 
