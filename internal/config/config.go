@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/gtkpad/devclean/internal/domain"
@@ -74,17 +75,19 @@ func Load(configPath string) (*Config, error) {
 
 	if configPath != "" {
 		v.SetConfigFile(configPath)
+		if err := v.ReadInConfig(); err != nil {
+			return nil, fmt.Errorf("reading config %s: %w", configPath, err)
+		}
 	} else {
 		resolver := platform.New()
 		paths := resolver.Resolve()
 		v.SetConfigName("config")
 		v.SetConfigType("yaml")
 		v.AddConfigPath(paths.ConfigDir)
-	}
-
-	if err := v.ReadInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok && !os.IsNotExist(err) {
-			return nil, err
+		if err := v.ReadInConfig(); err != nil {
+			if _, ok := err.(viper.ConfigFileNotFoundError); !ok && !os.IsNotExist(err) {
+				return nil, err
+			}
 		}
 	}
 

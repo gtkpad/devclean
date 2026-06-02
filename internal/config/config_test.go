@@ -17,10 +17,8 @@ func writeTestConfig(t *testing.T, content string) string {
 }
 
 func TestLoad_NoFile_ReturnsDefaults(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "nonexistent.yaml")
-
-	cfg, err := Load(path)
+	// With empty path (discovery mode), missing config returns defaults
+	cfg, err := Load("")
 	if err != nil {
 		t.Fatalf("Load() error: %v", err)
 	}
@@ -48,6 +46,16 @@ func TestLoad_NoFile_ReturnsDefaults(t *testing.T) {
 	}
 	if len(cfg.ProtectedPatterns) != 0 {
 		t.Errorf("ProtectedPatterns should be empty, got %v", cfg.ProtectedPatterns)
+	}
+}
+
+func TestLoad_ExplicitPath_NotFound_ReturnsError(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "nonexistent.yaml")
+
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("Load() should error when explicit config path does not exist")
 	}
 }
 
