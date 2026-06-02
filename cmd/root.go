@@ -59,6 +59,8 @@ func init() {
 
 	rootCmd.AddCommand(newScanCmd())
 	rootCmd.AddCommand(newCleanCmd())
+	rootCmd.AddCommand(newScheduleCmd())
+	rootCmd.AddCommand(newUnscheduleCmd())
 }
 
 func Execute() error {
