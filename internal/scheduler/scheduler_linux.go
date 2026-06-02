@@ -1,4 +1,3 @@
-package scheduler
 //go:build linux
 
 package scheduler
