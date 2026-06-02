@@ -17,6 +17,7 @@ import (
 	"github.com/gtkpad/devclean/internal/platform"
 	"github.com/gtkpad/devclean/internal/safety"
 	"github.com/gtkpad/devclean/internal/scheduler"
+	"github.com/gtkpad/devclean/internal/trash"
 	"github.com/spf13/cobra"
 )
 
@@ -25,6 +26,8 @@ func newCleanCmd() *cobra.Command {
 	var force bool
 	var dryRun bool
 	var ecosystem string
+	var useTrash bool
+	var permanent bool
 
 	cmd := &cobra.Command{
 		Use:   "clean",
@@ -44,6 +47,10 @@ Run 'devclean scan' to preview what would be cleaned.`)
 
 			if auto && force {
 				return fmt.Errorf("--auto and --force are mutually exclusive")
+			}
+
+			if useTrash && permanent {
+				return fmt.Errorf("--trash and --permanent are mutually exclusive")
 			}
 
 			cfg, err := config.Load(configPath)
@@ -77,6 +84,27 @@ Run 'devclean scan' to preview what would be cleaned.`)
 
 			bl := safety.NewBlacklist(cfg.ProtectedPatterns)
 
+			// Resolve trash usage: --permanent > --trash > config
+			trashActive := cfg.Safety.TrashEnabled
+			if useTrash {
+				trashActive = true
+			}
+			if permanent {
+				trashActive = false
+			}
+
+			var trashMgr *trash.Manager
+			if trashActive {
+				trashMgr = trash.New(cfg.Safety)
+				// Enforce retention and max size before new moves
+				if err := trashMgr.EnforceRetention(ctx); err != nil {
+					fmt.Fprintf(os.Stderr, "Warning: trash retention enforcement failed: %v\n", err)
+				}
+				if err := trashMgr.EnforceMaxSize(ctx); err != nil {
+					fmt.Fprintf(os.Stderr, "Warning: trash max size enforcement failed: %v\n", err)
+				}
+			}
+
 			var totalFreed int64
 			var totalCount int
 
@@ -99,15 +127,12 @@ Run 'devclean scan' to preview what would be cleaned.`)
 					continue
 				}
 
-				cleaner := eng.GetCleaner(r.Ecosystem)
-				if cleaner == nil {
-					continue
-				}
-
 				for _, t := range targets {
 					if !quiet {
 						if dryRun {
 							fmt.Fprintf(os.Stdout, "Would delete: %s (%s)\n", t.Path, humanSize(t.SizeBytes))
+						} else if trashActive {
+							fmt.Fprintf(os.Stdout, "Moving to trash: %s\n", t.Path)
 						} else {
 							fmt.Fprintf(os.Stdout, "Deleting: %s\n", t.Path)
 						}
@@ -115,9 +140,20 @@ Run 'devclean scan' to preview what would be cleaned.`)
 				}
 
 				if !dryRun {
-					if err := cleaner.Clean(ctx, targets); err != nil {
-						fmt.Fprintf(os.Stderr, "Error cleaning %s: %v\n", r.Ecosystem, err)
-						continue
+					if trashActive {
+						if err := trashMgr.Move(ctx, targets, r.Ecosystem); err != nil {
+							fmt.Fprintf(os.Stderr, "Error trashing %s: %v\n", r.Ecosystem, err)
+							continue
+						}
+					} else {
+						cleaner := eng.GetCleaner(r.Ecosystem)
+						if cleaner == nil {
+							continue
+						}
+						if err := cleaner.Clean(ctx, targets); err != nil {
+							fmt.Fprintf(os.Stderr, "Error cleaning %s: %v\n", r.Ecosystem, err)
+							continue
+						}
 					}
 				}
 
@@ -154,6 +190,8 @@ Run 'devclean scan' to preview what would be cleaned.`)
 	cmd.Flags().BoolVar(&force, "force", false, "delete ALL scan targets without TTL filter")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "preview what would be deleted without removing anything")
 	cmd.Flags().StringVarP(&ecosystem, "ecosystem", "e", "", "filter by ecosystem name")
+	cmd.Flags().BoolVar(&useTrash, "trash", false, "move targets to trash instead of permanent deletion")
+	cmd.Flags().BoolVar(&permanent, "permanent", false, "force permanent deletion even when trash is enabled")
 
 	return cmd
 }

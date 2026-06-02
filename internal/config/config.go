@@ -38,10 +38,18 @@ type EcosystemsConfig struct {
 	Python EcosystemConfig `mapstructure:"python"`
 }
 
+type SafetyConfig struct {
+	TrashEnabled  bool   `mapstructure:"trash_enabled"`
+	RetentionDays int    `mapstructure:"retention_days"`
+	MaxSizeMB     int    `mapstructure:"max_size_mb"`
+	TrashDir      string `mapstructure:"trash_dir"`
+}
+
 type Config struct {
 	ScanPaths         []string         `mapstructure:"scan_paths"`
 	ProtectedPatterns []string         `mapstructure:"protected_patterns"`
 	Ecosystems        EcosystemsConfig `mapstructure:"ecosystems"`
+	Safety            SafetyConfig     `mapstructure:"safety"`
 }
 
 // Load reads configuration with precedence: defaults < file < flags.
@@ -72,6 +80,10 @@ func Load(configPath string) (*Config, error) {
 	v.SetDefault("ecosystems.python.max_age_days", defaults.Ecosystems.Python.MaxAgeDays)
 	v.SetDefault("ecosystems.python.fail_mode", defaults.Ecosystems.Python.FailMode)
 	v.SetDefault("ecosystems.python.exclude_paths", defaults.Ecosystems.Python.ExcludePaths)
+	v.SetDefault("safety.trash_enabled", defaults.Safety.TrashEnabled)
+	v.SetDefault("safety.retention_days", defaults.Safety.RetentionDays)
+	v.SetDefault("safety.max_size_mb", defaults.Safety.MaxSizeMB)
+	v.SetDefault("safety.trash_dir", defaults.Safety.TrashDir)
 
 	if configPath != "" {
 		v.SetConfigFile(configPath)

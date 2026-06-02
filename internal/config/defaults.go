@@ -13,5 +13,11 @@ func Defaults() Config {
 			DotNet: EcosystemConfig{Enabled: true, MaxAgeDays: 45, FailMode: "continue", ExcludePaths: []string{}},
 			Python: EcosystemConfig{Enabled: true, MaxAgeDays: 30, FailMode: "continue", ExcludePaths: []string{}},
 		},
+		Safety: SafetyConfig{
+			TrashEnabled:  false,
+			RetentionDays: 7,
+			MaxSizeMB:     5120,
+			TrashDir:      "",
+		},
 	}
 }
