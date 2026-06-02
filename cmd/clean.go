@@ -42,6 +42,10 @@ Run 'devclean scan' to preview what would be cleaned.`)
 				return nil
 			}
 
+			if auto && force {
+				return fmt.Errorf("--auto and --force are mutually exclusive")
+			}
+
 			cfg, err := config.Load(configPath)
 			if err != nil {
 				return fmt.Errorf("loading config: %w", err)
@@ -56,6 +60,12 @@ Run 'devclean scan' to preview what would be cleaned.`)
 			eng.Register(node.New(cfg.ScanPaths))
 			eng.Register(dotnet.New(paths, cfg.ScanPaths))
 			eng.Register(python.New(paths.PythonUVCache))
+
+			if ecosystem != "" {
+				if err := validateEcosystem(ecosystem, eng.Ecosystems()); err != nil {
+					return err
+				}
+			}
 
 			ctx := context.Background()
 			ch := eng.Scan(ctx)

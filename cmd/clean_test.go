@@ -124,3 +124,36 @@ func testConfig() *config.Config {
 		},
 	}
 }
+
+func TestValidateEcosystem_Valid(t *testing.T) {
+	valid := []string{"docker", "go", "node"}
+	err := validateEcosystem("docker", valid)
+	if err != nil {
+		t.Errorf("validateEcosystem(\"docker\") should succeed, got: %v", err)
+	}
+}
+
+func TestValidateEcosystem_CaseInsensitive(t *testing.T) {
+	valid := []string{"docker", "go", "node"}
+	err := validateEcosystem("Docker", valid)
+	if err != nil {
+		t.Errorf("validateEcosystem(\"Docker\") should be case-insensitive, got: %v", err)
+	}
+}
+
+func TestValidateEcosystem_Invalid(t *testing.T) {
+	valid := []string{"docker", "go", "node"}
+	err := validateEcosystem("rust", valid)
+	if err == nil {
+		t.Error("validateEcosystem(\"rust\") should return error for unknown ecosystem")
+	}
+}
+
+func TestCleanCmd_MutuallyExclusiveFlags(t *testing.T) {
+	cmd := newCleanCmd()
+	cmd.SetArgs([]string{"--auto", "--force"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error when both --auto and --force are set")
+	}
+}
