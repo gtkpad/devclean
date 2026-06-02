@@ -127,8 +127,41 @@ func (c *dockerCleaner) Scan(rules domain.EcosystemRules) ([]domain.Target, erro
 	return targets, nil
 }
 
-func (c *dockerCleaner) Clean(_ []domain.Target) error {
-	return nil // Deletion is Phase 4
+func (c *dockerCleaner) Clean(targets []domain.Target) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	if err != nil {
+		return c.cleanCLI(ctx, targets)
+	}
+	defer cli.Close()
+
+	for _, t := range targets {
+		switch t.Category {
+		case "dangling-image":
+			_, _ = cli.ImageRemove(ctx, t.ID, image.RemoveOptions{Force: true})
+		case "orphan-volume":
+			_ = cli.VolumeRemove(ctx, t.ID, true)
+		case "build-cache":
+			_, _ = cli.BuildCachePrune(ctx, types.BuildCachePruneOptions{All: true})
+		}
+	}
+	return nil
+}
+
+func (c *dockerCleaner) cleanCLI(ctx context.Context, targets []domain.Target) error {
+	for _, t := range targets {
+		switch t.Category {
+		case "dangling-image":
+			_, _ = execCommand(ctx, "docker", "image", "rm", "-f", t.ID)
+		case "orphan-volume":
+			_, _ = execCommand(ctx, "docker", "volume", "rm", "-f", t.ID)
+		case "build-cache":
+			_, _ = execCommand(ctx, "docker", "builder", "prune", "-af")
+		}
+	}
+	return nil
 }
 
 // scanCLI is the fallback when the SDK fails.

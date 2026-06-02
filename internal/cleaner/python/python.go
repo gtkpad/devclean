@@ -69,6 +69,11 @@ func (c *pythonCleaner) Scan(rules domain.EcosystemRules) ([]domain.Target, erro
 	}, nil
 }
 
-func (c *pythonCleaner) Clean(_ []domain.Target) error {
-	return nil // Deletion is Phase 4
+func (c *pythonCleaner) Clean(targets []domain.Target) error {
+	for _, t := range targets {
+		if err := os.RemoveAll(t.Path); err != nil {
+			return err
+		}
+	}
+	return nil
 }

@@ -79,8 +79,13 @@ func (c *dotnetCleaner) Scan(rules domain.EcosystemRules) ([]domain.Target, erro
 	return targets, nil
 }
 
-func (c *dotnetCleaner) Clean(_ []domain.Target) error {
-	return nil // Deletion is Phase 4
+func (c *dotnetCleaner) Clean(targets []domain.Target) error {
+	for _, t := range targets {
+		if err := os.RemoveAll(t.Path); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func isExcluded(path string, excludes []string) bool {
