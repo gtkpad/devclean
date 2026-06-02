@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"sort"
 	"sync"
 
 	"github.com/gtkpad/devclean/internal/config"
@@ -39,6 +40,16 @@ func (e *Engine) Register(c domain.Cleaner) {
 // GetCleaner returns a registered cleaner by ecosystem name.
 func (e *Engine) GetCleaner(name string) domain.Cleaner {
 	return e.cleaners[name]
+}
+
+// Ecosystems returns a sorted list of registered ecosystem names.
+func (e *Engine) Ecosystems() []string {
+	names := make([]string, 0, len(e.cleaners))
+	for name := range e.cleaners {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // Scan runs all registered cleaners in parallel and streams results.

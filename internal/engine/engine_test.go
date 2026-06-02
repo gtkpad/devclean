@@ -289,3 +289,24 @@ func TestScan_AbortPreservesCompletedResults(t *testing.T) {
 		t.Error("expected go error result")
 	}
 }
+
+func TestEcosystems_ReturnsSortedNames(t *testing.T) {
+	cfg := defaultConfig()
+	e := New(cfg, &fakeResolver{})
+
+	e.Register(&fakeCleaner{name: "python", installed: true})
+	e.Register(&fakeCleaner{name: "docker", installed: true})
+	e.Register(&fakeCleaner{name: "go", installed: true})
+
+	got := e.Ecosystems()
+	want := []string{"docker", "go", "python"}
+
+	if len(got) != len(want) {
+		t.Fatalf("Ecosystems() = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("Ecosystems()[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}

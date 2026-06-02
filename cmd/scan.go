@@ -21,6 +21,7 @@ import (
 func newScanCmd() *cobra.Command {
 	var ecosystem string
 	var format string
+	var all bool
 
 	cmd := &cobra.Command{
 		Use:   "scan",
@@ -32,6 +33,14 @@ func newScanCmd() *cobra.Command {
 				return fmt.Errorf("loading config: %w", err)
 			}
 
+			if all {
+				cfg.Ecosystems.Docker.MaxAgeDays = 0
+				cfg.Ecosystems.Go.MaxAgeDays = 0
+				cfg.Ecosystems.Node.MaxAgeDays = 0
+				cfg.Ecosystems.DotNet.MaxAgeDays = 0
+				cfg.Ecosystems.Python.MaxAgeDays = 0
+			}
+
 			resolver := platform.New()
 			paths := resolver.Resolve()
 			eng := engine.New(cfg, resolver)
@@ -41,6 +50,12 @@ func newScanCmd() *cobra.Command {
 			eng.Register(node.New(cfg.ScanPaths))
 			eng.Register(dotnet.New(paths, cfg.ScanPaths))
 			eng.Register(python.New(paths.PythonUVCache))
+
+			if ecosystem != "" {
+				if err := validateEcosystem(ecosystem, eng.Ecosystems()); err != nil {
+					return err
+				}
+			}
 
 			ctx := context.Background()
 			ch := eng.Scan(ctx)
@@ -61,6 +76,7 @@ func newScanCmd() *cobra.Command {
 
 	cmd.Flags().StringVarP(&ecosystem, "ecosystem", "e", "", "filter by ecosystem name")
 	cmd.Flags().StringVar(&format, "format", "table", "output format: table or json")
+	cmd.Flags().BoolVar(&all, "all", false, "show all targets regardless of age (bypass TTL filter)")
 
 	return cmd
 }
@@ -81,4 +97,13 @@ func totalTargets(results []domain.ScanResult) int {
 		count += len(r.Targets)
 	}
 	return count
+}
+
+func validateEcosystem(eco string, valid []string) error {
+	for _, v := range valid {
+		if strings.EqualFold(v, eco) {
+			return nil
+		}
+	}
+	return fmt.Errorf("unknown ecosystem %q; valid: %s", eco, strings.Join(valid, ", "))
 }
