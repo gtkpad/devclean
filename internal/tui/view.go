@@ -1,0 +1,143 @@
+package tui
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/gabrielvp/devclean/internal/domain"
+)
+
+func viewSelecting(m model) string {
+	var b strings.Builder
+
+	// Dashboard header
+	b.WriteString(dashboardStyle.Render(renderDashboard(m)))
+	b.WriteString("\n")
+
+	// Selected total
+	totalBytes, count := m.selectedTotal()
+	if count > 0 {
+		b.WriteString(headerStyle.Render(fmt.Sprintf("  Selected: %d targets (%s)", count, humanSize(totalBytes))))
+	} else {
+		b.WriteString(helpStyle.Render("  No targets selected"))
+	}
+	b.WriteString("\n\n")
+
+	// Grouped target list with scrolling
+	visible := m.visibleHeight()
+	end := m.offset + visible
+	if end > len(m.flatTargets) {
+		end = len(m.flatTargets)
+	}
+
+	lastGroup := -1
+	for i := m.offset; i < end; i++ {
+		ft := m.flatTargets[i]
+
+		// Group separator
+		if ft.groupIdx != lastGroup {
+			lastGroup = ft.groupIdx
+			groupSize, groupCount := ecosystemTotals(m, ft.ecosystem)
+			header := fmt.Sprintf("── %s (%d targets, %s) ──", ft.ecosystem, groupCount, humanSize(groupSize))
+			b.WriteString(groupHeaderStyle.Render(header))
+			b.WriteString("\n")
+		}
+
+		// Target line
+		line := renderTargetLine(m, i, ft)
+		if i == m.cursor {
+			b.WriteString(selectedStyle.Render(line))
+		} else {
+			b.WriteString(line)
+		}
+		b.WriteString("\n")
+	}
+
+	// Scroll indicator
+	if len(m.flatTargets) > visible {
+		b.WriteString(helpStyle.Render(fmt.Sprintf("\n  [%d/%d]", m.cursor+1, len(m.flatTargets))))
+		b.WriteString("\n")
+	}
+
+	// Footer
+	b.WriteString("\n")
+	b.WriteString(helpStyle.Render("  ↑↓/jk: navigate | space: toggle | a: all | n: none | l: low-risk | enter: confirm | q: quit"))
+	b.WriteString("\n")
+
+	return b.String()
+}
+
+func renderDashboard(m model) string {
+	var parts []string
+	for _, r := range m.results {
+		if r.Error != nil || len(r.Targets) == 0 {
+			continue
+		}
+		var total int64
+		for _, t := range r.Targets {
+			total += t.SizeBytes
+		}
+		parts = append(parts, fmt.Sprintf("%s: %d targets (%s)", r.Ecosystem, len(r.Targets), humanSize(total)))
+	}
+	if len(parts) == 0 {
+		return "  No ecosystems found"
+	}
+	return "  " + strings.Join(parts, " | ")
+}
+
+func renderTargetLine(m model, idx int, ft flatTarget) string {
+	// Cursor indicator
+	cursor := "  "
+	if idx == m.cursor {
+		cursor = "> "
+	}
+
+	// Checkbox
+	checkbox := "[ ]"
+	if m.selected[ft.target.ID] {
+		checkbox = "[x]"
+	}
+
+	// Risk badge
+	badge := riskBadge(ft.target.Risk)
+
+	// Path (truncated if needed)
+	maxPathLen := 50
+	if m.width > 90 {
+		maxPathLen = m.width - 40
+	}
+	path := ft.target.Path
+	if len(path) > maxPathLen {
+		path = "..." + path[len(path)-maxPathLen+3:]
+	}
+
+	// Size
+	size := humanSize(ft.target.SizeBytes)
+
+	return fmt.Sprintf("%s%s %s  %10s  %s", cursor, checkbox, path, size, badge)
+}
+
+func riskBadge(risk domain.RiskLevel) string {
+	switch risk {
+	case domain.RiskLow:
+		return riskLowStyle.Render("LOW")
+	case domain.RiskMedium:
+		return riskMediumStyle.Render("MED")
+	case domain.RiskHigh:
+		return riskHighStyle.Render("HIGH")
+	default:
+		return string(risk)
+	}
+}
+
+func ecosystemTotals(m model, ecosystem string) (int64, int) {
+	var total int64
+	var count int
+	for _, ft := range m.flatTargets {
+		if ft.ecosystem == ecosystem {
+			total += ft.target.SizeBytes
+			count++
+		}
+	}
+	return total, count
+}

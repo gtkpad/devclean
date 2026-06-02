@@ -33,6 +33,7 @@ type model struct {
 	flatTargets []flatTarget
 	selected    map[string]bool
 	cursor      int
+	offset      int
 	width       int
 	height      int
 	spinner     spinner.Model
@@ -77,8 +78,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
-		if msg.Type == tea.KeyCtrlC || (msg.Type == tea.KeyRunes && string(msg.Runes) == "q") {
-			return m, tea.Quit
+		switch m.state {
+		case stateScanning:
+			if msg.Type == tea.KeyCtrlC || (msg.Type == tea.KeyRunes && string(msg.Runes) == "q") {
+				return m, tea.Quit
+			}
+		case stateSelecting:
+			return m.updateSelecting(msg)
 		}
 		return m, nil
 
@@ -105,12 +111,115 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m model) updateSelecting(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case msg.Type == tea.KeyCtrlC || (msg.Type == tea.KeyRunes && string(msg.Runes) == "q"):
+		return m, tea.Quit
+
+	case msg.Type == tea.KeyUp || (msg.Type == tea.KeyRunes && string(msg.Runes) == "k"):
+		if m.cursor > 0 {
+			m.cursor--
+			m.adjustOffset()
+		}
+
+	case msg.Type == tea.KeyDown || (msg.Type == tea.KeyRunes && string(msg.Runes) == "j"):
+		if m.cursor < len(m.flatTargets)-1 {
+			m.cursor++
+			m.adjustOffset()
+		}
+
+	case msg.Type == tea.KeyTab:
+		m.cursor = m.nextGroupStart()
+		m.adjustOffset()
+
+	case msg.Type == tea.KeySpace:
+		if m.cursor < len(m.flatTargets) {
+			id := m.flatTargets[m.cursor].target.ID
+			m.selected[id] = !m.selected[id]
+			if !m.selected[id] {
+				delete(m.selected, id)
+			}
+		}
+
+	case msg.Type == tea.KeyRunes && string(msg.Runes) == "a":
+		for _, ft := range m.flatTargets {
+			m.selected[ft.target.ID] = true
+		}
+
+	case msg.Type == tea.KeyRunes && string(msg.Runes) == "n":
+		m.selected = make(map[string]bool)
+
+	case msg.Type == tea.KeyRunes && string(msg.Runes) == "l":
+		m.selected = make(map[string]bool)
+		for _, ft := range m.flatTargets {
+			if ft.target.Risk == domain.RiskLow {
+				m.selected[ft.target.ID] = true
+			}
+		}
+
+	case msg.Type == tea.KeyEnter:
+		if len(m.selected) > 0 {
+			m.state = stateConfirming
+		}
+	}
+
+	return m, nil
+}
+
+func (m model) selectedTotal() (int64, int) {
+	var total int64
+	var count int
+	for _, ft := range m.flatTargets {
+		if m.selected[ft.target.ID] {
+			total += ft.target.SizeBytes
+			count++
+		}
+	}
+	return total, count
+}
+
+func (m model) nextGroupStart() int {
+	if len(m.flatTargets) == 0 {
+		return 0
+	}
+	currentGroup := m.flatTargets[m.cursor].groupIdx
+	for i := m.cursor + 1; i < len(m.flatTargets); i++ {
+		if m.flatTargets[i].groupIdx != currentGroup {
+			return i
+		}
+	}
+	return 0
+}
+
+func (m *model) adjustOffset() {
+	visible := m.visibleHeight()
+	if visible <= 0 {
+		return
+	}
+	if m.cursor < m.offset {
+		m.offset = m.cursor
+	}
+	if m.cursor >= m.offset+visible {
+		m.offset = m.cursor - visible + 1
+	}
+}
+
+func (m model) visibleHeight() int {
+	// dashboard ~4 lines, footer ~2 lines, padding ~2
+	const overhead = 8
+	h := m.height - overhead
+	if h < 1 {
+		h = 20
+	}
+	return h
+}
+
 func (m model) View() string {
 	switch m.state {
 	case stateScanning:
 		return fmt.Sprintf("\n  %s Scanning...\n\n", m.spinner.View())
 	case stateSelecting:
-		return "  Select targets to clean\n"
+		return viewSelecting(m)
 	case stateConfirming:
 		return "  Confirm deletion\n"
 	case stateDeleting:
