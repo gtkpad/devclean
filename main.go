@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/gabrielvp/devclean/cmd"
+	"github.com/gtkpad/devclean/cmd"
 )
 
 func main() {
