@@ -12,6 +12,8 @@ func Defaults() Config {
 			Go:     EcosystemConfig{Enabled: true, MaxAgeDays: 60, FailMode: "continue", ExcludePaths: []string{}},
 			DotNet: EcosystemConfig{Enabled: true, MaxAgeDays: 45, FailMode: "continue", ExcludePaths: []string{}},
 			Python: EcosystemConfig{Enabled: true, MaxAgeDays: 30, FailMode: "continue", ExcludePaths: []string{}},
+			Rust:   EcosystemConfig{Enabled: true, MaxAgeDays: 30, FailMode: "continue", ExcludePaths: []string{}},
+			Java:   EcosystemConfig{Enabled: true, MaxAgeDays: 30, FailMode: "continue", ExcludePaths: []string{}},
 		},
 		Safety: SafetyConfig{
 			TrashEnabled:  false,

@@ -36,6 +36,8 @@ type EcosystemsConfig struct {
 	Go     EcosystemConfig `mapstructure:"go"`
 	DotNet EcosystemConfig `mapstructure:"dotnet"`
 	Python EcosystemConfig `mapstructure:"python"`
+	Rust   EcosystemConfig `mapstructure:"rust"`
+	Java   EcosystemConfig `mapstructure:"java"`
 }
 
 type SafetyConfig struct {
@@ -80,6 +82,14 @@ func Load(configPath string) (*Config, error) {
 	v.SetDefault("ecosystems.python.max_age_days", defaults.Ecosystems.Python.MaxAgeDays)
 	v.SetDefault("ecosystems.python.fail_mode", defaults.Ecosystems.Python.FailMode)
 	v.SetDefault("ecosystems.python.exclude_paths", defaults.Ecosystems.Python.ExcludePaths)
+	v.SetDefault("ecosystems.rust.enabled", defaults.Ecosystems.Rust.Enabled)
+	v.SetDefault("ecosystems.rust.max_age_days", defaults.Ecosystems.Rust.MaxAgeDays)
+	v.SetDefault("ecosystems.rust.fail_mode", defaults.Ecosystems.Rust.FailMode)
+	v.SetDefault("ecosystems.rust.exclude_paths", defaults.Ecosystems.Rust.ExcludePaths)
+	v.SetDefault("ecosystems.java.enabled", defaults.Ecosystems.Java.Enabled)
+	v.SetDefault("ecosystems.java.max_age_days", defaults.Ecosystems.Java.MaxAgeDays)
+	v.SetDefault("ecosystems.java.fail_mode", defaults.Ecosystems.Java.FailMode)
+	v.SetDefault("ecosystems.java.exclude_paths", defaults.Ecosystems.Java.ExcludePaths)
 	v.SetDefault("safety.trash_enabled", defaults.Safety.TrashEnabled)
 	v.SetDefault("safety.retention_days", defaults.Safety.RetentionDays)
 	v.SetDefault("safety.max_size_mb", defaults.Safety.MaxSizeMB)
