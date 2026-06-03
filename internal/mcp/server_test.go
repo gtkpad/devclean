@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/gtkpad/devclean/internal/config"
 	"github.com/gtkpad/devclean/internal/domain"
 	"github.com/gtkpad/devclean/internal/engine"
+	"github.com/gtkpad/devclean/internal/history"
 	"github.com/gtkpad/devclean/internal/platform"
 	"github.com/mark3labs/mcp-go/mcp"
 )
@@ -55,6 +57,49 @@ func testServer() (*Server, *fakeCleaner) {
 	srv := New(eng, cfg)
 	return srv, fc
 }
+
+type fakeHistoryReader struct {
+	entries []history.Entry
+	err     error
+}
+
+func (f *fakeHistoryReader) Read() ([]history.Entry, error) {
+	return f.entries, f.err
+}
+
+func (f *fakeHistoryReader) ReadFiltered(opts history.FilterOpts) ([]history.Entry, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	var filtered []history.Entry
+	for _, e := range f.entries {
+		if !opts.Since.IsZero() && e.Timestamp.Before(opts.Since) {
+			continue
+		}
+		if opts.Ecosystem != "" {
+			found := false
+			for _, eco := range e.Ecosystems {
+				if eco == opts.Ecosystem {
+					found = true
+					break
+				}
+			}
+			if !found {
+				continue
+			}
+		}
+		filtered = append(filtered, e)
+	}
+	return filtered, nil
+}
+
+type fakeConfigProvider struct {
+	cfg    *config.Config
+	cfgDir string
+}
+
+func (f *fakeConfigProvider) Config() *config.Config { return f.cfg }
+func (f *fakeConfigProvider) ConfigDir() string      { return f.cfgDir }
 
 func TestHandleScan_ReturnsTargets(t *testing.T) {
 	srv, _ := testServer()
@@ -182,4 +227,199 @@ func extractText(t *testing.T, result *mcp.CallToolResult) string {
 		t.Fatalf("expected TextContent, got %T", result.Content[0])
 	}
 	return tc.Text
+}
+
+func TestHandleGetStats_ReturnsAggregates(t *testing.T) {
+	entries := []history.Entry{
+		{
+			Timestamp:  time.Date(2026, 5, 1, 10, 0, 0, 0, time.UTC),
+			Targets:    3,
+			FreedBytes: 1000,
+			Ecosystems: []string{"node"},
+			Mode:       "interactive",
+		},
+		{
+			Timestamp:  time.Date(2026, 5, 15, 10, 0, 0, 0, time.UTC),
+			Targets:    2,
+			FreedBytes: 2000,
+			Ecosystems: []string{"docker"},
+			Mode:       "auto",
+		},
+	}
+
+	cfg := &config.Config{}
+	eng := engine.New(cfg, &fakeResolver{})
+	srv := New(eng, cfg, WithHistory(&fakeHistoryReader{entries: entries}))
+
+	req := mcp.CallToolRequest{}
+	result, err := srv.handleGetStats(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	text := extractText(t, result)
+
+	var resp struct {
+		TotalFreedBytes int64 `json:"total_freed_bytes"`
+		TotalRuns       int   `json:"total_runs"`
+		PerEcosystem    []struct {
+			Name       string `json:"name"`
+			FreedBytes int64  `json:"freed_bytes"`
+		} `json:"per_ecosystem"`
+	}
+	if err := json.Unmarshal([]byte(text), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if resp.TotalFreedBytes != 3000 {
+		t.Errorf("expected 3000 freed bytes, got %d", resp.TotalFreedBytes)
+	}
+	if resp.TotalRuns != 2 {
+		t.Errorf("expected 2 runs, got %d", resp.TotalRuns)
+	}
+	if len(resp.PerEcosystem) != 2 {
+		t.Errorf("expected 2 ecosystems, got %d", len(resp.PerEcosystem))
+	}
+}
+
+func TestHandleGetStats_WithFilters(t *testing.T) {
+	entries := []history.Entry{
+		{
+			Timestamp:  time.Date(2026, 4, 1, 10, 0, 0, 0, time.UTC),
+			Targets:    1,
+			FreedBytes: 500,
+			Ecosystems: []string{"node"},
+		},
+		{
+			Timestamp:  time.Date(2026, 5, 15, 10, 0, 0, 0, time.UTC),
+			Targets:    2,
+			FreedBytes: 2000,
+			Ecosystems: []string{"docker"},
+		},
+	}
+
+	cfg := &config.Config{}
+	eng := engine.New(cfg, &fakeResolver{})
+	srv := New(eng, cfg, WithHistory(&fakeHistoryReader{entries: entries}))
+
+	req := mcp.CallToolRequest{}
+	req.Params.Arguments = map[string]interface{}{
+		"since":     "2026-05-01",
+		"ecosystem": "docker",
+	}
+
+	result, err := srv.handleGetStats(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	text := extractText(t, result)
+	var resp struct {
+		TotalRuns int `json:"total_runs"`
+	}
+	if err := json.Unmarshal([]byte(text), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.TotalRuns != 1 {
+		t.Errorf("expected 1 run after filter, got %d", resp.TotalRuns)
+	}
+}
+
+func TestHandleGetStats_IncludeHistory(t *testing.T) {
+	entries := []history.Entry{
+		{Timestamp: time.Date(2026, 5, 1, 10, 0, 0, 0, time.UTC), Targets: 1, FreedBytes: 100, Ecosystems: []string{"go"}},
+		{Timestamp: time.Date(2026, 5, 2, 10, 0, 0, 0, time.UTC), Targets: 2, FreedBytes: 200, Ecosystems: []string{"go"}},
+		{Timestamp: time.Date(2026, 5, 3, 10, 0, 0, 0, time.UTC), Targets: 3, FreedBytes: 300, Ecosystems: []string{"go"}},
+	}
+
+	cfg := &config.Config{}
+	eng := engine.New(cfg, &fakeResolver{})
+	srv := New(eng, cfg, WithHistory(&fakeHistoryReader{entries: entries}))
+
+	req := mcp.CallToolRequest{}
+	req.Params.Arguments = map[string]interface{}{
+		"include_history": true,
+		"limit":           float64(2),
+	}
+
+	result, err := srv.handleGetStats(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	text := extractText(t, result)
+	var resp struct {
+		History []history.Entry `json:"history"`
+	}
+	if err := json.Unmarshal([]byte(text), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(resp.History) != 2 {
+		t.Errorf("expected 2 history entries (limit), got %d", len(resp.History))
+	}
+}
+
+func TestHandleGetStats_NilHistory(t *testing.T) {
+	cfg := &config.Config{}
+	eng := engine.New(cfg, &fakeResolver{})
+	srv := New(eng, cfg)
+
+	req := mcp.CallToolRequest{}
+	result, err := srv.handleGetStats(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	text := extractText(t, result)
+	if text != "history not available" {
+		t.Errorf("expected error message, got %s", text)
+	}
+}
+
+func TestHandleGetConfig_ReturnsFullConfig(t *testing.T) {
+	cfg := &config.Config{
+		ScanPaths: []string{"/home/user/dev"},
+		Ecosystems: config.EcosystemsConfig{
+			Node: config.EcosystemConfig{Enabled: true, MaxAgeDays: 30},
+		},
+	}
+
+	eng := engine.New(cfg, &fakeResolver{})
+	srv := New(eng, cfg, WithConfigProvider(&fakeConfigProvider{cfg: cfg, cfgDir: "/tmp/config"}))
+
+	req := mcp.CallToolRequest{}
+	result, err := srv.handleGetConfig(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	text := extractText(t, result)
+	var out config.Config
+	if err := json.Unmarshal([]byte(text), &out); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if len(out.ScanPaths) != 1 || out.ScanPaths[0] != "/home/user/dev" {
+		t.Errorf("unexpected scan_paths: %v", out.ScanPaths)
+	}
+	if !out.Ecosystems.Node.Enabled {
+		t.Error("expected node ecosystem enabled")
+	}
+}
+
+func TestHandleGetConfig_NilProvider(t *testing.T) {
+	cfg := &config.Config{}
+	eng := engine.New(cfg, &fakeResolver{})
+	srv := New(eng, cfg)
+
+	req := mcp.CallToolRequest{}
+	result, err := srv.handleGetConfig(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	text := extractText(t, result)
+	if text != "config not available" {
+		t.Errorf("expected error message, got %s", text)
+	}
 }

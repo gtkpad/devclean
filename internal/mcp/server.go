@@ -4,27 +4,62 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/gtkpad/devclean/internal/config"
 	"github.com/gtkpad/devclean/internal/domain"
 	"github.com/gtkpad/devclean/internal/engine"
+	"github.com/gtkpad/devclean/internal/history"
 	"github.com/gtkpad/devclean/internal/safety"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
 
+// HistoryReader abstracts history access for testability.
+type HistoryReader interface {
+	Read() ([]history.Entry, error)
+	ReadFiltered(opts history.FilterOpts) ([]history.Entry, error)
+}
+
+// ConfigProvider abstracts config loading for testability.
+type ConfigProvider interface {
+	Config() *config.Config
+	ConfigDir() string
+}
+
+// Option configures the Server.
+type Option func(*Server)
+
+// WithHistory injects a HistoryReader into the server.
+func WithHistory(h HistoryReader) Option {
+	return func(s *Server) { s.history = h }
+}
+
+// WithConfigProvider injects a ConfigProvider into the server.
+func WithConfigProvider(cp ConfigProvider) Option {
+	return func(s *Server) { s.configProvider = cp }
+}
+
 // Server wraps the MCP server with devclean engine access.
 type Server struct {
-	mcp    *server.MCPServer
-	engine *engine.Engine
-	bl     *safety.Blacklist
+	mcp            *server.MCPServer
+	engine         *engine.Engine
+	bl             *safety.Blacklist
+	history        HistoryReader
+	configProvider ConfigProvider
+	explainer      PathExplainer
+	trash          TrashRestorer
 }
 
 // New creates a devclean MCP server with all tools registered.
-func New(eng *engine.Engine, cfg *config.Config) *Server {
+func New(eng *engine.Engine, cfg *config.Config, opts ...Option) *Server {
 	s := &Server{
 		engine: eng,
 		bl:     safety.NewBlacklist(cfg.ProtectedPatterns),
+	}
+
+	for _, opt := range opts {
+		opt(s)
 	}
 
 	s.mcp = server.NewMCPServer(
@@ -65,6 +100,38 @@ func (s *Server) registerTools() {
 		),
 	)
 	s.mcp.AddTool(executeTool, s.handleExecute)
+
+	statsTool := mcp.NewTool("get_stats",
+		mcp.WithDescription("Retrieve cleanup history and statistics with optional filters"),
+		mcp.WithString("since", mcp.Description("ISO date string to filter entries after")),
+		mcp.WithString("ecosystem", mcp.Description("Filter by ecosystem name")),
+		mcp.WithNumber("limit", mcp.Description("Maximum number of history entries to return")),
+		mcp.WithBoolean("include_history", mcp.Description("Include individual history entries in response")),
+	)
+	s.mcp.AddTool(statsTool, s.handleGetStats)
+
+	configTool := mcp.NewTool("get_config",
+		mcp.WithDescription("Retrieve current configuration, optionally merged with a named profile"),
+		mcp.WithString("profile", mcp.Description("Profile name to merge with root config")),
+	)
+	s.mcp.AddTool(configTool, s.handleGetConfig)
+
+	explainTool := mcp.NewTool("explain_target",
+		mcp.WithDescription("Explain whether a path is a cleanup target, excluded, or protected"),
+		mcp.WithString("path", mcp.Required(), mcp.Description("Absolute path to analyze")),
+	)
+	s.mcp.AddTool(explainTool, s.handleExplainTarget)
+
+	restoreTool := mcp.NewTool("restore_target",
+		mcp.WithDescription("Restore a target from trash by entry ID"),
+		mcp.WithString("target_id", mcp.Required(), mcp.Description("Trash entry ID to restore")),
+	)
+	s.mcp.AddTool(restoreTool, s.handleRestoreTarget)
+
+	listTrashTool := mcp.NewTool("list_trash",
+		mcp.WithDescription("List all restorable items currently in trash"),
+	)
+	s.mcp.AddTool(listTrashTool, s.handleListTrash)
 }
 
 func (s *Server) handleScan(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -218,6 +285,121 @@ func (s *Server) handleExecute(ctx context.Context, request mcp.CallToolRequest)
 	}
 
 	data, err := json.Marshal(result)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("marshal error: %v", err)), nil
+	}
+	return mcp.NewToolResultText(string(data)), nil
+}
+
+func (s *Server) handleGetStats(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if s.history == nil {
+		return mcp.NewToolResultError("history not available"), nil
+	}
+
+	var opts history.FilterOpts
+
+	if since := request.GetString("since", ""); since != "" {
+		t, err := time.Parse(time.RFC3339, since)
+		if err != nil {
+			t, err = time.Parse("2006-01-02", since)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("invalid since date: %v", err)), nil
+			}
+		}
+		opts.Since = t
+	}
+
+	if eco := request.GetString("ecosystem", ""); eco != "" {
+		opts.Ecosystem = eco
+	}
+
+	limit := request.GetInt("limit", 0)
+	includeHistory := request.GetBool("include_history", false)
+
+	var entries []history.Entry
+	var err error
+	if opts.Since.IsZero() && opts.Ecosystem == "" {
+		entries, err = s.history.Read()
+	} else {
+		entries, err = s.history.ReadFiltered(opts)
+	}
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("reading history: %v", err)), nil
+	}
+
+	type ecoStats struct {
+		Name            string `json:"name"`
+		FreedBytes      int64  `json:"freed_bytes"`
+		Runs            int    `json:"runs"`
+		TargetsCleaned  int    `json:"targets_cleaned"`
+	}
+
+	var totalFreed int64
+	perEco := make(map[string]*ecoStats)
+
+	for _, e := range entries {
+		totalFreed += e.FreedBytes
+		for _, eco := range e.Ecosystems {
+			st, ok := perEco[eco]
+			if !ok {
+				st = &ecoStats{Name: eco}
+				perEco[eco] = st
+			}
+			st.FreedBytes += e.FreedBytes / int64(len(e.Ecosystems))
+			st.Runs++
+			st.TargetsCleaned += e.Targets / len(e.Ecosystems)
+		}
+	}
+
+	ecoList := make([]ecoStats, 0, len(perEco))
+	for _, st := range perEco {
+		ecoList = append(ecoList, *st)
+	}
+
+	type statsResponse struct {
+		TotalFreedBytes int64          `json:"total_freed_bytes"`
+		TotalRuns       int            `json:"total_runs"`
+		PerEcosystem    []ecoStats     `json:"per_ecosystem"`
+		History         []history.Entry `json:"history,omitempty"`
+	}
+
+	resp := statsResponse{
+		TotalFreedBytes: totalFreed,
+		TotalRuns:       len(entries),
+		PerEcosystem:    ecoList,
+	}
+
+	if includeHistory {
+		h := entries
+		if limit > 0 && limit < len(h) {
+			h = h[len(h)-limit:]
+		}
+		resp.History = h
+	}
+
+	data, err := json.Marshal(resp)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("marshal error: %v", err)), nil
+	}
+	return mcp.NewToolResultText(string(data)), nil
+}
+
+func (s *Server) handleGetConfig(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if s.configProvider == nil {
+		return mcp.NewToolResultError("config not available"), nil
+	}
+
+	cfg := s.configProvider.Config()
+
+	if profile := request.GetString("profile", ""); profile != "" {
+		profileCfg, err := config.LoadProfile(s.configProvider.ConfigDir(), profile)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("loading profile: %v", err)), nil
+		}
+		cfg = config.MergeProfile(cfg, profileCfg)
+	}
+
+	data, err := json.Marshal(cfg)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("marshal error: %v", err)), nil
 	}

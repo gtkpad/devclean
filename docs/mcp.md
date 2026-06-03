@@ -148,3 +148,151 @@ The MCP server inherits all DevClean safety mechanisms:
 - **Protected patterns** — configurable globs from `config.yaml` are enforced
 - **Double validation** — both `propose` and `execute` check the blacklist independently
 - No target can be deleted without first appearing in a `scan_environment` result
+
+---
+
+## Additional Tools
+
+### `get_stats`
+
+Retrieve cleanup history and statistics with optional filters.
+
+**Parameters:**
+
+| Name              | Type    | Required | Description                                      |
+| ----------------- | ------- | -------- | ------------------------------------------------ |
+| `since`           | string  | No       | ISO date string to filter entries after          |
+| `ecosystem`       | string  | No       | Filter by ecosystem name                         |
+| `limit`           | number  | No       | Maximum number of history entries to return      |
+| `include_history` | boolean | No       | Include individual history entries in response   |
+
+**Response:**
+
+```json
+{
+  "total_freed_bytes": 5368709120,
+  "total_runs": 12,
+  "per_ecosystem": [
+    { "name": "node", "freed_bytes": 3221225472, "runs": 8, "targets_cleaned": 15 },
+    { "name": "docker", "freed_bytes": 2147483648, "runs": 4, "targets_cleaned": 6 }
+  ]
+}
+```
+
+With `include_history: true`:
+
+```json
+{
+  "total_freed_bytes": 5368709120,
+  "total_runs": 12,
+  "per_ecosystem": [...],
+  "history": [
+    { "timestamp": "2026-05-15T10:00:00Z", "targets": 3, "freed_bytes": 1073741824, "ecosystems": ["node"], "duration": 2000000000, "mode": "interactive" }
+  ]
+}
+```
+
+---
+
+### `get_config`
+
+Retrieve current configuration, optionally merged with a named profile.
+
+**Parameters:**
+
+| Name      | Type   | Required | Description                              |
+| --------- | ------ | -------- | ---------------------------------------- |
+| `profile` | string | No       | Profile name to merge with root config   |
+
+**Response:** Full configuration object as JSON (scan_paths, ecosystems, safety, hooks, etc.).
+
+---
+
+### `explain_target`
+
+Explain whether a path is a cleanup target, excluded, or protected.
+
+**Parameters:**
+
+| Name   | Type   | Required | Description              |
+| ------ | ------ | -------- | ------------------------ |
+| `path` | string | Yes      | Absolute path to analyze |
+
+**Response:**
+
+```json
+{
+  "path": "/home/user/project/node_modules",
+  "status": "target",
+  "ecosystem": "node",
+  "reason": "node_modules/ with sibling manifest",
+  "size_bytes": 524288000,
+  "age_days": 45
+}
+```
+
+**Statuses:**
+- `target` — path is a recognized cleanup target
+- `excluded` — matches an exclude pattern in config
+- `protected` — protected by safety blacklist
+- `not_target` — not recognized by any ecosystem cleaner
+
+---
+
+### `restore_target`
+
+Restore a target from trash by entry ID.
+
+**Parameters:**
+
+| Name        | Type   | Required | Description                |
+| ----------- | ------ | -------- | -------------------------- |
+| `target_id` | string | Yes      | Trash entry ID to restore  |
+
+**Response (success):**
+
+```json
+{
+  "success": true,
+  "restored_path": "/home/user/project/node_modules"
+}
+```
+
+**Response (error):**
+
+```json
+{
+  "success": false,
+  "error_code": "path_conflict",
+  "error_detail": "path conflict: file already exists"
+}
+```
+
+**Error codes:**
+- `path_conflict` — file already exists at restore path
+- `symlink_escape` — restore path contains symlink outside trash
+- `not_found` — ID not in trash
+- `expired` — entry already purged
+
+---
+
+### `list_trash`
+
+List all restorable items currently in trash.
+
+**Parameters:** None
+
+**Response:**
+
+```json
+[
+  {
+    "id": "abc-123",
+    "batch_id": "batch-456",
+    "original_path": "/home/user/project/node_modules",
+    "size_bytes": 524288000,
+    "ecosystem": "node",
+    "moved_at": "2026-05-15T10:00:00Z"
+  }
+]
+```
