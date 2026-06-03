@@ -156,6 +156,10 @@ func (e *Engine) ecosystemConfig(name string) config.EcosystemConfig {
 		return e.config.Ecosystems.Python
 	case "node":
 		return e.config.Ecosystems.Node
+	case "rust":
+		return e.config.Ecosystems.Rust
+	case "java":
+		return e.config.Ecosystems.Java
 	default:
 		return config.EcosystemConfig{}
 	}

@@ -6,8 +6,10 @@ import (
 	"github.com/gtkpad/devclean/internal/cleaner/docker"
 	"github.com/gtkpad/devclean/internal/cleaner/dotnet"
 	"github.com/gtkpad/devclean/internal/cleaner/golang"
+	"github.com/gtkpad/devclean/internal/cleaner/java"
 	"github.com/gtkpad/devclean/internal/cleaner/node"
 	"github.com/gtkpad/devclean/internal/cleaner/python"
+	"github.com/gtkpad/devclean/internal/cleaner/rust"
 	"github.com/gtkpad/devclean/internal/config"
 	"github.com/gtkpad/devclean/internal/engine"
 	devmcp "github.com/gtkpad/devclean/internal/mcp"
@@ -34,7 +36,9 @@ func newMCPCmd() *cobra.Command {
 			eng.Register(golang.New())
 			eng.Register(node.New(cfg.ScanPaths))
 			eng.Register(dotnet.New(paths, cfg.ScanPaths))
-			eng.Register(python.New(paths.PythonUVCache))
+			eng.Register(python.New(paths.PythonUVCache, cfg.ScanPaths))
+			eng.Register(rust.New(cfg.ScanPaths))
+			eng.Register(java.New(cfg.ScanPaths))
 
 			srv := devmcp.New(eng, cfg)
 			return srv.ServeStdio()

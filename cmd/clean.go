@@ -9,8 +9,10 @@ import (
 	"github.com/gtkpad/devclean/internal/cleaner/docker"
 	"github.com/gtkpad/devclean/internal/cleaner/dotnet"
 	"github.com/gtkpad/devclean/internal/cleaner/golang"
+	"github.com/gtkpad/devclean/internal/cleaner/java"
 	"github.com/gtkpad/devclean/internal/cleaner/node"
 	"github.com/gtkpad/devclean/internal/cleaner/python"
+	"github.com/gtkpad/devclean/internal/cleaner/rust"
 	"github.com/gtkpad/devclean/internal/config"
 	"github.com/gtkpad/devclean/internal/domain"
 	"github.com/gtkpad/devclean/internal/engine"
@@ -66,7 +68,9 @@ Run 'devclean scan' to preview what would be cleaned.`)
 			eng.Register(golang.New())
 			eng.Register(node.New(cfg.ScanPaths))
 			eng.Register(dotnet.New(paths, cfg.ScanPaths))
-			eng.Register(python.New(paths.PythonUVCache))
+			eng.Register(python.New(paths.PythonUVCache, cfg.ScanPaths))
+			eng.Register(rust.New(cfg.ScanPaths))
+			eng.Register(java.New(cfg.ScanPaths))
 
 			if ecosystem != "" {
 				if err := validateEcosystem(ecosystem, eng.Ecosystems()); err != nil {
