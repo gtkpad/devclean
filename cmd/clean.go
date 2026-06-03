@@ -16,6 +16,8 @@ import (
 	"github.com/gtkpad/devclean/internal/config"
 	"github.com/gtkpad/devclean/internal/domain"
 	"github.com/gtkpad/devclean/internal/engine"
+	"github.com/gtkpad/devclean/internal/history"
+	"github.com/gtkpad/devclean/internal/hooks"
 	"github.com/gtkpad/devclean/internal/platform"
 	"github.com/gtkpad/devclean/internal/safety"
 	"github.com/gtkpad/devclean/internal/scheduler"
@@ -55,7 +57,7 @@ Run 'devclean scan' to preview what would be cleaned.`)
 				return fmt.Errorf("--trash and --permanent are mutually exclusive")
 			}
 
-			cfg, err := config.Load(configPath)
+			cfg, err := loadConfigWithProfile()
 			if err != nil {
 				return fmt.Errorf("loading config: %w", err)
 			}
@@ -87,6 +89,7 @@ Run 'devclean scan' to preview what would be cleaned.`)
 			}
 
 			bl := safety.NewBlacklist(cfg.ProtectedPatterns)
+			hookRunner := hooks.New(cfg.Hooks)
 
 			// Resolve trash usage: --permanent > --trash > config
 			trashActive := cfg.Safety.TrashEnabled
@@ -111,6 +114,8 @@ Run 'devclean scan' to preview what would be cleaned.`)
 
 			var totalFreed int64
 			var totalCount int
+			var cleanedPaths []string
+			ecosystemSet := map[string]struct{}{}
 
 			for _, r := range results {
 				if r.Error != nil || len(r.Targets) == 0 {
@@ -144,6 +149,16 @@ Run 'devclean scan' to preview what would be cleaned.`)
 				}
 
 				if !dryRun {
+					// Pre-delete hook
+					hookData := hooks.HookData{
+						Ecosystem:   r.Ecosystem,
+						TargetCount: len(targets),
+					}
+					if err := hookRunner.RunPreDelete(ctx, r.Ecosystem, hookData); err != nil {
+						fmt.Fprintf(os.Stderr, "Pre-delete hook failed for %s: %v (skipping)\n", r.Ecosystem, err)
+						continue
+					}
+
 					if trashActive {
 						if err := trashMgr.Move(ctx, targets, r.Ecosystem); err != nil {
 							fmt.Fprintf(os.Stderr, "Error trashing %s: %v\n", r.Ecosystem, err)
@@ -159,12 +174,20 @@ Run 'devclean scan' to preview what would be cleaned.`)
 							continue
 						}
 					}
+
+					// Post-delete hook (warn only)
+					hookData.FreedSize = humanSize(totalFreed)
+					if err := hookRunner.RunPostDelete(ctx, r.Ecosystem, hookData); err != nil {
+						fmt.Fprintf(os.Stderr, "Post-delete hook warning: %v\n", err)
+					}
 				}
 
 				for _, t := range targets {
 					totalFreed += t.SizeBytes
 					totalCount++
+					cleanedPaths = append(cleanedPaths, t.Path)
 				}
+				ecosystemSet[r.Ecosystem] = struct{}{}
 			}
 
 			if totalCount == 0 {
@@ -179,6 +202,31 @@ Run 'devclean scan' to preview what would be cleaned.`)
 					BytesFreed:   totalFreed,
 					Duration:     time.Since(startTime).Round(time.Millisecond).String(),
 				})
+			}
+
+			// Record history entry
+			if !dryRun && totalCount > 0 {
+				ecosystems := make([]string, 0, len(ecosystemSet))
+				for eco := range ecosystemSet {
+					ecosystems = append(ecosystems, eco)
+				}
+				mode := "force"
+				if auto {
+					mode = "auto"
+				}
+				dataDir := getDataDir()
+				entry := history.Entry{
+					Timestamp:  time.Now(),
+					Targets:    totalCount,
+					Paths:      cleanedPaths,
+					FreedBytes: totalFreed,
+					Ecosystems: ecosystems,
+					Duration:   time.Since(startTime).Round(time.Millisecond),
+					Mode:       mode,
+				}
+				if err := history.Append(dataDir, entry); err != nil {
+					fmt.Fprintf(os.Stderr, "Warning: failed to record history: %v\n", err)
+				}
 			}
 
 			if dryRun {

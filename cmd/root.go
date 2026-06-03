@@ -20,9 +20,10 @@ import (
 )
 
 var (
-	configPath string
-	verbose    bool
-	quiet      bool
+	configPath  string
+	profileName string
+	verbose     bool
+	quiet       bool
 )
 
 var rootCmd = &cobra.Command{
@@ -30,7 +31,7 @@ var rootCmd = &cobra.Command{
 	Short: "Automated developer environment cleaner",
 	Long:  "DevClean scans and removes build artifacts, caches, and unused dependencies across multiple ecosystems.",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := config.Load(configPath)
+		cfg, err := loadConfigWithProfile()
 		if err != nil {
 			return fmt.Errorf("loading config: %w", err)
 		}
@@ -58,6 +59,7 @@ var rootCmd = &cobra.Command{
 
 func init() {
 	rootCmd.PersistentFlags().StringVar(&configPath, "config", "", "alternate config file path")
+	rootCmd.PersistentFlags().StringVar(&profileName, "profile", "", "apply named config profile")
 	rootCmd.PersistentFlags().BoolVar(&verbose, "verbose", false, "enable verbose output")
 	rootCmd.PersistentFlags().BoolVar(&quiet, "quiet", false, "suppress non-essential output")
 
@@ -77,4 +79,22 @@ func init() {
 
 func Execute() error {
 	return rootCmd.Execute()
+}
+
+// loadConfigWithProfile loads config and applies --profile if set.
+func loadConfigWithProfile() (*config.Config, error) {
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		return nil, err
+	}
+	if profileName != "" {
+		resolver := platform.New()
+		paths := resolver.Resolve()
+		profile, err := config.LoadProfile(paths.ConfigDir, profileName)
+		if err != nil {
+			return nil, fmt.Errorf("loading profile %q: %w", profileName, err)
+		}
+		cfg = config.MergeProfile(cfg, profile)
+	}
+	return cfg, nil
 }
