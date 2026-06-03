@@ -18,6 +18,7 @@ import (
 	"github.com/gtkpad/devclean/internal/engine"
 	"github.com/gtkpad/devclean/internal/history"
 	"github.com/gtkpad/devclean/internal/hooks"
+	"github.com/gtkpad/devclean/internal/intelligence"
 	"github.com/gtkpad/devclean/internal/platform"
 	"github.com/gtkpad/devclean/internal/safety"
 	"github.com/gtkpad/devclean/internal/scheduler"
@@ -32,6 +33,7 @@ func newCleanCmd() *cobra.Command {
 	var ecosystem string
 	var useTrash bool
 	var permanent bool
+	var smart bool
 
 	cmd := &cobra.Command{
 		Use:   "clean",
@@ -55,6 +57,14 @@ Run 'devclean scan' to preview what would be cleaned.`)
 
 			if useTrash && permanent {
 				return fmt.Errorf("--trash and --permanent are mutually exclusive")
+			}
+
+			if smart && !auto {
+				return fmt.Errorf("--smart requires --auto (use: devclean clean --auto --smart)")
+			}
+
+			if smart && force {
+				return fmt.Errorf("--smart and --force are mutually exclusive")
 			}
 
 			cfg, err := loadConfigWithProfile()
@@ -90,6 +100,11 @@ Run 'devclean scan' to preview what would be cleaned.`)
 
 			bl := safety.NewBlacklist(cfg.ProtectedPatterns)
 			hookRunner := hooks.New(cfg.Hooks)
+
+			var scorer *intelligence.Scorer
+			if smart {
+				scorer = intelligence.NewScorer(cfg.Intelligence)
+			}
 
 			// Resolve trash usage: --permanent > --trash > config
 			trashActive := cfg.Safety.TrashEnabled
@@ -128,6 +143,24 @@ Run 'devclean scan' to preview what would be cleaned.`)
 					targets = filterByTTL(r.Targets, maxAge)
 				} else {
 					targets = r.Targets
+				}
+
+				if smart && scorer != nil {
+					var smartFiltered []domain.Target
+					for _, t := range targets {
+						score, err := scorer.Score(ctx, t)
+						if err != nil {
+							continue
+						}
+						if score.Total >= cfg.Intelligence.Threshold {
+							smartFiltered = append(smartFiltered, t)
+						}
+					}
+					if !quiet {
+						fmt.Fprintf(os.Stdout, "Smart mode [%s]: %d/%d targets above threshold (%.2f)\n",
+							r.Ecosystem, len(smartFiltered), len(targets), cfg.Intelligence.Threshold)
+					}
+					targets = smartFiltered
 				}
 
 				targets = rejectBlacklisted(targets, bl)
@@ -244,6 +277,7 @@ Run 'devclean scan' to preview what would be cleaned.`)
 	cmd.Flags().StringVarP(&ecosystem, "ecosystem", "e", "", "filter by ecosystem name")
 	cmd.Flags().BoolVar(&useTrash, "trash", false, "move targets to trash instead of permanent deletion")
 	cmd.Flags().BoolVar(&permanent, "permanent", false, "force permanent deletion even when trash is enabled")
+	cmd.Flags().BoolVar(&smart, "smart", false, "only delete targets above score threshold (use with --auto)")
 
 	return cmd
 }
