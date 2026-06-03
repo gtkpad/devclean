@@ -16,6 +16,7 @@ import (
 	"github.com/gtkpad/devclean/internal/config"
 	"github.com/gtkpad/devclean/internal/domain"
 	"github.com/gtkpad/devclean/internal/engine"
+	"github.com/gtkpad/devclean/internal/intelligence"
 	"github.com/gtkpad/devclean/internal/platform"
 	"github.com/spf13/cobra"
 )
@@ -24,6 +25,7 @@ func newScanCmd() *cobra.Command {
 	var ecosystem string
 	var format string
 	var all bool
+	var smart bool
 
 	cmd := &cobra.Command{
 		Use:   "scan",
@@ -76,13 +78,27 @@ func newScanCmd() *cobra.Command {
 				os.Exit(2)
 			}
 
-			return formatOutput(os.Stdout, results, format, verbose)
+			if smart {
+				scorer := intelligence.NewScorer(cfg.Intelligence)
+				for i, r := range results {
+					for j := range r.Targets {
+						score, err := scorer.Score(ctx, r.Targets[j])
+						if err != nil {
+							continue
+						}
+						results[i].Targets[j].SmartScore = score.Total
+					}
+				}
+			}
+
+			return formatOutput(os.Stdout, results, format, verbose, smart)
 		},
 	}
 
 	cmd.Flags().StringVarP(&ecosystem, "ecosystem", "e", "", "filter by ecosystem name")
 	cmd.Flags().StringVar(&format, "format", "table", "output format: table or json")
 	cmd.Flags().BoolVar(&all, "all", false, "show all targets regardless of age (bypass TTL filter)")
+	cmd.Flags().BoolVar(&smart, "smart", false, "show heuristic score (0.0-1.0) per target")
 
 	return cmd
 }

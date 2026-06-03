@@ -9,10 +9,10 @@ import (
 	"github.com/gtkpad/devclean/internal/domain"
 )
 
-func formatOutput(w io.Writer, results []domain.ScanResult, format string, verbose bool) error {
+func formatOutput(w io.Writer, results []domain.ScanResult, format string, verbose bool, smart bool) error {
 	switch format {
 	case "table":
-		formatTable(w, results, verbose)
+		formatTable(w, results, verbose, smart)
 		return nil
 	case "json":
 		return formatJSON(w, results)
@@ -21,14 +21,19 @@ func formatOutput(w io.Writer, results []domain.ScanResult, format string, verbo
 	}
 }
 
-func formatTable(w io.Writer, results []domain.ScanResult, verbose bool) {
+func formatTable(w io.Writer, results []domain.ScanResult, verbose bool, smart bool) {
 	if totalTargets(results) == 0 {
 		fmt.Fprintln(w, "No targets found")
 		return
 	}
 
-	fmt.Fprintf(w, "%-12s %-50s %10s %8s %12s\n", "ECOSYSTEM", "PATH", "SIZE", "RISK", "LAST ACCESSED")
-	fmt.Fprintf(w, "%s\n", strings.Repeat("-", 96))
+	if smart {
+		fmt.Fprintf(w, "%-12s %-50s %10s %8s %12s %6s\n", "ECOSYSTEM", "PATH", "SIZE", "RISK", "LAST ACCESSED", "SCORE")
+		fmt.Fprintf(w, "%s\n", strings.Repeat("-", 103))
+	} else {
+		fmt.Fprintf(w, "%-12s %-50s %10s %8s %12s\n", "ECOSYSTEM", "PATH", "SIZE", "RISK", "LAST ACCESSED")
+		fmt.Fprintf(w, "%s\n", strings.Repeat("-", 96))
+	}
 
 	for i, r := range results {
 		if r.Error != nil || len(r.Targets) == 0 {
@@ -47,7 +52,10 @@ func formatTable(w io.Writer, results []domain.ScanResult, verbose bool) {
 
 			lastAccessed := t.LastAccessed.Format("2006-01-02")
 
-			if verbose {
+			if smart {
+				fmt.Fprintf(w, "%-12s %-50s %10s %8s %12s %6.2f\n",
+					r.Ecosystem, path, humanSize(t.SizeBytes), string(t.Risk), lastAccessed, t.SmartScore)
+			} else if verbose {
 				fmt.Fprintf(w, "%-12s %-50s %10s %8s %12s  [%s] %s\n",
 					r.Ecosystem, path, humanSize(t.SizeBytes), string(t.Risk), lastAccessed, t.ID, t.Name)
 			} else {

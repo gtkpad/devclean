@@ -51,7 +51,7 @@ func TestFormatTable_GroupedByEcosystem(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	formatTable(&buf, results, false)
+	formatTable(&buf, results, false, false)
 	output := buf.String()
 
 	if !bytes.Contains([]byte(output), []byte("ECOSYSTEM")) {
@@ -67,7 +67,7 @@ func TestFormatTable_GroupedByEcosystem(t *testing.T) {
 
 func TestFormatTable_EmptyResults(t *testing.T) {
 	var buf bytes.Buffer
-	formatTable(&buf, nil, false)
+	formatTable(&buf, nil, false, false)
 	output := buf.String()
 
 	if output != "No targets found\n" {
@@ -106,7 +106,7 @@ func TestFormatJSON_ValidOutput(t *testing.T) {
 
 func TestFormatOutput_UnknownFormat(t *testing.T) {
 	var buf bytes.Buffer
-	err := formatOutput(&buf, nil, "xml", false)
+	err := formatOutput(&buf, nil, "xml", false, false)
 	if err == nil {
 		t.Error("expected error for unknown format 'xml'")
 	}
