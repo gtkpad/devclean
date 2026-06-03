@@ -24,5 +24,17 @@ func Defaults() Config {
 		TUI: TUIConfig{
 			MassSelectThresholdMB: 100,
 		},
+		Hooks: HooksConfig{
+			Node:   HookConfig{Timeout: "30s"},
+			Go:     HookConfig{Timeout: "30s"},
+			Docker: HookConfig{Timeout: "30s"},
+			DotNet: HookConfig{Timeout: "30s"},
+			Python: HookConfig{Timeout: "30s"},
+			Rust:   HookConfig{Timeout: "30s"},
+			Java:   HookConfig{Timeout: "30s"},
+		},
+		History: HistoryConfig{
+			RetentionDays: 90,
+		},
 	}
 }

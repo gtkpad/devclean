@@ -51,12 +51,36 @@ type TUIConfig struct {
 	MassSelectThresholdMB int64 `mapstructure:"mass_select_threshold_mb"`
 }
 
+type HookConfig struct {
+	PreDelete  string   `mapstructure:"pre_delete"`
+	PostDelete string   `mapstructure:"post_delete"`
+	Timeout    string   `mapstructure:"timeout"`
+	Platform   []string `mapstructure:"platform"`
+}
+
+type HooksConfig struct {
+	Node   HookConfig `mapstructure:"node"`
+	Go     HookConfig `mapstructure:"go"`
+	Docker HookConfig `mapstructure:"docker"`
+	DotNet HookConfig `mapstructure:"dotnet"`
+	Python HookConfig `mapstructure:"python"`
+	Rust   HookConfig `mapstructure:"rust"`
+	Java   HookConfig `mapstructure:"java"`
+}
+
+type HistoryConfig struct {
+	RetentionDays int `mapstructure:"retention_days"`
+}
+
 type Config struct {
 	ScanPaths         []string         `mapstructure:"scan_paths"`
+	ExcludePaths      []string         `mapstructure:"exclude_paths"`
 	ProtectedPatterns []string         `mapstructure:"protected_patterns"`
 	Ecosystems        EcosystemsConfig `mapstructure:"ecosystems"`
 	Safety            SafetyConfig     `mapstructure:"safety"`
 	TUI               TUIConfig        `mapstructure:"tui"`
+	Hooks             HooksConfig      `mapstructure:"hooks"`
+	History           HistoryConfig    `mapstructure:"history"`
 }
 
 // Load reads configuration with precedence: defaults < file < flags.
@@ -100,6 +124,14 @@ func Load(configPath string) (*Config, error) {
 	v.SetDefault("safety.max_size_mb", defaults.Safety.MaxSizeMB)
 	v.SetDefault("safety.trash_dir", defaults.Safety.TrashDir)
 	v.SetDefault("tui.mass_select_threshold_mb", defaults.TUI.MassSelectThresholdMB)
+	v.SetDefault("hooks.node.timeout", defaults.Hooks.Node.Timeout)
+	v.SetDefault("hooks.go.timeout", defaults.Hooks.Go.Timeout)
+	v.SetDefault("hooks.docker.timeout", defaults.Hooks.Docker.Timeout)
+	v.SetDefault("hooks.dotnet.timeout", defaults.Hooks.DotNet.Timeout)
+	v.SetDefault("hooks.python.timeout", defaults.Hooks.Python.Timeout)
+	v.SetDefault("hooks.rust.timeout", defaults.Hooks.Rust.Timeout)
+	v.SetDefault("hooks.java.timeout", defaults.Hooks.Java.Timeout)
+	v.SetDefault("history.retention_days", defaults.History.RetentionDays)
 
 	if configPath != "" {
 		v.SetConfigFile(configPath)
@@ -121,6 +153,9 @@ func Load(configPath string) (*Config, error) {
 
 	var cfg Config
 	if err := v.Unmarshal(&cfg); err != nil {
+		return nil, err
+	}
+	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
 	return &cfg, nil
