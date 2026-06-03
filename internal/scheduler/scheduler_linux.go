@@ -76,6 +76,71 @@ func (s *cronScheduler) IsInstalled() bool {
 	return strings.Contains(readCrontab(), cronMarker)
 }
 
+const watchCronMarker = "# devclean-watch"
+
+func (s *cronScheduler) InstallWatch(ws WatchSchedule) error {
+	binaryPath := ws.BinaryPath
+	if binaryPath == "" {
+		p, err := exec.LookPath("devclean")
+		if err != nil {
+			return fmt.Errorf("devclean binary not found in PATH: %w", err)
+		}
+		binaryPath = p
+	}
+
+	existing := readCrontab()
+	if strings.Contains(existing, watchCronMarker) {
+		return ErrAlreadyInstalled
+	}
+
+	// Convert interval to cron-compatible: run every N minutes
+	intervalMins := int(ws.Interval.Minutes())
+	if intervalMins < 30 {
+		intervalMins = 30
+	}
+
+	var cronExpr string
+	if intervalMins >= 60 {
+		hours := intervalMins / 60
+		cronExpr = fmt.Sprintf("0 */%d * * *", hours)
+	} else {
+		cronExpr = fmt.Sprintf("*/%d * * * *", intervalMins)
+	}
+
+	entry := fmt.Sprintf("\n%s\n%s %s --watch-daemon\n", watchCronMarker, cronExpr, binaryPath)
+	newContent := existing + entry
+
+	return writeCrontab(newContent)
+}
+
+func (s *cronScheduler) RemoveWatch() error {
+	existing := readCrontab()
+	if !strings.Contains(existing, watchCronMarker) {
+		return ErrNotInstalled
+	}
+
+	lines := strings.Split(existing, "\n")
+	var filtered []string
+	skip := false
+	for _, line := range lines {
+		if line == watchCronMarker {
+			skip = true
+			continue
+		}
+		if skip {
+			skip = false
+			continue
+		}
+		filtered = append(filtered, line)
+	}
+
+	return writeCrontab(strings.Join(filtered, "\n"))
+}
+
+func (s *cronScheduler) IsWatchInstalled() bool {
+	return strings.Contains(readCrontab(), watchCronMarker)
+}
+
 func readCrontab() string {
 	cmd := exec.Command("crontab", "-l")
 	out, err := cmd.Output()

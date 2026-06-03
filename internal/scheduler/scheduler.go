@@ -41,4 +41,13 @@ type Scheduler interface {
 	Remove() error
 	Status() (*Status, error)
 	IsInstalled() bool
+	InstallWatch(WatchSchedule) error
+	RemoveWatch() error
+	IsWatchInstalled() bool
+}
+
+// WatchSchedule holds the parameters for registering a watch daemon.
+type WatchSchedule struct {
+	BinaryPath string
+	Interval   time.Duration
 }

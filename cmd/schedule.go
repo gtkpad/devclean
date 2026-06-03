@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/gtkpad/devclean/internal/platform"
 	"github.com/gtkpad/devclean/internal/scheduler"
@@ -17,6 +18,7 @@ func newScheduleCmd() *cobra.Command {
 	var daily bool
 	var cron string
 	var status bool
+	var watchMode bool
 
 	cmd := &cobra.Command{
 		Use:   "schedule",
@@ -28,7 +30,11 @@ func newScheduleCmd() *cobra.Command {
 			configDir := paths.ConfigDir
 
 			if status {
-				return showStatus(configDir)
+				return showStatus(configDir, watchMode)
+			}
+
+			if watchMode {
+				return installWatch(configDir)
 			}
 
 			if daily && cron != "" {
@@ -89,12 +95,23 @@ func newScheduleCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&daily, "daily", false, "schedule daily cleanup at noon (alias for --cron '0 12 * * *')")
 	cmd.Flags().StringVar(&cron, "cron", "", "custom cron expression (5-field format)")
 	cmd.Flags().BoolVar(&status, "status", false, "show current schedule status")
+	cmd.Flags().BoolVar(&watchMode, "watch", false, "register watch daemon for disk monitoring")
 
 	return cmd
 }
 
-func showStatus(configDir string) error {
+func showStatus(configDir string, watchMode bool) error {
 	sched := scheduler.New(configDir)
+
+	if watchMode {
+		if sched.IsWatchInstalled() {
+			fmt.Fprintln(os.Stdout, "Watch daemon: registered")
+		} else {
+			fmt.Fprintln(os.Stdout, "Watch daemon: not registered. Use `devclean schedule --watch` to set up.")
+		}
+		return nil
+	}
+
 	st, err := sched.Status()
 	if err != nil {
 		return fmt.Errorf("reading status: %w", err)
@@ -128,15 +145,63 @@ func showStatus(configDir string) error {
 	return nil
 }
 
+func installWatch(configDir string) error {
+	cfg, err := loadConfigWithProfile()
+	if err != nil {
+		return fmt.Errorf("loading config: %w", err)
+	}
+
+	interval, err := time.ParseDuration(cfg.Watch.Interval)
+	if err != nil {
+		interval = 6 * time.Hour
+	}
+
+	self, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("cannot determine binary path: %w", err)
+	}
+
+	sched := scheduler.New(configDir)
+
+	if sched.IsWatchInstalled() {
+		fmt.Fprintln(os.Stderr, "Watch daemon already registered. Remove first with `devclean unschedule --watch`.")
+		return nil
+	}
+
+	ws := scheduler.WatchSchedule{
+		BinaryPath: self,
+		Interval:   interval,
+	}
+
+	if err := sched.InstallWatch(ws); err != nil {
+		return fmt.Errorf("installing watch daemon: %w", err)
+	}
+
+	fmt.Fprintf(os.Stdout, "Watch daemon registered (interval: %s, threshold: %s)\n",
+		interval, humanSize(cfg.Watch.ThresholdMB*1024*1024))
+	return nil
+}
+
 func newUnscheduleCmd() *cobra.Command {
+	var watchMode bool
+
 	cmd := &cobra.Command{
 		Use:   "unschedule",
 		Short: "Remove existing devclean schedule",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			resolver := platform.New()
 			paths := resolver.Resolve()
-
 			sched := scheduler.New(paths.ConfigDir)
+
+			if watchMode {
+				if err := sched.RemoveWatch(); err != nil {
+					fmt.Fprintln(os.Stdout, "Watch daemon not registered")
+					return nil
+				}
+				fmt.Fprintln(os.Stdout, "Watch daemon removed")
+				return nil
+			}
+
 			if err := sched.Remove(); err != nil {
 				if err == scheduler.ErrNotInstalled {
 					fmt.Fprintln(os.Stdout, "No schedule found")
@@ -150,5 +215,6 @@ func newUnscheduleCmd() *cobra.Command {
 		},
 	}
 
+	cmd.Flags().BoolVar(&watchMode, "watch", false, "remove watch daemon registration")
 	return cmd
 }

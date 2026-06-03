@@ -1,7 +1,13 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
+	"log/slog"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/gtkpad/devclean/internal/cleaner/docker"
@@ -16,6 +22,7 @@ import (
 	"github.com/gtkpad/devclean/internal/platform"
 	"github.com/gtkpad/devclean/internal/safety"
 	"github.com/gtkpad/devclean/internal/tui"
+	"github.com/gtkpad/devclean/internal/watch"
 	"github.com/spf13/cobra"
 )
 
@@ -24,12 +31,55 @@ var (
 	profileName string
 	verbose     bool
 	quiet       bool
+	watchDaemon bool
 )
 
 var rootCmd = &cobra.Command{
 	Use:   "devclean",
 	Short: "Automated developer environment cleaner",
 	Long:  "DevClean scans and removes build artifacts, caches, and unused dependencies across multiple ecosystems.",
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		if !watchDaemon {
+			return nil
+		}
+		// --watch-daemon: run persistent watch loop then exit
+		cfg, err := loadConfigWithProfile()
+		if err != nil {
+			return fmt.Errorf("loading config: %w", err)
+		}
+
+		interval, err := time.ParseDuration(cfg.Watch.Interval)
+		if err != nil {
+			interval = 6 * time.Hour
+		}
+
+		resolver := platform.New()
+		paths := resolver.Resolve()
+		eng := engine.New(cfg, resolver)
+
+		eng.Register(docker.New())
+		eng.Register(golang.New())
+		eng.Register(node.New(cfg.ScanPaths))
+		eng.Register(dotnet.New(paths, cfg.ScanPaths))
+		eng.Register(python.New(paths.PythonUVCache, cfg.ScanPaths))
+		eng.Register(rust.New(cfg.ScanPaths))
+		eng.Register(java.New(cfg.ScanPaths))
+
+		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+		defer stop()
+
+		w := &watch.Watcher{
+			ScanFn:         eng.Scan,
+			Interval:       interval,
+			ThresholdBytes: cfg.Watch.ThresholdMB * 1024 * 1024,
+			Notifier:       watch.NewBeeepNotifier(),
+			Logger:         slog.Default(),
+		}
+
+		_ = w.Run(ctx)
+		os.Exit(0)
+		return nil
+	},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := loadConfigWithProfile()
 		if err != nil {
@@ -62,6 +112,8 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&profileName, "profile", "", "apply named config profile")
 	rootCmd.PersistentFlags().BoolVar(&verbose, "verbose", false, "enable verbose output")
 	rootCmd.PersistentFlags().BoolVar(&quiet, "quiet", false, "suppress non-essential output")
+	rootCmd.PersistentFlags().BoolVar(&watchDaemon, "watch-daemon", false, "run watch daemon loop (internal)")
+	_ = rootCmd.PersistentFlags().MarkHidden("watch-daemon")
 
 	rootCmd.AddCommand(newScanCmd())
 	rootCmd.AddCommand(newCleanCmd())
@@ -74,6 +126,7 @@ func init() {
 	rootCmd.AddCommand(newWhyCmd())
 	rootCmd.AddCommand(newHistoryCmd())
 	rootCmd.AddCommand(newStatsCmd())
+	rootCmd.AddCommand(newWatchCmd())
 	rootCmd.Version = version
 }
 

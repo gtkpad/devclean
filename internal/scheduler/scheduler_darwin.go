@@ -224,3 +224,93 @@ func extractBinaryFromPlist(content string) string {
 	}
 	return rest[start : start+end]
 }
+
+const watchPlistLabel = "com.devclean.watch"
+
+func (s *launchdScheduler) watchPlistPath() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, "Library", "LaunchAgents", watchPlistLabel+".plist")
+}
+
+func (s *launchdScheduler) InstallWatch(ws WatchSchedule) error {
+	binaryPath := ws.BinaryPath
+	if binaryPath == "" {
+		p, err := exec.LookPath("devclean")
+		if err != nil {
+			return fmt.Errorf("devclean binary not found in PATH: %w", err)
+		}
+		binaryPath = p
+	}
+
+	if _, err := os.Stat(binaryPath); err != nil {
+		return fmt.Errorf("binary path does not exist: %s", binaryPath)
+	}
+
+	ppath := s.watchPlistPath()
+	if _, err := os.Stat(ppath); err == nil {
+		return ErrAlreadyInstalled
+	}
+
+	intervalSecs := int(ws.Interval.Seconds())
+	if intervalSecs < 1800 {
+		intervalSecs = 1800
+	}
+
+	home, _ := os.UserHomeDir()
+	logPath := filepath.Join(home, ".local", "share", "devclean", "watch.log")
+
+	content := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>%s</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>%s</string>
+		<string>--watch-daemon</string>
+	</array>
+	<key>StartInterval</key>
+	<integer>%d</integer>
+	<key>StandardOutPath</key>
+	<string>%s</string>
+	<key>StandardErrorPath</key>
+	<string>%s</string>
+	<key>RunAtLoad</key>
+	<false/>
+</dict>
+</plist>
+`, watchPlistLabel, binaryPath, intervalSecs, logPath, logPath)
+
+	if err := os.MkdirAll(filepath.Dir(ppath), 0755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(ppath, []byte(content), 0644); err != nil {
+		return err
+	}
+
+	cmd := exec.Command("launchctl", "load", ppath)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		_ = os.Remove(ppath)
+		return fmt.Errorf("launchctl load failed: %s: %w", strings.TrimSpace(string(out)), err)
+	}
+
+	return nil
+}
+
+func (s *launchdScheduler) RemoveWatch() error {
+	ppath := s.watchPlistPath()
+	if _, err := os.Stat(ppath); os.IsNotExist(err) {
+		return ErrNotInstalled
+	}
+
+	cmd := exec.Command("launchctl", "unload", ppath)
+	_ = cmd.Run()
+
+	return os.Remove(ppath)
+}
+
+func (s *launchdScheduler) IsWatchInstalled() bool {
+	_, err := os.Stat(s.watchPlistPath())
+	return err == nil
+}
