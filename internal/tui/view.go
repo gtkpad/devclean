@@ -183,7 +183,10 @@ func renderTargetLine(m model, idx int, ft flatTarget) string {
 	// Size
 	size := humanSize(ft.target.SizeBytes)
 
-	return fmt.Sprintf("%s%s %s  %10s  %s", cursor, checkbox, path, size, badge)
+	// Smart icon
+	icon := m.targetIcon(ft.target)
+
+	return fmt.Sprintf("%s%s %s%s  %10s  %s", cursor, checkbox, icon, path, size, badge)
 }
 
 func riskBadge(risk domain.RiskLevel) string {

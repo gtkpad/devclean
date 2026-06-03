@@ -65,6 +65,10 @@ type model struct {
 
 	// error
 	err error
+
+	// smart mode
+	SmartMode      bool
+	SmartThreshold float64
 }
 
 func New(eng *engine.Engine, bl *safety.Blacklist, cfg *config.Config) model {
@@ -93,6 +97,16 @@ func New(eng *engine.Engine, bl *safety.Blacklist, cfg *config.Config) model {
 		ecoStatus:  ecoStatus,
 		ecoNames:   ecoNames,
 	}
+}
+
+func (m model) targetIcon(t domain.Target) string {
+	if !m.SmartMode {
+		return ""
+	}
+	if t.SmartScore >= m.SmartThreshold {
+		return "⚡ "
+	}
+	return "🛡️ "
 }
 
 func (m model) Init() tea.Cmd {

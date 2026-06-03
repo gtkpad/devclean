@@ -199,6 +199,32 @@ func TestUpdate_Confirming_N_GoesBackToSelecting(t *testing.T) {
 	}
 }
 
+func TestTargetIcon(t *testing.T) {
+	tests := []struct {
+		name      string
+		smartMode bool
+		threshold float64
+		score     float64
+		want      string
+	}{
+		{"disabled returns empty", false, 0.7, 0.9, ""},
+		{"above threshold returns bolt", true, 0.7, 0.8, "⚡ "},
+		{"below threshold returns shield", true, 0.7, 0.5, "🛡️ "},
+		{"at threshold returns bolt (inclusive)", true, 0.7, 0.7, "⚡ "},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := model{SmartMode: tt.smartMode, SmartThreshold: tt.threshold}
+			target := domain.Target{SmartScore: tt.score}
+			got := m.targetIcon(target)
+			if got != tt.want {
+				t.Errorf("targetIcon() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestUpdate_DeleteComplete_TransitionsToDone(t *testing.T) {
 	m := testModel()
 	m.state = stateDeleting
