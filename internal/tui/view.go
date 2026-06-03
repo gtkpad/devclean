@@ -7,6 +7,53 @@ import (
 	"github.com/gtkpad/devclean/internal/domain"
 )
 
+func viewScanning(m model) string {
+	var b strings.Builder
+	b.WriteString("\n")
+	b.WriteString(headerStyle.Render("  Scanning..."))
+	b.WriteString("\n\n")
+
+	for _, name := range m.ecoNames {
+		status := m.ecoStatus[name]
+		var icon, detail string
+		switch status {
+		case "waiting":
+			icon = "─"
+			detail = "(waiting)"
+		case "scanning":
+			icon = m.spinner.View()
+			detail = "(scanning...)"
+		case "done":
+			icon = "✓"
+			detail = ecosystemDoneSummary(m, name)
+		case "error":
+			icon = "✗"
+			detail = "(error)"
+		}
+		line := fmt.Sprintf("  %s %s %s", icon, name, helpStyle.Render(detail))
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+
+	b.WriteString("\n")
+	b.WriteString(helpStyle.Render("  q: quit"))
+	b.WriteString("\n")
+	return b.String()
+}
+
+func ecosystemDoneSummary(m model, ecosystem string) string {
+	for _, r := range m.results {
+		if r.Ecosystem == ecosystem && r.Error == nil {
+			var total int64
+			for _, t := range r.Targets {
+				total += t.SizeBytes
+			}
+			return fmt.Sprintf("(%d targets, %s)", len(r.Targets), humanSize(total))
+		}
+	}
+	return "(done)"
+}
+
 func viewSelecting(m model) string {
 	var b strings.Builder
 
@@ -21,18 +68,25 @@ func viewSelecting(m model) string {
 	} else {
 		b.WriteString(helpStyle.Render("  No targets selected"))
 	}
-	b.WriteString("\n\n")
+	b.WriteString("\n")
+
+	// Filter/sort indicator
+	if m.filter.isActive() {
+		b.WriteString(helpStyle.Render("  " + m.filter.label()))
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
 
 	// Grouped target list with scrolling
 	visible := m.visibleHeight()
 	end := m.offset + visible
-	if end > len(m.flatTargets) {
-		end = len(m.flatTargets)
+	if end > len(m.visibleTargets) {
+		end = len(m.visibleTargets)
 	}
 
 	lastGroup := -1
 	for i := m.offset; i < end; i++ {
-		ft := m.flatTargets[i]
+		ft := m.flatTargets[m.visibleTargets[i]]
 
 		// Group separator
 		if ft.groupIdx != lastGroup {
@@ -54,14 +108,29 @@ func viewSelecting(m model) string {
 	}
 
 	// Scroll indicator
-	if len(m.flatTargets) > visible {
-		b.WriteString(helpStyle.Render(fmt.Sprintf("\n  [%d/%d]", m.cursor+1, len(m.flatTargets))))
+	if len(m.visibleTargets) > visible {
+		b.WriteString(helpStyle.Render(fmt.Sprintf("\n  [%d/%d]", m.cursor+1, len(m.visibleTargets))))
+		b.WriteString("\n")
+	}
+
+	// Filter bar
+	if m.filter.fuzzyActive {
+		filterLine := fmt.Sprintf("  / %s▎", m.filter.fuzzyText)
+		b.WriteString(headerStyle.Render(filterLine))
+		b.WriteString("\n")
+	} else if m.filter.fuzzyText != "" {
+		filterLine := fmt.Sprintf("  filter: %s", m.filter.fuzzyText)
+		b.WriteString(helpStyle.Render(filterLine))
 		b.WriteString("\n")
 	}
 
 	// Footer
 	b.WriteString("\n")
-	b.WriteString(helpStyle.Render("  ↑↓/jk: navigate | space: toggle | a: all | n: none | l: low-risk | enter: confirm | q: quit"))
+	if m.filter.fuzzyActive {
+		b.WriteString(helpStyle.Render("  type to filter | Esc: exit filter | Enter: apply"))
+	} else {
+		b.WriteString(helpStyle.Render("  ↑↓/jk: navigate | space: toggle | /: filter | s: sort | r: risk | m: mass | a: all | enter: confirm | q: quit"))
+	}
 	b.WriteString("\n")
 
 	return b.String()

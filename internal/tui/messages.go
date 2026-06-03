@@ -6,6 +6,12 @@ type scanCompleteMsg struct {
 	results []domain.ScanResult
 }
 
+type ecosystemResultMsg struct {
+	result domain.ScanResult
+}
+
+type scanDoneMsg struct{}
+
 type deleteProgressMsg struct {
 	current int
 	total   int

@@ -4,11 +4,12 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/gtkpad/devclean/internal/config"
 	"github.com/gtkpad/devclean/internal/domain"
 )
 
 func testModel() model {
-	return model{
+	m := model{
 		state:    stateSelecting,
 		selected: make(map[string]bool),
 		flatTargets: []flatTarget{
@@ -16,9 +17,13 @@ func testModel() model {
 			{target: domain.Target{ID: "t2", Path: "/b", SizeBytes: 200, Risk: domain.RiskMedium}, ecosystem: "go", groupIdx: 0},
 			{target: domain.Target{ID: "t3", Path: "/c", SizeBytes: 300, Risk: domain.RiskLow}, ecosystem: "node", groupIdx: 1},
 		},
+		cfg:    &config.Config{TUI: config.TUIConfig{MassSelectThresholdMB: 100}},
+		filter: filterState{sort: sortSize},
 		width:  80,
 		height: 40,
 	}
+	m.visibleTargets = []int{0, 1, 2}
+	return m
 }
 
 func keyMsg(r rune) tea.KeyMsg {
@@ -29,6 +34,8 @@ func TestUpdate_ScanComplete_TransitionsToSelecting(t *testing.T) {
 	m := model{
 		state:    stateScanning,
 		selected: make(map[string]bool),
+		cfg:      &config.Config{TUI: config.TUIConfig{MassSelectThresholdMB: 100}},
+		filter:   filterState{sort: sortSize},
 	}
 
 	results := []domain.ScanResult{
@@ -50,6 +57,8 @@ func TestUpdate_ScanComplete_EmptyResults_GoesToDone(t *testing.T) {
 	m := model{
 		state:    stateScanning,
 		selected: make(map[string]bool),
+		cfg:      &config.Config{TUI: config.TUIConfig{MassSelectThresholdMB: 100}},
+		filter:   filterState{sort: sortSize},
 	}
 
 	updated, _ := m.Update(scanCompleteMsg{results: nil})
@@ -231,5 +240,105 @@ func TestSelectedTotal(t *testing.T) {
 	}
 	if count != 2 {
 		t.Errorf("selectedTotal count = %d, want 2", count)
+	}
+}
+
+func TestUpdateSelecting_FilterMode(t *testing.T) {
+	m := testModel()
+
+	// Press / to enter filter mode
+	updated, _ := m.Update(keyMsg('/'))
+	um := updated.(model)
+	if !um.filter.fuzzyActive {
+		t.Error("fuzzyActive should be true after /")
+	}
+
+	// Type a character
+	updated, _ = um.Update(keyMsg('a'))
+	um = updated.(model)
+	if um.filter.fuzzyText != "a" {
+		t.Errorf("fuzzyText = %q, want 'a'", um.filter.fuzzyText)
+	}
+
+	// Press Esc exits filter mode
+	updated, _ = um.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	um = updated.(model)
+	if um.filter.fuzzyActive {
+		t.Error("fuzzyActive should be false after Esc in filter mode")
+	}
+}
+
+func TestUpdateSelecting_SortCycle(t *testing.T) {
+	m := testModel()
+
+	updated, _ := m.Update(keyMsg('s'))
+	um := updated.(model)
+	if um.filter.sort != sortAge {
+		t.Errorf("sort = %d, want sortAge (%d)", um.filter.sort, sortAge)
+	}
+
+	updated, _ = um.Update(keyMsg('s'))
+	um = updated.(model)
+	if um.filter.sort != sortEcosystem {
+		t.Errorf("sort = %d, want sortEcosystem (%d)", um.filter.sort, sortEcosystem)
+	}
+}
+
+func TestUpdateSelecting_RiskCycle(t *testing.T) {
+	m := testModel()
+
+	updated, _ := m.Update(keyMsg('r'))
+	um := updated.(model)
+	if um.filter.risk != riskFilterLow {
+		t.Errorf("risk = %d, want riskFilterLow (%d)", um.filter.risk, riskFilterLow)
+	}
+}
+
+func TestUpdateSelecting_MassSelect(t *testing.T) {
+	m := testModel()
+	// Set threshold to 0 so all targets qualify
+	m.cfg.TUI.MassSelectThresholdMB = 0
+	m.recompute()
+
+	updated, _ := m.Update(keyMsg('m'))
+	um := updated.(model)
+
+	// All targets have size >= 0, so all should be selected
+	if len(um.selected) != 3 {
+		t.Errorf("selected count = %d, want 3 (all above 0 threshold)", len(um.selected))
+	}
+}
+
+func TestUpdateSelecting_EscClearsFilters(t *testing.T) {
+	m := testModel()
+	m.filter.risk = riskFilterHigh
+	m.filter.fuzzyText = "foo"
+	m.recompute()
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	um := updated.(model)
+
+	if um.filter.risk != riskAll {
+		t.Errorf("risk = %d, want riskAll", um.filter.risk)
+	}
+	if um.filter.fuzzyText != "" {
+		t.Errorf("fuzzyText = %q, want empty", um.filter.fuzzyText)
+	}
+}
+
+func TestUpdateSelecting_SelectionsPersistAfterFilterClear(t *testing.T) {
+	m := testModel()
+	m.selected["t1"] = true
+
+	// Apply and then clear a filter
+	m.filter.risk = riskFilterLow
+	m.recompute()
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	um := updated.(model)
+
+	// Selection should persist
+	if !um.selected["t1"] {
+		t.Error("selection of t1 should persist after clearing filters")
 	}
 }

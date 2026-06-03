@@ -21,5 +21,8 @@ func Defaults() Config {
 			MaxSizeMB:     5120,
 			TrashDir:      "",
 		},
+		TUI: TUIConfig{
+			MassSelectThresholdMB: 100,
+		},
 	}
 }

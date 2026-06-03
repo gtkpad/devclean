@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/gtkpad/devclean/internal/config"
 	"github.com/gtkpad/devclean/internal/domain"
 	"github.com/gtkpad/devclean/internal/engine"
 	"github.com/gtkpad/devclean/internal/safety"
@@ -39,6 +40,18 @@ type model struct {
 	spinner     spinner.Model
 	engine      *engine.Engine
 	blacklist   *safety.Blacklist
+	cfg         *config.Config
+
+	// filter/sort state
+	filter         filterState
+	visibleTargets []int
+
+	// streaming scan state
+	scanCh     <-chan domain.ScanResult
+	scanCtx    context.Context
+	scanCancel context.CancelFunc
+	ecoStatus  map[string]string
+	ecoNames   []string
 
 	// deletion progress
 	deleteProgress int
@@ -54,20 +67,36 @@ type model struct {
 	err error
 }
 
-func New(eng *engine.Engine, bl *safety.Blacklist) model {
+func New(eng *engine.Engine, bl *safety.Blacklist, cfg *config.Config) model {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
+
+	ctx, cancel := context.WithCancel(context.Background())
+	ecoNames := eng.Ecosystems()
+	ecoStatus := make(map[string]string, len(ecoNames))
+	for _, name := range ecoNames {
+		ecoStatus[name] = "scanning"
+	}
+	ch := eng.Scan(ctx)
+
 	return model{
-		state:     stateScanning,
-		selected:  make(map[string]bool),
-		spinner:   s,
-		engine:    eng,
-		blacklist: bl,
+		state:      stateScanning,
+		selected:   make(map[string]bool),
+		spinner:    s,
+		engine:     eng,
+		blacklist:  bl,
+		cfg:        cfg,
+		filter:     filterState{sort: sortSize},
+		scanCh:     ch,
+		scanCtx:    ctx,
+		scanCancel: cancel,
+		ecoStatus:  ecoStatus,
+		ecoNames:   ecoNames,
 	}
 }
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(m.spinner.Tick, scanCmd(m.engine))
+	return tea.Batch(m.spinner.Tick, m.waitForScanResult())
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -81,6 +110,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch m.state {
 		case stateScanning:
 			if msg.Type == tea.KeyCtrlC || (msg.Type == tea.KeyRunes && string(msg.Runes) == "q") {
+				m.scanCancel()
 				return m, tea.Quit
 			}
 		case stateSelecting:
@@ -100,6 +130,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case ecosystemResultMsg:
+		m.results = append(m.results, msg.result)
+		if msg.result.Error != nil {
+			m.ecoStatus[msg.result.Ecosystem] = "error"
+		} else {
+			m.ecoStatus[msg.result.Ecosystem] = "done"
+		}
+		return m, m.waitForScanResult()
+
+	case scanDoneMsg:
+		m.flatTargets = flattenResults(m.results)
+		if len(m.flatTargets) == 0 {
+			m.state = stateDone
+			m.emptyResult = true
+			return m, nil
+		}
+		m.state = stateSelecting
+		m.recompute()
+		return m, nil
+
 	case scanCompleteMsg:
 		m.results = msg.results
 		m.flatTargets = flattenResults(msg.results)
@@ -109,6 +159,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.state = stateSelecting
+		m.recompute()
 		return m, nil
 
 	case deleteCompleteMsg:
@@ -135,9 +186,38 @@ func (m model) updateConfirming(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) updateSelecting(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Filter input mode intercepts all keys
+	if m.filter.fuzzyActive {
+		return m.updateFilterInput(msg)
+	}
+
 	switch {
 	case msg.Type == tea.KeyCtrlC || (msg.Type == tea.KeyRunes && string(msg.Runes) == "q"):
 		return m, tea.Quit
+
+	case msg.Type == tea.KeyRunes && string(msg.Runes) == "/":
+		m.filter.fuzzyActive = true
+		return m, nil
+
+	case msg.Type == tea.KeyRunes && string(msg.Runes) == "s":
+		m.filter.sort = (m.filter.sort + 1) % 4
+		m.recompute()
+
+	case msg.Type == tea.KeyRunes && string(msg.Runes) == "r":
+		m.filter.risk = (m.filter.risk + 1) % 4
+		m.recompute()
+
+	case msg.Type == tea.KeyRunes && string(msg.Runes) == "m":
+		threshold := m.cfg.TUI.MassSelectThresholdMB * 1024 * 1024
+		for _, idx := range m.visibleTargets {
+			if m.flatTargets[idx].target.SizeBytes >= threshold {
+				m.selected[m.flatTargets[idx].target.ID] = true
+			}
+		}
+
+	case msg.Type == tea.KeyEsc:
+		m.filter = filterState{sort: sortSize}
+		m.recompute()
 
 	case msg.Type == tea.KeyUp || (msg.Type == tea.KeyRunes && string(msg.Runes) == "k"):
 		if m.cursor > 0 {
@@ -146,7 +226,7 @@ func (m model) updateSelecting(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case msg.Type == tea.KeyDown || (msg.Type == tea.KeyRunes && string(msg.Runes) == "j"):
-		if m.cursor < len(m.flatTargets)-1 {
+		if m.cursor < len(m.visibleTargets)-1 {
 			m.cursor++
 			m.adjustOffset()
 		}
@@ -156,8 +236,8 @@ func (m model) updateSelecting(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.adjustOffset()
 
 	case msg.Type == tea.KeySpace:
-		if m.cursor < len(m.flatTargets) {
-			id := m.flatTargets[m.cursor].target.ID
+		if m.cursor < len(m.visibleTargets) {
+			id := m.flatTargets[m.visibleTargets[m.cursor]].target.ID
 			m.selected[id] = !m.selected[id]
 			if !m.selected[id] {
 				delete(m.selected, id)
@@ -165,8 +245,8 @@ func (m model) updateSelecting(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case msg.Type == tea.KeyRunes && string(msg.Runes) == "a":
-		for _, ft := range m.flatTargets {
-			m.selected[ft.target.ID] = true
+		for _, idx := range m.visibleTargets {
+			m.selected[m.flatTargets[idx].target.ID] = true
 		}
 
 	case msg.Type == tea.KeyRunes && string(msg.Runes) == "n":
@@ -174,9 +254,9 @@ func (m model) updateSelecting(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case msg.Type == tea.KeyRunes && string(msg.Runes) == "l":
 		m.selected = make(map[string]bool)
-		for _, ft := range m.flatTargets {
-			if ft.target.Risk == domain.RiskLow {
-				m.selected[ft.target.ID] = true
+		for _, idx := range m.visibleTargets {
+			if m.flatTargets[idx].target.Risk == domain.RiskLow {
+				m.selected[m.flatTargets[idx].target.ID] = true
 			}
 		}
 
@@ -187,6 +267,34 @@ func (m model) updateSelecting(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+func (m model) updateFilterInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.filter.fuzzyActive = false
+		return m, nil
+	case tea.KeyEnter:
+		m.filter.fuzzyActive = false
+		return m, nil
+	case tea.KeyBackspace:
+		if len(m.filter.fuzzyText) > 0 {
+			m.filter.fuzzyText = m.filter.fuzzyText[:len(m.filter.fuzzyText)-1]
+			m.recompute()
+		}
+	case tea.KeyRunes:
+		m.filter.fuzzyText += string(msg.Runes)
+		m.recompute()
+	}
+	return m, nil
+}
+
+func (m *model) recompute() {
+	m.visibleTargets = recomputeVisible(m.flatTargets, m.filter, m.cfg.TUI.MassSelectThresholdMB*1024*1024)
+	if m.cursor >= len(m.visibleTargets) {
+		m.cursor = max(0, len(m.visibleTargets)-1)
+	}
+	m.adjustOffset()
 }
 
 func (m model) selectedTotal() (int64, int) {
@@ -202,12 +310,12 @@ func (m model) selectedTotal() (int64, int) {
 }
 
 func (m model) nextGroupStart() int {
-	if len(m.flatTargets) == 0 {
+	if len(m.visibleTargets) == 0 {
 		return 0
 	}
-	currentGroup := m.flatTargets[m.cursor].groupIdx
-	for i := m.cursor + 1; i < len(m.flatTargets); i++ {
-		if m.flatTargets[i].groupIdx != currentGroup {
+	currentGroup := m.flatTargets[m.visibleTargets[m.cursor]].groupIdx
+	for i := m.cursor + 1; i < len(m.visibleTargets); i++ {
+		if m.flatTargets[m.visibleTargets[i]].groupIdx != currentGroup {
 			return i
 		}
 	}
@@ -240,7 +348,7 @@ func (m model) visibleHeight() int {
 func (m model) View() string {
 	switch m.state {
 	case stateScanning:
-		return fmt.Sprintf("\n  %s Scanning...\n\n", m.spinner.View())
+		return viewScanning(m)
 	case stateSelecting:
 		return viewSelecting(m)
 	case stateConfirming:
@@ -251,6 +359,17 @@ func (m model) View() string {
 		return viewDone(m)
 	}
 	return ""
+}
+
+func (m model) waitForScanResult() tea.Cmd {
+	ch := m.scanCh
+	return func() tea.Msg {
+		r, ok := <-ch
+		if !ok {
+			return scanDoneMsg{}
+		}
+		return ecosystemResultMsg{result: r}
+	}
 }
 
 func scanCmd(eng *engine.Engine) tea.Cmd {

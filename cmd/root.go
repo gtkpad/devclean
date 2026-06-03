@@ -49,7 +49,7 @@ var rootCmd = &cobra.Command{
 
 		bl := safety.NewBlacklist(cfg.ProtectedPatterns)
 
-		m := tui.New(eng, bl)
+		m := tui.New(eng, bl, cfg)
 		p := tea.NewProgram(m, tea.WithAltScreen())
 		_, err = p.Run()
 		return err

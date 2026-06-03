@@ -47,11 +47,16 @@ type SafetyConfig struct {
 	TrashDir      string `mapstructure:"trash_dir"`
 }
 
+type TUIConfig struct {
+	MassSelectThresholdMB int64 `mapstructure:"mass_select_threshold_mb"`
+}
+
 type Config struct {
 	ScanPaths         []string         `mapstructure:"scan_paths"`
 	ProtectedPatterns []string         `mapstructure:"protected_patterns"`
 	Ecosystems        EcosystemsConfig `mapstructure:"ecosystems"`
 	Safety            SafetyConfig     `mapstructure:"safety"`
+	TUI               TUIConfig        `mapstructure:"tui"`
 }
 
 // Load reads configuration with precedence: defaults < file < flags.
@@ -94,6 +99,7 @@ func Load(configPath string) (*Config, error) {
 	v.SetDefault("safety.retention_days", defaults.Safety.RetentionDays)
 	v.SetDefault("safety.max_size_mb", defaults.Safety.MaxSizeMB)
 	v.SetDefault("safety.trash_dir", defaults.Safety.TrashDir)
+	v.SetDefault("tui.mass_select_threshold_mb", defaults.TUI.MassSelectThresholdMB)
 
 	if configPath != "" {
 		v.SetConfigFile(configPath)
