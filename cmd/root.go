@@ -69,6 +69,7 @@ func init() {
 	rootCmd.AddCommand(newVersionCmd())
 	rootCmd.AddCommand(newMCPCmd())
 	rootCmd.AddCommand(newInitCmd())
+	rootCmd.AddCommand(newWhyCmd())
 	rootCmd.Version = version
 }
 
