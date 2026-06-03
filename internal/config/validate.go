@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"math"
 	"runtime"
 	"strings"
 	"time"
@@ -44,6 +45,35 @@ func (c *Config) Validate() error {
 				errs = append(errs, fmt.Sprintf("%s.platform: unsupported platform %q (valid: linux, darwin, windows)", name, p))
 			}
 		}
+	}
+
+	// Intelligence validation
+	if c.Intelligence.Threshold < 0.0 || c.Intelligence.Threshold > 1.0 {
+		errs = append(errs, "intelligence.threshold: must be between 0.0 and 1.0")
+	}
+	if c.Intelligence.MaxAgeDays <= 0 {
+		errs = append(errs, "intelligence.max_age_days: must be > 0")
+	}
+	if c.Intelligence.RefSizeMB <= 0 {
+		errs = append(errs, "intelligence.ref_size_mb: must be > 0")
+	}
+	weightsSum := c.Intelligence.Weights.Age + c.Intelligence.Weights.Size +
+		c.Intelligence.Weights.GitActivity + c.Intelligence.Weights.Risk
+	if math.Abs(weightsSum-1.0) > 0.01 {
+		errs = append(errs, fmt.Sprintf("intelligence.weights: must sum to 1.0 (got %.4f)", weightsSum))
+	}
+
+	// Watch validation
+	if c.Watch.Interval != "" {
+		d, err := time.ParseDuration(c.Watch.Interval)
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("watch.interval: invalid duration %q", c.Watch.Interval))
+		} else if d < 30*time.Minute {
+			errs = append(errs, "watch.interval: must be >= 30m")
+		}
+	}
+	if c.Watch.ThresholdMB <= 0 {
+		errs = append(errs, "watch.threshold_mb: must be > 0")
 	}
 
 	if len(errs) > 0 {

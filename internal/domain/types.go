@@ -28,6 +28,7 @@ type Target struct {
 	LastAccessed time.Time     `json:"last_accessed"`
 	Category     string        `json:"category"`
 	AI           *AIAssessment `json:"ai_assessment,omitempty"`
+	SmartScore   float64       `json:"smart_score,omitempty"`
 }
 
 type ScanResult struct {

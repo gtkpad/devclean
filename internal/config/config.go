@@ -72,15 +72,36 @@ type HistoryConfig struct {
 	RetentionDays int `mapstructure:"retention_days"`
 }
 
+type IntelligenceConfig struct {
+	Threshold  float64       `mapstructure:"threshold"`
+	MaxAgeDays int           `mapstructure:"max_age_days"`
+	RefSizeMB  int64         `mapstructure:"ref_size_mb"`
+	Weights    WeightsConfig `mapstructure:"weights"`
+}
+
+type WeightsConfig struct {
+	Age         float64 `mapstructure:"age"`
+	Size        float64 `mapstructure:"size"`
+	GitActivity float64 `mapstructure:"git_activity"`
+	Risk        float64 `mapstructure:"risk"`
+}
+
+type WatchConfig struct {
+	Interval    string `mapstructure:"interval"`
+	ThresholdMB int64  `mapstructure:"threshold_mb"`
+}
+
 type Config struct {
-	ScanPaths         []string         `mapstructure:"scan_paths"`
-	ExcludePaths      []string         `mapstructure:"exclude_paths"`
-	ProtectedPatterns []string         `mapstructure:"protected_patterns"`
-	Ecosystems        EcosystemsConfig `mapstructure:"ecosystems"`
-	Safety            SafetyConfig     `mapstructure:"safety"`
-	TUI               TUIConfig        `mapstructure:"tui"`
-	Hooks             HooksConfig      `mapstructure:"hooks"`
-	History           HistoryConfig    `mapstructure:"history"`
+	ScanPaths         []string           `mapstructure:"scan_paths"`
+	ExcludePaths      []string           `mapstructure:"exclude_paths"`
+	ProtectedPatterns []string           `mapstructure:"protected_patterns"`
+	Ecosystems        EcosystemsConfig   `mapstructure:"ecosystems"`
+	Safety            SafetyConfig       `mapstructure:"safety"`
+	TUI               TUIConfig          `mapstructure:"tui"`
+	Hooks             HooksConfig        `mapstructure:"hooks"`
+	History           HistoryConfig      `mapstructure:"history"`
+	Intelligence      IntelligenceConfig `mapstructure:"intelligence"`
+	Watch             WatchConfig        `mapstructure:"watch"`
 }
 
 // Load reads configuration with precedence: defaults < file < flags.
@@ -132,6 +153,15 @@ func Load(configPath string) (*Config, error) {
 	v.SetDefault("hooks.rust.timeout", defaults.Hooks.Rust.Timeout)
 	v.SetDefault("hooks.java.timeout", defaults.Hooks.Java.Timeout)
 	v.SetDefault("history.retention_days", defaults.History.RetentionDays)
+	v.SetDefault("intelligence.threshold", defaults.Intelligence.Threshold)
+	v.SetDefault("intelligence.max_age_days", defaults.Intelligence.MaxAgeDays)
+	v.SetDefault("intelligence.ref_size_mb", defaults.Intelligence.RefSizeMB)
+	v.SetDefault("intelligence.weights.age", defaults.Intelligence.Weights.Age)
+	v.SetDefault("intelligence.weights.size", defaults.Intelligence.Weights.Size)
+	v.SetDefault("intelligence.weights.git_activity", defaults.Intelligence.Weights.GitActivity)
+	v.SetDefault("intelligence.weights.risk", defaults.Intelligence.Weights.Risk)
+	v.SetDefault("watch.interval", defaults.Watch.Interval)
+	v.SetDefault("watch.threshold_mb", defaults.Watch.ThresholdMB)
 
 	if configPath != "" {
 		v.SetConfigFile(configPath)

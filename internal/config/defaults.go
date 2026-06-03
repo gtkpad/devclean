@@ -36,5 +36,20 @@ func Defaults() Config {
 		History: HistoryConfig{
 			RetentionDays: 90,
 		},
+		Intelligence: IntelligenceConfig{
+			Threshold:  0.7,
+			MaxAgeDays: 180,
+			RefSizeMB:  5120,
+			Weights: WeightsConfig{
+				Age:         0.35,
+				Size:        0.30,
+				GitActivity: 0.20,
+				Risk:        0.15,
+			},
+		},
+		Watch: WatchConfig{
+			Interval:    "6h",
+			ThresholdMB: 2048,
+		},
 	}
 }
