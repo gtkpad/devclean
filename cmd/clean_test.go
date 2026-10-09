@@ -157,3 +157,21 @@ func TestCleanCmd_MutuallyExclusiveFlags(t *testing.T) {
 		t.Fatal("expected error when both --auto and --force are set")
 	}
 }
+
+func TestCleanCmd_NothingToClean_ReturnsError(t *testing.T) {
+	cfgFile := createEmptyConfig(t)
+	origConfigPath := configPath
+	configPath = cfgFile
+	defer func() { configPath = origConfigPath }()
+
+	cmd := newCleanCmd()
+	cmd.SetArgs([]string{"--force"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error when nothing to clean, got nil")
+	}
+	if err.Error() != "nothing to clean" {
+		t.Fatalf("expected 'nothing to clean', got %q", err.Error())
+	}
+}
+

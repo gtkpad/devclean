@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -28,9 +29,10 @@ func newScanCmd() *cobra.Command {
 	var smart bool
 
 	cmd := &cobra.Command{
-		Use:   "scan",
-		Short: "Scan for cleanable targets across ecosystems",
-		Long:  "Discovers build artifacts, caches, and unused dependencies that can be safely removed.",
+		Use:          "scan",
+		Short:        "Scan for cleanable targets across ecosystems",
+		Long:         "Discovers build artifacts, caches, and unused dependencies that can be safely removed.",
+		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load(configPath)
 			if err != nil {
@@ -74,8 +76,7 @@ func newScanCmd() *cobra.Command {
 			}
 
 			if len(results) == 0 || totalTargets(results) == 0 {
-				fmt.Fprintln(os.Stderr, "No targets found")
-				os.Exit(2)
+				return errors.New("no targets found")
 			}
 
 			if smart {

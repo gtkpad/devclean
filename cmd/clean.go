@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -36,9 +37,10 @@ func newCleanCmd() *cobra.Command {
 	var smart bool
 
 	cmd := &cobra.Command{
-		Use:   "clean",
-		Short: "Delete scan targets to free disk space",
-		Long:  "Removes build artifacts, caches, and unused dependencies. Requires --auto or --force flag.",
+		Use:          "clean",
+		Short:        "Delete scan targets to free disk space",
+		Long:         "Removes build artifacts, caches, and unused dependencies. Requires --auto or --force flag.",
+		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			startTime := time.Now()
 
@@ -224,8 +226,7 @@ Run 'devclean scan' to preview what would be cleaned.`)
 			}
 
 			if totalCount == 0 {
-				fmt.Fprintln(os.Stderr, "Nothing to clean")
-				os.Exit(2)
+				return errors.New("nothing to clean")
 			}
 
 			if auto && !dryRun {
