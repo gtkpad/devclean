@@ -86,3 +86,30 @@ func TestInitCmd_YesFlag_WritesConfig(t *testing.T) {
 		t.Error("expected node ecosystem disabled (not detected)")
 	}
 }
+
+func TestInitCmd_ExecutionBranches(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	// Criar projeto com manifest
+	appDir := filepath.Join(tmpDir, "projects", "myapp")
+	_ = os.MkdirAll(appDir, 0755)
+	_ = os.WriteFile(filepath.Join(appDir, "package.json"), []byte("{}"), 0644)
+
+	// 1. Executar com --yes
+	initCmd := newInitCmd()
+	initCmd.SetArgs([]string{"--yes"})
+	if err := initCmd.Execute(); err != nil {
+		t.Fatalf("init --yes failed: %v", err)
+	}
+
+	// 2. Executar sem --yes quando o arquivo já existe
+	initCmdNoYes := newInitCmd()
+	if err := initCmdNoYes.Execute(); err != nil {
+		t.Fatalf("init existing config without --yes failed: %v", err)
+	}
+
+	// 3. printDiscoverySummary
+	printDiscoverySummary([]string{appDir}, []string{"node"})
+	printDiscoverySummary(nil, nil)
+}

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/gtkpad/devclean/internal/cleaner/docker"
@@ -92,7 +91,7 @@ func newScanCmd() *cobra.Command {
 				}
 			}
 
-			return formatOutput(os.Stdout, results, format, verbose, smart)
+			return formatOutput(cmd.OutOrStdout(), results, format, verbose, smart)
 		},
 	}
 

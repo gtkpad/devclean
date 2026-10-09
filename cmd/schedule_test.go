@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"path/filepath"
 	"testing"
 )
 
@@ -38,5 +39,45 @@ func TestScheduleCmd_StatusFlag(t *testing.T) {
 	err := cmd.Execute()
 	if err != nil {
 		t.Errorf("unexpected error for --status: %v", err)
+	}
+
+	// Status with watch mode
+	cmdWatch := newScheduleCmd()
+	cmdWatch.SetArgs([]string{"--status", "--watch"})
+	if err := cmdWatch.Execute(); err != nil {
+		t.Errorf("unexpected error for --status --watch: %v", err)
+	}
+}
+
+func TestUnscheduleCmd_Execution(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	// Test unschedule when not installed
+	unCmd := newUnscheduleCmd()
+	if err := unCmd.Execute(); err != nil {
+		t.Errorf("unschedule on fresh system failed: %v", err)
+	}
+
+	// Test unschedule --watch when not installed
+	unCmdWatch := newUnscheduleCmd()
+	unCmdWatch.SetArgs([]string{"--watch"})
+	if err := unCmdWatch.Execute(); err != nil {
+		t.Errorf("unschedule --watch failed: %v", err)
+	}
+}
+
+func TestShowStatus_Function(t *testing.T) {
+	tmpDir := t.TempDir()
+	configDir := filepath.Join(tmpDir, "config")
+
+	// Standard status
+	if err := showStatus(configDir, false); err != nil {
+		t.Errorf("showStatus failed: %v", err)
+	}
+
+	// Watch status
+	if err := showStatus(configDir, true); err != nil {
+		t.Errorf("showStatus watchMode failed: %v", err)
 	}
 }
