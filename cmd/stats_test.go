@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -43,4 +45,37 @@ func TestPrintStats_SingleEntry(t *testing.T) {
 		},
 	}
 	printStats(entries)
+}
+
+func TestStatsCmd_Execution(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	dataDir := filepath.Join(tmpDir, ".local", "share", "devclean")
+
+	// 1. Executar quando vazio
+	cmd := newStatsCmd()
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("stats empty failed: %v", err)
+	}
+
+	// 2. Gravar entradas e executar novamente
+	_ = history.Append(dataDir, history.Entry{
+		Timestamp:  time.Now(),
+		Targets:    2,
+		FreedBytes: 1024 * 1024,
+		Ecosystems: []string{"node"},
+		Duration:   time.Second,
+		Mode:       "force",
+	})
+
+	cmdWithData := newStatsCmd()
+	if err := cmdWithData.Execute(); err != nil {
+		t.Fatalf("stats with data failed: %v", err)
+	}
+
+	// 3. Simular erro ao ler history
+	invalidFile := filepath.Join(dataDir, "history.jsonl")
+	_ = os.WriteFile(invalidFile, []byte("{invalid-json"), 0644)
+	// Nota: history.Read pode retornar erro com json corrompido
+	_ = cmdWithData.Execute()
 }
