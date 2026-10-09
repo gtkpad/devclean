@@ -25,6 +25,10 @@ type Engine struct {
 
 // New creates a scan engine.
 func New(cfg *config.Config, resolver platform.Resolver) *Engine {
+	if cfg == nil {
+		def := config.Defaults()
+		cfg = &def
+	}
 	return &Engine{
 		cleaners: make(map[string]domain.Cleaner),
 		config:   cfg,

@@ -38,6 +38,9 @@ func (c *nextjsCleaner) Scan(ctx context.Context, rules domain.EcosystemRules) (
 
 	for _, root := range c.scanPaths {
 		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return ctxErr
+			}
 			if err != nil {
 				if path == root {
 					return err
@@ -99,6 +102,9 @@ func (c *nextjsCleaner) Scan(ctx context.Context, rules domain.EcosystemRules) (
 
 func (c *nextjsCleaner) Clean(ctx context.Context, targets []domain.Target) error {
 	for _, t := range targets {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		if err := os.RemoveAll(t.Path); err != nil {
 			return err
 		}

@@ -29,10 +29,13 @@ func New() domain.Cleaner {
 
 // NewWithExecutor creates a new xcodeCleaner with a custom command executor.
 func NewWithExecutor(exec cleaner.CommandExecutor) domain.Cleaner {
-	home, _ := os.UserHomeDir()
+	baseDir := ""
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		baseDir = filepath.Join(home, "Library", "Developer", "Xcode")
+	}
 	return &xcodeCleaner{
 		exec:    exec,
-		baseDir: filepath.Join(home, "Library", "Developer", "Xcode"),
+		baseDir: baseDir,
 		goos:    runtime.GOOS,
 	}
 }
@@ -69,7 +72,7 @@ func (c *xcodeCleaner) Name() string {
 
 // IsInstalled checks if running on Darwin and xcrun is available in PATH.
 func (c *xcodeCleaner) IsInstalled() bool {
-	if c.getOS() != "darwin" {
+	if c.getOS() != "darwin" || c.baseDir == "" {
 		return false
 	}
 	_, err := c.exec.LookPath("xcrun")

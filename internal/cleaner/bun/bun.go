@@ -18,7 +18,10 @@ type bunCleaner struct {
 
 // New creates a new Bun cleaner with the default cache path ~/.bun/install/cache.
 func New() domain.Cleaner {
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return &bunCleaner{cachePath: ""}
+	}
 	return &bunCleaner{
 		cachePath: filepath.Join(home, ".bun", "install", "cache"),
 	}
@@ -34,6 +37,9 @@ func (c *bunCleaner) Name() string {
 }
 
 func (c *bunCleaner) IsInstalled() bool {
+	if c.cachePath == "" {
+		return false
+	}
 	if _, err := os.Stat(c.cachePath); err == nil {
 		return true
 	}
