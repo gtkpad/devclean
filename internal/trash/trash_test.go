@@ -197,3 +197,48 @@ func TestLoadManifest_MissingFile(t *testing.T) {
 		t.Errorf("expected empty manifest, got %d batches", len(manifest.Batches))
 	}
 }
+
+func TestMove_VirtualTargetIgnored(t *testing.T) {
+	mgr := newTestManager(t)
+	virtualTarget := domain.Target{
+		ID:        "docker-img-1",
+		Name:      "test-image",
+		Path:      "docker://sha256:1234567890abcdef",
+		SizeBytes: 1024 * 1024 * 50,
+	}
+
+	err := mgr.Move(context.Background(), []domain.Target{virtualTarget}, "docker")
+	if err != nil {
+		t.Fatalf("Move failed for virtual target: %v", err)
+	}
+
+	manifest, err := LoadManifest(mgr.ManifestPath())
+	if err != nil {
+		t.Fatalf("LoadManifest failed: %v", err)
+	}
+	if len(manifest.Batches) != 0 {
+		t.Fatalf("expected 0 batches for virtual-only move, got %d", len(manifest.Batches))
+	}
+}
+
+func TestTarget_IsVirtual(t *testing.T) {
+	tests := []struct {
+		path string
+		want bool
+	}{
+		{"docker://sha256:abc", true},
+		{"docker://volume/my-vol", true},
+		{"custom://artifact", true},
+		{"/home/user/project/node_modules", false},
+		{"/Users/user/.cache/go-build", false},
+		{"", false},
+	}
+
+	for _, tc := range tests {
+		target := domain.Target{Path: tc.path}
+		if got := target.IsVirtual(); got != tc.want {
+			t.Errorf("Target{Path: %q}.IsVirtual() = %v, want %v", tc.path, got, tc.want)
+		}
+	}
+}
+
