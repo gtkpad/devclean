@@ -370,3 +370,85 @@ func TestScan_NoDroppedResultsUnderConcurrency(t *testing.T) {
 	}
 }
 
+type networkMountResolver struct {
+	mounts map[string]bool
+}
+
+func (r *networkMountResolver) Resolve() platform.Paths { return platform.Paths{} }
+func (r *networkMountResolver) IsNetworkMount(path string) bool {
+	return r.mounts[path]
+}
+
+func TestEngine_NetworkMountsAndCleanerLookup(t *testing.T) {
+	cfg := defaultConfig()
+	res := &networkMountResolver{
+		mounts: map[string]bool{
+			"/mnt/nfs/shared": true,
+			"/Volumes/smb":    true,
+		},
+	}
+	eng := New(cfg, res)
+
+	// 1. Cleaner Lookup
+	cleaner := &fakeCleaner{name: "node", installed: true}
+	eng.Register(cleaner)
+
+	if got := eng.GetCleaner("node"); got != cleaner {
+		t.Errorf("GetCleaner(node) = %v, want %v", got, cleaner)
+	}
+	if got := eng.GetCleaner("nonexistent"); got != nil {
+		t.Errorf("GetCleaner(nonexistent) = %v, want nil", got)
+	}
+
+	// 2. FilterNetworkMounts
+	ctx := context.Background()
+	paths := []string{
+		"/Users/dev/project",
+		"/mnt/nfs/shared",
+		"/Volumes/smb",
+		"/var/cache/local",
+	}
+	filtered := eng.FilterNetworkMounts(ctx, paths)
+	if len(filtered) != 2 {
+		t.Fatalf("expected 2 local paths, got %d: %v", len(filtered), filtered)
+	}
+	if filtered[0] != "/Users/dev/project" || filtered[1] != "/var/cache/local" {
+		t.Errorf("unexpected filtered paths: %v", filtered)
+	}
+}
+
+func TestEngine_ScanContextCancellation_NoDeadlock(t *testing.T) {
+	cfg := defaultConfig()
+	eng := New(cfg, &fakeResolver{})
+
+	for i := 0; i < 5; i++ {
+		name := fmt.Sprintf("slow-cleaner-%d", i)
+		eng.Register(&fakeCleaner{
+			name:      name,
+			installed: true,
+			scanFn: func(_ domain.EcosystemRules) ([]domain.Target, error) {
+				time.Sleep(100 * time.Millisecond)
+				return []domain.Target{{ID: "slow"}}, nil
+			},
+		})
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	results := Collect(ctx, eng.Scan(ctx))
+	elapsed := time.Since(start)
+
+	if elapsed > 500*time.Millisecond {
+		t.Errorf("scan with cancellation took too long: %v (possible channel deadlock)", elapsed)
+	}
+
+	// Se houver erros reportados, devem ser de cancelamento de contexto
+	for _, r := range results {
+		if r.Error != nil && !errors.Is(r.Error, context.Canceled) && !errors.Is(r.Error, context.DeadlineExceeded) {
+			t.Errorf("unexpected error on cancelled scan: %v", r.Error)
+		}
+	}
+}
+
