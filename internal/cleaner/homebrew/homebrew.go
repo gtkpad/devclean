@@ -87,8 +87,8 @@ func (c *homebrewCleaner) Clean(ctx context.Context, targets []domain.Target) er
 					return fmt.Errorf("brew cleanup failed: %w (cache fallback lookup failed: %v)", err, errCache)
 				}
 				cacheDir := strings.TrimSpace(string(out))
-				if cacheDir == "" {
-					return fmt.Errorf("brew cleanup failed: %w", err)
+				if cacheDir == "" || !filepath.IsAbs(cacheDir) || cacheDir == "/" || strings.Contains(cacheDir, "Cellar") {
+					return fmt.Errorf("brew cleanup failed: %w (invalid or unsafe fallback cache path: %q)", err, cacheDir)
 				}
 				if errRemove := os.RemoveAll(cacheDir); errRemove != nil {
 					return fmt.Errorf("brew cleanup fallback removal failed: %w", errRemove)

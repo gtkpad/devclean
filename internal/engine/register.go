@@ -26,6 +26,10 @@ func RegisterDefaultCleaners(eng *Engine, cfg *config.Config, resolver platform.
 
 // RegisterDefaultCleanersWithExecutor permite injeção de executor customizado para testes.
 func RegisterDefaultCleanersWithExecutor(eng *Engine, cfg *config.Config, resolver platform.Resolver, exec cleaner.CommandExecutor) {
+	if cfg == nil {
+		def := config.Defaults()
+		cfg = &def
+	}
 	paths := resolver.Resolve()
 
 	// 7 Ecossistemas originais

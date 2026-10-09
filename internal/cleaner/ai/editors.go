@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/gtkpad/devclean/internal/domain"
@@ -95,7 +96,15 @@ func scanEditors(home string, rules domain.EcosystemRules) ([]domain.Target, err
 			if !isObsolete {
 				continue
 			}
-			fullExtDir := filepath.Join(extRoot, extFolder)
+			cleanFolder := filepath.Clean(extFolder)
+			if strings.Contains(cleanFolder, "..") || filepath.IsAbs(cleanFolder) {
+				continue
+			}
+			fullExtDir := filepath.Join(extRoot, cleanFolder)
+			rel, err := filepath.Rel(extRoot, fullExtDir)
+			if err != nil || strings.HasPrefix(rel, "..") || rel == "." {
+				continue
+			}
 			if info, err := os.Stat(fullExtDir); err == nil && info.IsDir() {
 				if rules.MaxAgeDays > 0 && info.ModTime().After(cutoff) {
 					continue
