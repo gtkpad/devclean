@@ -29,6 +29,18 @@ func createEmptyConfig(t *testing.T) string {
     enabled: false
   java:
     enabled: false
+  ai:
+    enabled: false
+  pnpm:
+    enabled: false
+  bun:
+    enabled: false
+  nextjs:
+    enabled: false
+  xcode:
+    enabled: false
+  homebrew:
+    enabled: false
 `
 	tmpDir := t.TempDir()
 	cfgPath := filepath.Join(tmpDir, "config.yaml")
@@ -71,6 +83,18 @@ ecosystems:
   rust:
     enabled: false
   java:
+    enabled: false
+  ai:
+    enabled: false
+  pnpm:
+    enabled: false
+  bun:
+    enabled: false
+  nextjs:
+    enabled: false
+  xcode:
+    enabled: false
+  homebrew:
     enabled: false
 `, tmpDir)
 	if err := os.WriteFile(cfgPath, []byte(cfgContent), 0644); err != nil {
@@ -224,3 +248,38 @@ func TestScanCmd_Helpers(t *testing.T) {
 		t.Error("validateEcosystem should fail for unknown ecosystem")
 	}
 }
+
+func TestScanCmd_NewEcosystemsValidation(t *testing.T) {
+	newEcos := []string{"ai", "pnpm", "bun", "nextjs", "xcode", "homebrew"}
+	for _, eco := range newEcos {
+		t.Run(eco, func(t *testing.T) {
+			cfgFile := createEmptyConfig(t)
+			origConfigPath := configPath
+			configPath = cfgFile
+			defer func() { configPath = origConfigPath }()
+
+			cmd := newScanCmd()
+			cmd.SetArgs([]string{"-e", eco})
+			err := cmd.Execute()
+			if err == nil {
+				t.Fatalf("expected error, got nil")
+			}
+			if strings.Contains(err.Error(), "unknown ecosystem") {
+				t.Fatalf("unexpected unknown ecosystem error for %s: %v", eco, err)
+			}
+			if err.Error() != "no targets found" {
+				t.Fatalf("expected 'no targets found', got %v", err)
+			}
+		})
+	}
+
+	t.Run("invalid ecosystem", func(t *testing.T) {
+		cmd := newScanCmd()
+		cmd.SetArgs([]string{"-e", "invalid-eco-name"})
+		err := cmd.Execute()
+		if err == nil || !strings.Contains(err.Error(), "unknown ecosystem") {
+			t.Fatalf("expected unknown ecosystem error, got %v", err)
+		}
+	})
+}
+

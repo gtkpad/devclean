@@ -7,13 +7,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/gtkpad/devclean/internal/cleaner/docker"
-	"github.com/gtkpad/devclean/internal/cleaner/dotnet"
-	"github.com/gtkpad/devclean/internal/cleaner/golang"
-	"github.com/gtkpad/devclean/internal/cleaner/java"
-	"github.com/gtkpad/devclean/internal/cleaner/node"
-	"github.com/gtkpad/devclean/internal/cleaner/python"
-	"github.com/gtkpad/devclean/internal/cleaner/rust"
 	"github.com/gtkpad/devclean/internal/config"
 	"github.com/gtkpad/devclean/internal/deleter"
 	"github.com/gtkpad/devclean/internal/domain"
@@ -34,6 +27,7 @@ func newCleanCmd() *cobra.Command {
 	var useTrash bool
 	var permanent bool
 	var smart bool
+	var all bool
 
 	cmd := &cobra.Command{
 		Use:          "clean",
@@ -71,17 +65,27 @@ Run 'devclean scan' to preview what would be cleaned.`)
 				return fmt.Errorf("loading config: %w", err)
 			}
 
+			if all {
+				cfg.Ecosystems.Docker.MaxAgeDays = 0
+				cfg.Ecosystems.Go.MaxAgeDays = 0
+				cfg.Ecosystems.Node.MaxAgeDays = 0
+				cfg.Ecosystems.DotNet.MaxAgeDays = 0
+				cfg.Ecosystems.Python.MaxAgeDays = 0
+				cfg.Ecosystems.Rust.MaxAgeDays = 0
+				cfg.Ecosystems.Java.MaxAgeDays = 0
+				cfg.Ecosystems.AI.MaxAgeDays = 0
+				cfg.Ecosystems.Pnpm.MaxAgeDays = 0
+				cfg.Ecosystems.Bun.MaxAgeDays = 0
+				cfg.Ecosystems.NextJS.MaxAgeDays = 0
+				cfg.Ecosystems.Xcode.MaxAgeDays = 0
+				cfg.Ecosystems.Homebrew.MaxAgeDays = 0
+			}
+
 			resolver := platform.New()
 			paths := resolver.Resolve()
 			eng := engine.New(cfg, resolver)
 
-			eng.Register(docker.New())
-			eng.Register(golang.New())
-			eng.Register(node.New(cfg.ScanPaths))
-			eng.Register(dotnet.New(paths, cfg.ScanPaths))
-			eng.Register(python.New(paths.PythonUVCache, cfg.ScanPaths))
-			eng.Register(rust.New(cfg.ScanPaths))
-			eng.Register(java.New(cfg.ScanPaths))
+			engine.RegisterDefaultCleaners(eng, cfg, resolver)
 
 			if ecosystem != "" {
 				if err := validateEcosystem(ecosystem, eng.Ecosystems()); err != nil {
@@ -235,6 +239,7 @@ Run 'devclean scan' to preview what would be cleaned.`)
 	cmd.Flags().BoolVar(&useTrash, "trash", false, "move targets to trash instead of permanent deletion")
 	cmd.Flags().BoolVar(&permanent, "permanent", false, "force permanent deletion even when trash is enabled")
 	cmd.Flags().BoolVar(&smart, "smart", false, "only delete targets above score threshold (use with --auto)")
+	cmd.Flags().BoolVar(&all, "all", false, "apply zero TTL across all ecosystems")
 
 	return cmd
 }
@@ -276,6 +281,22 @@ func getMaxAgeDays(cfg *config.Config, ecosystem string) int {
 		return cfg.Ecosystems.DotNet.MaxAgeDays
 	case "python":
 		return cfg.Ecosystems.Python.MaxAgeDays
+	case "rust":
+		return cfg.Ecosystems.Rust.MaxAgeDays
+	case "java":
+		return cfg.Ecosystems.Java.MaxAgeDays
+	case "ai":
+		return cfg.Ecosystems.AI.MaxAgeDays
+	case "pnpm":
+		return cfg.Ecosystems.Pnpm.MaxAgeDays
+	case "bun":
+		return cfg.Ecosystems.Bun.MaxAgeDays
+	case "nextjs":
+		return cfg.Ecosystems.NextJS.MaxAgeDays
+	case "xcode":
+		return cfg.Ecosystems.Xcode.MaxAgeDays
+	case "homebrew":
+		return cfg.Ecosystems.Homebrew.MaxAgeDays
 	default:
 		return 0
 	}
