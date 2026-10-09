@@ -50,3 +50,33 @@ func TestValidate_EmptyScanPath(t *testing.T) {
 		t.Errorf("error should mention empty path: %v", err)
 	}
 }
+
+func TestValidate_NewHooksValidation(t *testing.T) {
+	t.Run("NextJS invalid timeout", func(t *testing.T) {
+		cfg := Defaults()
+		cfg.Hooks.NextJS.Timeout = "invalido"
+		err := cfg.Validate()
+		if err == nil || !strings.Contains(err.Error(), "hooks.nextjs.timeout") {
+			t.Errorf("expected hooks.nextjs.timeout validation error, got: %v", err)
+		}
+	})
+
+	t.Run("Xcode invalid timeout", func(t *testing.T) {
+		cfg := Defaults()
+		cfg.Hooks.Xcode.Timeout = "999xyz"
+		err := cfg.Validate()
+		if err == nil || !strings.Contains(err.Error(), "hooks.xcode.timeout") {
+			t.Errorf("expected hooks.xcode.timeout validation error, got: %v", err)
+		}
+	})
+
+	t.Run("AI invalid platform", func(t *testing.T) {
+		cfg := Defaults()
+		cfg.Hooks.AI.Platform = []string{"solaris"}
+		err := cfg.Validate()
+		if err == nil || !strings.Contains(err.Error(), "hooks.ai.platform") {
+			t.Errorf("expected hooks.ai.platform validation error, got: %v", err)
+		}
+	})
+}
+
