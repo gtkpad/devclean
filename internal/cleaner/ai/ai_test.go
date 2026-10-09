@@ -3,6 +3,7 @@ package ai
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -268,5 +269,149 @@ func TestClaude(t *testing.T) {
 	}
 	if missing != nil {
 		t.Fatalf("expected nil targets for missing directory, got %v", missing)
+	}
+}
+
+func TestEditors(t *testing.T) {
+	home := t.TempDir()
+
+	// 1. Setup Editor App Support / Config dirs
+	var codeDir, cursorDir string
+	if runtime.GOOS == "darwin" {
+		codeDir = filepath.Join(home, "Library", "Application Support", "Code")
+		cursorDir = filepath.Join(home, "Library", "Application Support", "Cursor")
+	} else {
+		codeDir = filepath.Join(home, ".config", "Code")
+		cursorDir = filepath.Join(home, ".config", "Cursor")
+	}
+
+	for _, edDir := range []string{codeDir, cursorDir} {
+		if err := os.MkdirAll(filepath.Join(edDir, "CachedData"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(edDir, "CachedData", "v8_cache.bin"), []byte("v8-bytecode"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(edDir, "logs"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(edDir, "logs", "session.log"), []byte("session-log"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		// Settings files that MUST NOT be touched
+		if err := os.WriteFile(filepath.Join(edDir, "settings.json"), []byte(`{"editor.tabSize": 2}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(edDir, "keybindings.json"), []byte(`[]`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// 2. Setup Extensions (.vscode and .cursor)
+	vscodeExt := filepath.Join(home, ".vscode", "extensions")
+	if err := os.MkdirAll(filepath.Join(vscodeExt, "publisher.ext-1.0.0"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(vscodeExt, "publisher.ext-1.0.0", "package.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(vscodeExt, "publisher.ext-2.0.0"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(vscodeExt, "publisher.ext-2.0.0", "package.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// .obsolete marks ext-1.0.0 as obsolete
+	obsoleteJSON := `{"publisher.ext-1.0.0": true, "publisher.ext-3.0.0": false}`
+	if err := os.WriteFile(filepath.Join(vscodeExt, ".obsolete"), []byte(obsoleteJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Scan with MaxAgeDays = 0
+	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 0}
+	targets, err := scanEditors(home, rules)
+	if err != nil {
+		t.Fatalf("unexpected scan error: %v", err)
+	}
+
+	var foundCodeCachedData, foundCodeLogs bool
+	var foundCursorCachedData, foundCursorLogs bool
+	var foundObsoleteExt, foundActiveExt, foundSettings bool
+
+	for _, target := range targets {
+		if target.Risk != domain.RiskLow {
+			t.Errorf("expected RiskLow for editor target %s, got %v", target.Name, target.Risk)
+		}
+
+		base := filepath.Base(target.Path)
+		if base == "settings.json" || base == "keybindings.json" {
+			foundSettings = true
+		}
+		if base == "publisher.ext-2.0.0" {
+			foundActiveExt = true
+		}
+		if base == "publisher.ext-1.0.0" {
+			foundObsoleteExt = true
+			if target.Category != "editor-obsolete-extension" {
+				t.Errorf("expected category editor-obsolete-extension, got %s", target.Category)
+			}
+		}
+		if target.Category == "editor-cached-data" {
+			if target.Path == filepath.Join(codeDir, "CachedData") {
+				foundCodeCachedData = true
+			}
+			if target.Path == filepath.Join(cursorDir, "CachedData") {
+				foundCursorCachedData = true
+			}
+		}
+		if target.Category == "editor-logs" {
+			if target.Path == filepath.Join(codeDir, "logs") {
+				foundCodeLogs = true
+			}
+			if target.Path == filepath.Join(cursorDir, "logs") {
+				foundCursorLogs = true
+			}
+		}
+	}
+
+	if foundSettings {
+		t.Fatal("SECURITY VIOLATION: settings.json or keybindings.json returned as target!")
+	}
+	if foundActiveExt {
+		t.Fatal("SECURITY VIOLATION: active extension publisher.ext-2.0.0 returned as target!")
+	}
+	if !foundCodeCachedData {
+		t.Error("expected Code CachedData to be detected")
+	}
+	if !foundCodeLogs {
+		t.Error("expected Code logs to be detected")
+	}
+	if !foundCursorCachedData {
+		t.Error("expected Cursor CachedData to be detected")
+	}
+	if !foundCursorLogs {
+		t.Error("expected Cursor logs to be detected")
+	}
+	if !foundObsoleteExt {
+		t.Error("expected obsolete extension publisher.ext-1.0.0 to be detected")
+	}
+
+	// Test TTL filtering: set Code CachedData to recent, Cursor CachedData to old
+	oldTime := time.Now().AddDate(0, 0, -60)
+	recentTime := time.Now().AddDate(0, 0, -2)
+	_ = os.Chtimes(filepath.Join(codeDir, "CachedData"), recentTime, recentTime)
+	_ = os.Chtimes(filepath.Join(cursorDir, "CachedData"), oldTime, oldTime)
+	_ = os.Chtimes(filepath.Join(vscodeExt, "publisher.ext-1.0.0"), oldTime, oldTime)
+
+	rulesAge := domain.EcosystemRules{Enabled: true, MaxAgeDays: 30}
+	agedTargets, err := scanEditors(home, rulesAge)
+	if err != nil {
+		t.Fatalf("unexpected scan error with TTL: %v", err)
+	}
+
+	for _, target := range agedTargets {
+		if target.Path == filepath.Join(codeDir, "CachedData") {
+			t.Errorf("recent Code CachedData should NOT be returned when MaxAgeDays=30")
+		}
 	}
 }
