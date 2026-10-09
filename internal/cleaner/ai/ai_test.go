@@ -415,3 +415,91 @@ func TestEditors(t *testing.T) {
 		}
 	}
 }
+
+func TestHuggingFace(t *testing.T) {
+	tmpDir := t.TempDir()
+	hfRoot := filepath.Join(tmpDir, ".cache", "huggingface")
+
+	hubDir := filepath.Join(hfRoot, "hub")
+	datasetsDir := filepath.Join(hfRoot, "datasets")
+
+	bertDir := filepath.Join(hubDir, "models--bert-base-uncased")
+	llamaDir := filepath.Join(hubDir, "models--llama-3-8b")
+	glueDir := filepath.Join(datasetsDir, "glue")
+
+	for _, d := range []string{bertDir, llamaDir, glueDir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(d, "snapshot.bin"), []byte("model-or-dataset-data"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	oldTime60 := time.Now().AddDate(0, 0, -60)
+	oldTime45 := time.Now().AddDate(0, 0, -45)
+	recentTime2 := time.Now().AddDate(0, 0, -2)
+
+	_ = os.Chtimes(bertDir, oldTime60, oldTime60)
+	_ = os.Chtimes(glueDir, oldTime45, oldTime45)
+	_ = os.Chtimes(llamaDir, recentTime2, recentTime2)
+
+	// Test with MaxAgeDays = 30
+	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 30}
+	targets, err := scanHuggingFace(hfRoot, rules)
+	if err != nil {
+		t.Fatalf("unexpected scan error: %v", err)
+	}
+
+	var foundBert, foundGlue, foundLlama bool
+	for _, target := range targets {
+		if target.Risk != domain.RiskMedium {
+			t.Errorf("expected RiskMedium (D-03) for HuggingFace target %s, got %v", target.Name, target.Risk)
+		}
+
+		if target.Path == bertDir {
+			foundBert = true
+			if target.Category != "ai-huggingface-hub" {
+				t.Errorf("expected category ai-huggingface-hub, got %s", target.Category)
+			}
+		}
+		if target.Path == glueDir {
+			foundGlue = true
+			if target.Category != "ai-huggingface-datasets" {
+				t.Errorf("expected category ai-huggingface-datasets, got %s", target.Category)
+			}
+		}
+		if target.Path == llamaDir {
+			foundLlama = true
+		}
+	}
+
+	if !foundBert {
+		t.Error("expected old bert-base-uncased to be detected")
+	}
+	if !foundGlue {
+		t.Error("expected old glue dataset to be detected")
+	}
+	if foundLlama {
+		t.Error("recent llama-3-8b should NOT be detected when MaxAgeDays=30")
+	}
+
+	// Test with MaxAgeDays = 0 (all detected)
+	rulesAll := domain.EcosystemRules{Enabled: true, MaxAgeDays: 0}
+	targetsAll, err := scanHuggingFace(hfRoot, rulesAll)
+	if err != nil {
+		t.Fatalf("unexpected scan error: %v", err)
+	}
+	if len(targetsAll) != 3 {
+		t.Errorf("expected 3 targets when MaxAgeDays=0, got %d", len(targetsAll))
+	}
+
+	// Test non-existent directory returns nil, nil
+	missing, err := scanHuggingFace(filepath.Join(tmpDir, "nonexistent"), rules)
+	if err != nil {
+		t.Fatalf("expected nil error for missing directory, got %v", err)
+	}
+	if missing != nil {
+		t.Fatalf("expected nil targets for missing directory, got %v", missing)
+	}
+}
