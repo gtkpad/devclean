@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -310,3 +311,62 @@ func TestEcosystems_ReturnsSortedNames(t *testing.T) {
 		}
 	}
 }
+
+func TestScan_NoDroppedResultsUnderConcurrency(t *testing.T) {
+	cfg := defaultConfig()
+	e := New(cfg, &fakeResolver{})
+
+	const numCleaners = 20
+	expectedCleaners := make(map[string]int)
+
+	for i := 0; i < numCleaners; i++ {
+		name := fmt.Sprintf("cleaner-%02d", i)
+		targetCount := (i % 3) + 1
+		expectedCleaners[name] = targetCount
+		delay := time.Duration(10+(i*2)) * time.Millisecond
+
+		tc := targetCount
+		d := delay
+		n := name
+		e.Register(&fakeCleaner{
+			name:      n,
+			installed: true,
+			scanFn: func(_ domain.EcosystemRules) ([]domain.Target, error) {
+				time.Sleep(d)
+				targets := make([]domain.Target, tc)
+				for j := 0; j < tc; j++ {
+					targets[j] = domain.Target{
+						ID:       fmt.Sprintf("%s-target-%d", n, j),
+						Category: "test-category",
+					}
+				}
+				return targets, nil
+			},
+		})
+	}
+
+	ctx := context.Background()
+	results := Collect(ctx, e.Scan(ctx))
+
+	if len(results) != numCleaners {
+		t.Fatalf("expected %d results, got %d", numCleaners, len(results))
+	}
+
+	received := make(map[string]int)
+	for _, res := range results {
+		if res.Error != nil {
+			t.Errorf("cleaner %s returned unexpected error: %v", res.Ecosystem, res.Error)
+		}
+		received[res.Ecosystem] = len(res.Targets)
+	}
+
+	for name, expectedCount := range expectedCleaners {
+		gotCount, exists := received[name]
+		if !exists {
+			t.Errorf("missing result for cleaner %s", name)
+		} else if gotCount != expectedCount {
+			t.Errorf("cleaner %s: expected %d targets, got %d", name, expectedCount, gotCount)
+		}
+	}
+}
+

@@ -2,7 +2,9 @@ package intelligence
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -88,3 +90,128 @@ func TestAgeToActivityScore(t *testing.T) {
 		})
 	}
 }
+
+func TestFindGitRepo_WorktreePointer(t *testing.T) {
+	root := t.TempDir()
+	metaDir := filepath.Join(root, "main-repo", ".git", "worktrees", "wt1")
+	if err := os.MkdirAll(metaDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	wtDir := filepath.Join(root, "wt1-worktree")
+	if err := os.MkdirAll(filepath.Join(wtDir, "sub", "dir"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	gitFile := filepath.Join(wtDir, ".git")
+	if err := os.WriteFile(gitFile, []byte(fmt.Sprintf("gitdir: %s\n", metaDir)), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	workTreeDir, gitDir := findGitRepo(filepath.Join(wtDir, "sub", "dir"))
+	if workTreeDir != wtDir {
+		t.Errorf("findGitRepo() workTreeDir = %q, want %q", workTreeDir, wtDir)
+	}
+	if gitDir != metaDir {
+		t.Errorf("findGitRepo() gitDir = %q, want %q", gitDir, metaDir)
+	}
+
+	if got := findGitDir(filepath.Join(wtDir, "sub", "dir")); got != metaDir {
+		t.Errorf("findGitDir() = %q, want %q", got, metaDir)
+	}
+}
+
+func TestFindGitRepo_RelativeWorktreePointer(t *testing.T) {
+	root := t.TempDir()
+	metaDir := filepath.Join(root, "repo", ".git", "worktrees", "feat")
+	if err := os.MkdirAll(metaDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	wtDir := filepath.Join(root, "repo", "feat-wt")
+	if err := os.MkdirAll(wtDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	relPath, err := filepath.Rel(wtDir, metaDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	gitFile := filepath.Join(wtDir, ".git")
+	if err := os.WriteFile(gitFile, []byte(fmt.Sprintf("gitdir: %s\n", relPath)), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	workTreeDir, gitDir := findGitRepo(wtDir)
+	if workTreeDir != wtDir {
+		t.Errorf("findGitRepo() workTreeDir = %q, want %q", workTreeDir, wtDir)
+	}
+	if gitDir != metaDir {
+		t.Errorf("findGitRepo() gitDir = %q, want %q", gitDir, metaDir)
+	}
+}
+
+func TestGitActivityScore_IgnoredDirFallback(t *testing.T) {
+	repoDir := t.TempDir()
+
+	runGit := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repoDir
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v failed: %v, out: %s", args, err, string(out))
+		}
+	}
+
+	runGit("init")
+	runGit("config", "user.email", "test@example.com")
+	runGit("config", "user.name", "Test User")
+
+	gitignorePath := filepath.Join(repoDir, ".gitignore")
+	if err := os.WriteFile(gitignorePath, []byte("node_modules/\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit("add", ".gitignore")
+
+	dateStr := time.Now().Add(-10 * 24 * time.Hour).Format(time.RFC3339)
+	commitCmd := exec.Command("git", "commit", "-m", "initial commit", "--date", dateStr)
+	commitCmd.Dir = repoDir
+	commitCmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_DATE="+dateStr,
+		"GIT_COMMITTER_DATE="+dateStr,
+	)
+	out, err := commitCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("commit failed: %v, out: %s", err, string(out))
+	}
+
+	ignoredDir := filepath.Join(repoDir, "node_modules")
+	if err := os.MkdirAll(ignoredDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ignoredDir, "pkg.json"), []byte("{}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	maxAge := 180 * 24 * time.Hour
+	score, err := GitActivityScore(context.Background(), ignoredDir, maxAge)
+	if err != nil {
+		t.Fatalf("GitActivityScore failed: %v", err)
+	}
+
+	// Score must be active (> 0.0) derived from repo's 10-day-old commit, and safe/active (< 1.0)
+	if score <= 0.0 || score >= 1.0 {
+		t.Errorf("GitActivityScore(ignoredDir) = %v, want (0.0, 1.0) based on repo commit fallback", score)
+	}
+
+	// Validate gitLastCommitTime directly
+	lastCommit, err := gitLastCommitTime(context.Background(), repoDir, ignoredDir)
+	if err != nil {
+		t.Fatalf("gitLastCommitTime failed: %v", err)
+	}
+	if lastCommit.IsZero() {
+		t.Error("expected non-zero lastCommit time for ignored directory via fallback")
+	}
+}
+

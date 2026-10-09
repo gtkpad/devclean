@@ -3,9 +3,13 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/gtkpad/devclean/internal/cleaner/docker"
 	"github.com/gtkpad/devclean/internal/cleaner/dotnet"
@@ -18,7 +22,6 @@ import (
 	"github.com/gtkpad/devclean/internal/platform"
 	"github.com/gtkpad/devclean/internal/watch"
 	"github.com/spf13/cobra"
-	"log/slog"
 )
 
 func newWatchCmd() *cobra.Command {
@@ -63,7 +66,26 @@ func newWatchCmd() *cobra.Command {
 				Logger:         slog.Default(),
 			}
 
-			ctx := context.Background()
+			if interval != "" {
+				parsedInterval, err := time.ParseDuration(interval)
+				if err != nil {
+					return fmt.Errorf("invalid --interval value %q: %w", interval, err)
+				}
+				w.Interval = parsedInterval
+
+				ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+				defer stop()
+
+				fmt.Fprintf(os.Stdout, "Starting watch daemon (interval: %s, threshold: %s)...\n",
+					interval, humanSize(thresholdBytes))
+
+				return w.Run(ctx)
+			}
+
+			ctx := cmd.Context()
+			if ctx == nil {
+				ctx = context.Background()
+			}
 			totalBytes, targetCount, err := w.RunOnce(ctx)
 			if err != nil {
 				return fmt.Errorf("watch scan failed: %w", err)
@@ -99,23 +121,26 @@ func parseBytes(s string) (int64, error) {
 
 	s = strings.ToUpper(s)
 
-	multipliers := map[string]int64{
-		"TB": 1024 * 1024 * 1024 * 1024,
-		"GB": 1024 * 1024 * 1024,
-		"MB": 1024 * 1024,
-		"KB": 1024,
-		"B":  1,
+	units := []struct {
+		suffix string
+		mult   int64
+	}{
+		{"TB", 1024 * 1024 * 1024 * 1024},
+		{"GB", 1024 * 1024 * 1024},
+		{"MB", 1024 * 1024},
+		{"KB", 1024},
+		{"B", 1},
 	}
 
-	for suffix, mult := range multipliers {
-		if strings.HasSuffix(s, suffix) {
-			numStr := strings.TrimSuffix(s, suffix)
+	for _, u := range units {
+		if strings.HasSuffix(s, u.suffix) {
+			numStr := strings.TrimSuffix(s, u.suffix)
 			numStr = strings.TrimSpace(numStr)
 			val, err := strconv.ParseFloat(numStr, 64)
 			if err != nil {
 				return 0, fmt.Errorf("invalid number %q", numStr)
 			}
-			return int64(val * float64(mult)), nil
+			return int64(val * float64(u.mult)), nil
 		}
 	}
 
