@@ -1,11 +1,14 @@
 package tui
 
 import (
+	"context"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/gtkpad/devclean/internal/config"
+	"github.com/gtkpad/devclean/internal/deleter"
 	"github.com/gtkpad/devclean/internal/domain"
+	"github.com/gtkpad/devclean/internal/safety"
 )
 
 func testModel() model {
@@ -366,5 +369,56 @@ func TestUpdateSelecting_SelectionsPersistAfterFilterClear(t *testing.T) {
 	// Selection should persist
 	if !um.selected["t1"] {
 		t.Error("selection of t1 should persist after clearing filters")
+	}
+}
+
+type fakeCleanerProvider struct {
+	cleaner domain.Cleaner
+}
+
+func (p *fakeCleanerProvider) GetCleaner(name string) domain.Cleaner {
+	return p.cleaner
+}
+
+type fakeCleaner struct {
+	cleaned []domain.Target
+}
+
+func (f *fakeCleaner) Name() string                                              { return "go" }
+func (f *fakeCleaner) IsInstalled() bool                                         { return true }
+func (f *fakeCleaner) Scan(_ context.Context, _ domain.EcosystemRules) ([]domain.Target, error) {
+	return nil, nil
+}
+func (f *fakeCleaner) Clean(_ context.Context, targets []domain.Target) error {
+	f.cleaned = append(f.cleaned, targets...)
+	return nil
+}
+
+func TestDeleteCmd_WithCoordinator(t *testing.T) {
+	fc := &fakeCleaner{}
+	cleaners := &fakeCleanerProvider{cleaner: fc}
+	cfg := &config.Config{}
+	bl := safety.NewBlacklist(nil)
+	coord := deleter.New(cleaners, cfg, bl, nil, nil, "", "")
+
+	m := testModel()
+	m.coordinator = coord
+	m.selected["t1"] = true // t1 is go ecosystem, size 100
+	m.selected["t2"] = true // t2 is go ecosystem, size 200
+
+	cmd := deleteCmd(m)
+	msg := cmd()
+	completeMsg, ok := msg.(deleteCompleteMsg)
+	if !ok {
+		t.Fatalf("expected deleteCompleteMsg, got %T", msg)
+	}
+	if completeMsg.count != 2 {
+		t.Errorf("expected count 2, got %d", completeMsg.count)
+	}
+	if completeMsg.freed != 300 {
+		t.Errorf("expected freed 300, got %d", completeMsg.freed)
+	}
+	if len(fc.cleaned) != 2 {
+		t.Errorf("expected 2 cleaned targets in fakeCleaner, got %d", len(fc.cleaned))
 	}
 }

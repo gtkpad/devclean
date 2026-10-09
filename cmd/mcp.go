@@ -12,8 +12,10 @@ import (
 	"github.com/gtkpad/devclean/internal/cleaner/python"
 	"github.com/gtkpad/devclean/internal/cleaner/rust"
 	"github.com/gtkpad/devclean/internal/config"
+	"github.com/gtkpad/devclean/internal/deleter"
 	"github.com/gtkpad/devclean/internal/engine"
 	"github.com/gtkpad/devclean/internal/history"
+	"github.com/gtkpad/devclean/internal/hooks"
 	devmcp "github.com/gtkpad/devclean/internal/mcp"
 	"github.com/gtkpad/devclean/internal/platform"
 	"github.com/gtkpad/devclean/internal/safety"
@@ -79,12 +81,15 @@ func newMCPCmd() *cobra.Command {
 			tm := trash.New(cfg.Safety)
 			bl := safety.NewBlacklist(cfg.ProtectedPatterns)
 			explainer := devmcp.NewDefaultExplainer(cfg, bl)
+			hookRunner := hooks.New(cfg.Hooks)
+			coord := deleter.New(eng, cfg, bl, tm, hookRunner, cfgDir, dataDir)
 
 			srv := devmcp.New(eng, cfg,
 				devmcp.WithHistory(ha),
 				devmcp.WithConfigProvider(ca),
 				devmcp.WithTrash(tm),
 				devmcp.WithExplainer(explainer),
+				devmcp.WithCoordinator(coord),
 			)
 			return srv.ServeStdio()
 		},
