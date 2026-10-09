@@ -115,3 +115,24 @@ var errScanFailed = errorString("scan failed")
 type errorString string
 
 func (e errorString) Error() string { return string(e) }
+
+func TestTarget_IsVirtual(t *testing.T) {
+	tests := []struct {
+		path string
+		want bool
+	}{
+		{"docker://sha256:abc", true},
+		{"docker://volume/my-vol", true},
+		{"custom://artifact", true},
+		{"/home/user/project/node_modules", false},
+		{"/Users/user/.cache/go-build", false},
+		{"", false},
+	}
+
+	for _, tc := range tests {
+		target := Target{Path: tc.path}
+		if got := target.IsVirtual(); got != tc.want {
+			t.Errorf("Target{Path: %q}.IsVirtual() = %v, want %v", tc.path, got, tc.want)
+		}
+	}
+}
