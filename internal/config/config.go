@@ -31,13 +31,19 @@ func (ec EcosystemConfig) ToRules() domain.EcosystemRules {
 }
 
 type EcosystemsConfig struct {
-	Docker EcosystemConfig `mapstructure:"docker"`
-	Node   EcosystemConfig `mapstructure:"node"`
-	Go     EcosystemConfig `mapstructure:"go"`
-	DotNet EcosystemConfig `mapstructure:"dotnet"`
-	Python EcosystemConfig `mapstructure:"python"`
-	Rust   EcosystemConfig `mapstructure:"rust"`
-	Java   EcosystemConfig `mapstructure:"java"`
+	Docker   EcosystemConfig `mapstructure:"docker"`
+	Node     EcosystemConfig `mapstructure:"node"`
+	Go       EcosystemConfig `mapstructure:"go"`
+	DotNet   EcosystemConfig `mapstructure:"dotnet"`
+	Python   EcosystemConfig `mapstructure:"python"`
+	Rust     EcosystemConfig `mapstructure:"rust"`
+	Java     EcosystemConfig `mapstructure:"java"`
+	AI       EcosystemConfig `mapstructure:"ai"`
+	Pnpm     EcosystemConfig `mapstructure:"pnpm"`
+	Bun      EcosystemConfig `mapstructure:"bun"`
+	NextJS   EcosystemConfig `mapstructure:"nextjs"`
+	Xcode    EcosystemConfig `mapstructure:"xcode"`
+	Homebrew EcosystemConfig `mapstructure:"homebrew"`
 }
 
 type SafetyConfig struct {

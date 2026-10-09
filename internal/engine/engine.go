@@ -167,6 +167,18 @@ func (e *Engine) ecosystemConfig(name string) config.EcosystemConfig {
 		return e.config.Ecosystems.Rust
 	case "java":
 		return e.config.Ecosystems.Java
+	case "ai":
+		return e.config.Ecosystems.AI
+	case "pnpm":
+		return e.config.Ecosystems.Pnpm
+	case "bun":
+		return e.config.Ecosystems.Bun
+	case "nextjs":
+		return e.config.Ecosystems.NextJS
+	case "xcode":
+		return e.config.Ecosystems.Xcode
+	case "homebrew":
+		return e.config.Ecosystems.Homebrew
 	default:
 		return config.EcosystemConfig{Enabled: true, FailMode: "continue"}
 	}
