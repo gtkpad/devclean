@@ -96,6 +96,18 @@ func TestScanCmd_NoTargets_ReturnsError(t *testing.T) {
 	}
 }
 
+func TestScanCmd_InvalidConfig(t *testing.T) {
+	origConfigPath := configPath
+	configPath = "/invalid/path.yaml"
+	defer func() { configPath = origConfigPath }()
+
+	cmd := newScanCmd()
+	if err := cmd.Execute(); err == nil {
+		t.Error("expected error for invalid config")
+	}
+}
+
+
 func TestScanCmd_FlagsValidation(t *testing.T) {
 	cmd := newScanCmd()
 	cmd.SetArgs([]string{"--ecosystem", "invalid-ecosystem"})

@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -111,3 +112,38 @@ func TestFormatOutput_UnknownFormat(t *testing.T) {
 		t.Error("expected error for unknown format 'xml'")
 	}
 }
+
+func TestFormat_ErrorAndVerboseBranches(t *testing.T) {
+	results := []domain.ScanResult{
+		{
+			Ecosystem: "error-eco",
+			Error:     errors.New("scan failed"),
+		},
+		{
+			Ecosystem: "empty-eco",
+			Targets:   nil,
+		},
+		{
+			Ecosystem: "node",
+			Targets: []domain.Target{
+				{
+					ID:           "t1",
+					Name:         "long-path-target",
+					Path:         "/this/is/a/very/long/path/that/exceeds/fifty/characters/in/total/length/node_modules",
+					SizeBytes:    1024,
+					Risk:         domain.RiskLow,
+					LastAccessed: time.Now(),
+				},
+			},
+		},
+	}
+
+	var buf bytes.Buffer
+	formatTable(&buf, results, true, false)
+
+	var jsonBuf bytes.Buffer
+	if err := formatJSON(&jsonBuf, results); err != nil {
+		t.Fatalf("formatJSON error: %v", err)
+	}
+}
+

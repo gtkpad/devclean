@@ -61,6 +61,14 @@ func TestDiscoverPaths_EmptyDir(t *testing.T) {
 	}
 }
 
+func TestDiscoverPaths_NonexistentRoot(t *testing.T) {
+	paths, ecos := discoverPaths("/nonexistent/path/for/devclean/test")
+	if paths != nil || ecos != nil {
+		t.Errorf("expected nil for nonexistent directory, got paths=%v, ecos=%v", paths, ecos)
+	}
+}
+
+
 func TestInitCmd_YesFlag_WritesConfig(t *testing.T) {
 	tmpDir := t.TempDir()
 	configDir := filepath.Join(tmpDir, "config")
@@ -113,3 +121,37 @@ func TestInitCmd_ExecutionBranches(t *testing.T) {
 	printDiscoverySummary([]string{appDir}, []string{"node"})
 	printDiscoverySummary(nil, nil)
 }
+
+func TestDiscoverPaths_SlnAndNodeModulesAndDepth(t *testing.T) {
+	root := t.TempDir()
+
+	// .sln project
+	dotnetProject := filepath.Join(root, "dotnet-app")
+	_ = os.MkdirAll(dotnetProject, 0755)
+	_ = os.WriteFile(filepath.Join(dotnetProject, "App.sln"), []byte(""), 0644)
+
+	// node_modules to skip
+	nmDir := filepath.Join(dotnetProject, "node_modules", "sub")
+	_ = os.MkdirAll(nmDir, 0755)
+	_ = os.WriteFile(filepath.Join(nmDir, "package.json"), []byte("{}"), 0644)
+
+	// Deep dir to skip
+	deepDir := filepath.Join(root, "deep-app", "level1", "level2", "level3")
+	_ = os.MkdirAll(deepDir, 0755)
+	_ = os.WriteFile(filepath.Join(deepDir, "Cargo.toml"), []byte(""), 0644)
+
+	paths, ecos := discoverPaths(root)
+	if len(paths) == 0 {
+		t.Error("expected at least 1 path discovered")
+	}
+	hasDotnet := false
+	for _, e := range ecos {
+		if e == "dotnet" {
+			hasDotnet = true
+		}
+	}
+	if !hasDotnet {
+		t.Error("expected dotnet discovered from .sln")
+	}
+}
+

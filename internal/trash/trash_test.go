@@ -353,3 +353,160 @@ func TestTrash_CopyDir(t *testing.T) {
 	}
 }
 
+func TestTrash_ManagerBranches(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	// 1. New com TrashDir vazio
+	mgrEmpty := New(config.SafetyConfig{})
+	expectedDefault := filepath.Join(tmpDir, ".local", "share", "devclean", "trash")
+	if mgrEmpty.BaseDir() != expectedDefault {
+		t.Errorf("expected BaseDir %s, got %s", expectedDefault, mgrEmpty.BaseDir())
+	}
+
+	// 2. New com caminho contendo ".."
+	mgrDotDot := New(config.SafetyConfig{TrashDir: "../unsafe/dir"})
+	if mgrDotDot.BaseDir() != expectedDefault {
+		t.Errorf("expected fallback for dotdot, got %s", mgrDotDot.BaseDir())
+	}
+
+	// 3. containsDotDot
+	if !containsDotDot("../c") {
+		t.Error("expected containsDotDot to return true for ../c")
+	}
+	if containsDotDot("a/b/c") {
+		t.Error("expected containsDotDot to return false")
+	}
+
+	// 4. Purge com all=false (apenas expirados)
+	mgr := newTestManager(t)
+	targetOld := createTempTarget(t, "old_target", 100)
+	targetNew := createTempTarget(t, "new_target", 200)
+
+	ctx := context.Background()
+	if err := mgr.Move(ctx, []domain.Target{targetOld}, "node"); err != nil {
+		t.Fatalf("Move old failed: %v", err)
+	}
+	if err := mgr.Move(ctx, []domain.Target{targetNew}, "node"); err != nil {
+		t.Fatalf("Move new failed: %v", err)
+	}
+
+	// Modificar data do primeiro lote para simular expiração (>7 dias)
+	manifest, err := LoadManifest(mgr.ManifestPath())
+	if err != nil {
+		t.Fatalf("LoadManifest failed: %v", err)
+	}
+	if len(manifest.Batches) != 2 || len(manifest.Batches[0].Entries) == 0 {
+		t.Fatalf("expected 2 batches before purge, got %d", len(manifest.Batches))
+	}
+	past := time.Now().Add(-10 * 24 * time.Hour)
+	manifest.Batches[0].CreatedAt = past
+	manifest.Batches[0].Entries[0].MovedAt = past
+	if err := SaveManifest(mgr.ManifestPath(), manifest); err != nil {
+		t.Fatalf("SaveManifest failed: %v", err)
+	}
+
+	if err := mgr.Purge(ctx, false); err != nil {
+		t.Fatalf("Purge(false) failed: %v", err)
+	}
+
+	manifestAfter, err := LoadManifest(mgr.ManifestPath())
+	if err != nil {
+		t.Fatalf("LoadManifest after failed: %v", err)
+	}
+	if len(manifestAfter.Batches) != 1 {
+		t.Errorf("expected 1 remaining batch after purge, got %d", len(manifestAfter.Batches))
+	}
+
+	// 5. Purge com all=true
+	if err := mgr.Purge(ctx, true); err != nil {
+		t.Fatalf("Purge(true) failed: %v", err)
+	}
+	manifestEmpty, _ := LoadManifest(mgr.ManifestPath())
+	if len(manifestEmpty.Batches) != 0 {
+		t.Errorf("expected 0 batches after Purge(true), got %d", len(manifestEmpty.Batches))
+	}
+}
+
+func TestTrash_EdgeCases(t *testing.T) {
+	mgr := newTestManager(t)
+	target := createTempTarget(t, "edge_target", 1024)
+
+	// Context cancel no Move
+	cancelCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := mgr.Move(cancelCtx, []domain.Target{target}, "node")
+	if err == nil {
+		t.Error("expected error with cancelled context on Move")
+	}
+
+	// Move normal
+	ctx := context.Background()
+	_ = mgr.Move(ctx, []domain.Target{target}, "node")
+
+	// Context cancel no EnforceRetention
+	manifest, _ := LoadManifest(mgr.ManifestPath())
+	manifest.Batches[0].Entries[0].MovedAt = time.Now().Add(-10 * 24 * time.Hour)
+	_ = SaveManifest(mgr.ManifestPath(), manifest)
+
+	err = mgr.EnforceRetention(cancelCtx)
+	if err == nil {
+		t.Error("expected error with cancelled context on EnforceRetention")
+	}
+
+	// Context cancel no EnforceMaxSize
+	smallMgr := New(config.SafetyConfig{
+		TrashEnabled: true,
+		MaxSizeMB:    0,
+		TrashDir:     mgr.BaseDir(),
+	})
+	err = smallMgr.EnforceMaxSize(cancelCtx)
+	if err == nil {
+		t.Error("expected error with cancelled context on EnforceMaxSize")
+	}
+}
+
+func TestTrash_UndoBranches(t *testing.T) {
+	mgr := newTestManager(t)
+	ctx := context.Background()
+
+	t1 := createTempTarget(t, "item_batch", 100)
+	t2 := createTempTarget(t, "item_entry", 200)
+
+	_ = mgr.Move(ctx, []domain.Target{t1}, "node")
+	_ = mgr.Move(ctx, []domain.Target{t2}, "rust")
+
+	manifest, err := LoadManifest(mgr.ManifestPath())
+	if err != nil || len(manifest.Batches) != 2 {
+		t.Fatalf("unexpected manifest state: %v", err)
+	}
+
+	// 1. Undo por batch ID
+	batchID := manifest.Batches[0].ID
+	if err := mgr.Undo(ctx, batchID); err != nil {
+		t.Fatalf("Undo(batchID) failed: %v", err)
+	}
+	if _, err := os.Stat(t1.Path); os.IsNotExist(err) {
+		t.Errorf("expected t1 to be restored by batch ID")
+	}
+
+	// 2. Undo por entry ID
+	manifest2, _ := LoadManifest(mgr.ManifestPath())
+	if len(manifest2.Batches) != 1 || len(manifest2.Batches[0].Entries) != 1 {
+		t.Fatalf("expected 1 batch with 1 entry, got %v", manifest2)
+	}
+	entryID := manifest2.Batches[0].Entries[0].ID
+	if err := mgr.Undo(ctx, entryID); err != nil {
+		t.Fatalf("Undo(entryID) failed: %v", err)
+	}
+	if _, err := os.Stat(t2.Path); os.IsNotExist(err) {
+		t.Errorf("expected t2 to be restored by entry ID")
+	}
+
+	// 3. Undo por ID inexistente
+	if err := mgr.Undo(ctx, "nonexistent-id"); err == nil {
+		t.Error("expected error for nonexistent ID, got nil")
+	}
+}
+
+

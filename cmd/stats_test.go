@@ -27,7 +27,16 @@ func TestPrintStats_Aggregation(t *testing.T) {
 			Duration:   1 * time.Second,
 			Mode:       "auto",
 		},
+		{
+			Timestamp:  time.Now(),
+			Targets:    1,
+			FreedBytes: 1, // tiny bytes to trigger barWidth < 1 && freedBytes > 0
+			Ecosystems: []string{"python"},
+			Duration:   time.Millisecond,
+			Mode:       "force",
+		},
 	}
+
 
 	// Verify aggregation doesn't panic
 	printStats(entries)

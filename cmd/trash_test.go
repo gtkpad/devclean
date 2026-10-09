@@ -82,6 +82,25 @@ func TestTrashCmd_Lifecycle(t *testing.T) {
 	if err := purgeCmd.Execute(); err != nil {
 		t.Fatalf("trash purge --all failed: %v", err)
 	}
+
+	// 5. Executar trash purge sem --all (apenas expirados)
+	purgeExpiredCmd := newTrashPurgeCmd()
+	if err := purgeExpiredCmd.Execute(); err != nil {
+		t.Fatalf("trash purge expired failed: %v", err)
+	}
+
+	// 6. Executar trash undo em lixeira vazia
+	undoEmptyCmd := newTrashUndoCmd()
+	if err := undoEmptyCmd.Execute(); err == nil {
+		t.Error("expected error from trash undo on empty trash")
+	}
+
+	// 7. Executar trash undo com ID inexistente
+	undoInvalidCmd := newTrashUndoCmd()
+	undoInvalidCmd.SetArgs([]string{"--id", "nonexistent"})
+	if err := undoInvalidCmd.Execute(); err == nil {
+		t.Error("expected error from trash undo with nonexistent ID")
+	}
 }
 
 func TestTrashCmd_UndoByID(t *testing.T) {
@@ -174,6 +193,30 @@ func TestTrashCmd_ConfigErrors(t *testing.T) {
 		t.Error("expected error from purgeCmd with invalid configPath")
 	}
 }
+
+func TestTrashCmd_CorruptManifest(t *testing.T) {
+	tmpDir := t.TempDir()
+	trashDir := filepath.Join(tmpDir, "trash")
+	_ = os.MkdirAll(trashDir, 0755)
+	manifestPath := filepath.Join(trashDir, "manifest.json")
+	_ = os.WriteFile(manifestPath, []byte("invalid json"), 0644)
+
+	cfgPath := filepath.Join(tmpDir, "config.yaml")
+	cfgContent := fmt.Sprintf("safety:\n  trash_enabled: true\n  trash_dir: %q\n", trashDir)
+	_ = os.WriteFile(cfgPath, []byte(cfgContent), 0644)
+
+	origConfigPath := configPath
+	configPath = cfgPath
+	defer func() { configPath = origConfigPath }()
+
+	if err := newTrashListCmd().Execute(); err == nil {
+		t.Error("expected error from listCmd with corrupt manifest")
+	}
+	if err := newTrashPurgeCmd().Execute(); err == nil {
+		t.Error("expected error from purgeCmd with corrupt manifest")
+	}
+}
+
 
 func TestTrashCmd_Metadata(t *testing.T) {
 	cmd := newTrashCmd()
