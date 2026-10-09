@@ -2,8 +2,11 @@ package tui
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/gtkpad/devclean/internal/config"
 	"github.com/gtkpad/devclean/internal/deleter"
@@ -422,3 +425,392 @@ func TestDeleteCmd_WithCoordinator(t *testing.T) {
 		t.Errorf("expected 2 cleaned targets in fakeCleaner, got %d", len(fc.cleaned))
 	}
 }
+
+func TestModel_NewAndInit(t *testing.T) {
+	cfg := &config.Config{
+		Safety: config.SafetyConfig{TrashEnabled: false},
+	}
+	bl := safety.NewBlacklist(nil)
+	m := New(nil, bl, cfg)
+
+	if m.state != stateScanning {
+		t.Errorf("expected stateScanning, got %v", m.state)
+	}
+
+	cmd := m.Init()
+	if cmd == nil {
+		t.Error("expected non-nil tea.Cmd from Init()")
+	}
+
+	// Clean up context created by New
+	if m.scanCancel != nil {
+		m.scanCancel()
+	}
+}
+
+func TestModel_WindowSizeMsg(t *testing.T) {
+	m := testModel()
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 50})
+	um := updated.(model)
+
+	if um.width != 120 {
+		t.Errorf("width = %d, want 120", um.width)
+	}
+	if um.height != 50 {
+		t.Errorf("height = %d, want 50", um.height)
+	}
+}
+
+func TestModel_KeyHandling(t *testing.T) {
+	t.Run("Scanning state keys", func(t *testing.T) {
+		m := testModel()
+		m.state = stateScanning
+		cancelled := false
+		m.scanCancel = func() { cancelled = true }
+
+		// 'q' quits and cancels
+		updated, cmd := m.Update(keyMsg('q'))
+		if cmd == nil {
+			t.Error("expected quit cmd for 'q' in scanning")
+		}
+		if !cancelled {
+			t.Error("expected scanCancel called on 'q'")
+		}
+
+		// Ctrl+C quits and cancels
+		cancelled = false
+		updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+		if cmd == nil {
+			t.Error("expected quit cmd for Ctrl+C in scanning")
+		}
+		if !cancelled {
+			t.Error("expected scanCancel called on Ctrl+C")
+		}
+
+		// Other key does nothing
+		cancelled = false
+		updated, cmd = m.Update(keyMsg('x'))
+		_ = updated
+		if cmd != nil || cancelled {
+			t.Error("expected no quit or cancel for unrecognized key in scanning")
+		}
+	})
+
+	t.Run("Selecting state quit keys", func(t *testing.T) {
+		m := testModel()
+		_, cmd := m.Update(keyMsg('q'))
+		if cmd == nil {
+			t.Error("expected tea.Quit on 'q' in selecting")
+		}
+
+		_, cmd = m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+		if cmd == nil {
+			t.Error("expected tea.Quit on Ctrl+C in selecting")
+		}
+	})
+
+	t.Run("Selecting state arrow navigation and bounds", func(t *testing.T) {
+		m := testModel()
+		m.cursor = 0
+
+		// KeyDown moves cursor
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+		m = updated.(model)
+		if m.cursor != 1 {
+			t.Errorf("cursor after KeyDown = %d, want 1", m.cursor)
+		}
+
+		// KeyUp moves cursor back
+		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+		m = updated.(model)
+		if m.cursor != 0 {
+			t.Errorf("cursor after KeyUp = %d, want 0", m.cursor)
+		}
+
+		// Cursor down at end doesn't overflow
+		m.cursor = len(m.visibleTargets) - 1
+		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+		m = updated.(model)
+		if m.cursor != len(m.visibleTargets)-1 {
+			t.Errorf("cursor down at end overflowed: %d", m.cursor)
+		}
+
+		// Space on out-of-bounds cursor does not panic
+		m.cursor = 99
+		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeySpace})
+		m = updated.(model)
+	})
+
+	t.Run("Filter input keys", func(t *testing.T) {
+		m := testModel()
+		m.filter.fuzzyActive = true
+		m.filter.fuzzyText = "abc"
+
+		// KeyBackspace deletes character
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+		m = updated.(model)
+		if m.filter.fuzzyText != "ab" {
+			t.Errorf("fuzzyText after backspace = %q, want 'ab'", m.filter.fuzzyText)
+		}
+
+		// KeyBackspace on empty does nothing
+		m.filter.fuzzyText = ""
+		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+		m = updated.(model)
+		if m.filter.fuzzyText != "" {
+			t.Errorf("fuzzyText after empty backspace = %q, want empty", m.filter.fuzzyText)
+		}
+
+		// KeyEnter exits filter mode
+		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		m = updated.(model)
+		if m.filter.fuzzyActive {
+			t.Error("expected fuzzyActive = false after KeyEnter")
+		}
+
+		// Other key in filter mode does nothing
+		m.filter.fuzzyActive = true
+		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+		m = updated.(model)
+		if !m.filter.fuzzyActive {
+			t.Error("fuzzyActive should remain true on KeyTab")
+		}
+	})
+
+	t.Run("Confirming state keys", func(t *testing.T) {
+		m := testModel()
+		m.state = stateConfirming
+
+		// 'y' transitions to stateDeleting and initiates deleteCmd
+		updated, cmd := m.Update(keyMsg('y'))
+		um := updated.(model)
+		if um.state != stateDeleting {
+			t.Errorf("state after 'y' = %v, want stateDeleting", um.state)
+		}
+		if cmd == nil {
+			t.Error("expected delete batch cmd on 'y'")
+		}
+
+		// 'q' returns to selecting
+		m.state = stateConfirming
+		updated, _ = m.Update(keyMsg('q'))
+		um = updated.(model)
+		if um.state != stateSelecting {
+			t.Errorf("state after 'q' = %v, want stateSelecting", um.state)
+		}
+
+		// Ctrl+C quits
+		m.state = stateConfirming
+		_, cmd = m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+		if cmd == nil {
+			t.Error("expected quit cmd on Ctrl+C in confirming")
+		}
+
+		// Other key does nothing
+		m.state = stateConfirming
+		updated, _ = m.Update(keyMsg('z'))
+		um = updated.(model)
+		if um.state != stateConfirming {
+			t.Errorf("state should remain stateConfirming on 'z'")
+		}
+	})
+
+	t.Run("Done state exits on any key", func(t *testing.T) {
+		m := testModel()
+		m.state = stateDone
+		_, cmd := m.Update(keyMsg('x'))
+		if cmd == nil {
+			t.Error("expected quit on any key in stateDone")
+		}
+	})
+}
+
+func TestModel_ViewMethodCoverage(t *testing.T) {
+	m := testModel()
+
+	m.state = stateScanning
+	if view := m.View(); !strings.Contains(view, "Scanning...") {
+		t.Errorf("view in stateScanning missing Scanning...: %s", view)
+	}
+
+	m.state = stateSelecting
+	if view := m.View(); !strings.Contains(view, "go") {
+		t.Errorf("view in stateSelecting missing 'go': %s", view)
+	}
+
+	m.state = stateConfirming
+	m.selected["t1"] = true
+	if view := m.View(); !strings.Contains(view, "Confirm deletion?") {
+		t.Errorf("view in stateConfirming missing header: %s", view)
+	}
+
+	m.state = stateDeleting
+	if view := m.View(); !strings.Contains(view, "Deleting targets...") {
+		t.Errorf("view in stateDeleting missing text: %s", view)
+	}
+
+	m.state = stateDone
+	m.emptyResult = true
+	if view := m.View(); !strings.Contains(view, "All clean!") {
+		t.Errorf("view in stateDone missing text: %s", view)
+	}
+
+	// Unknown state returns empty string
+	m.state = viewState(99)
+	if view := m.View(); view != "" {
+		t.Errorf("view with invalid state = %q, want empty", view)
+	}
+}
+
+func TestModel_MessagesAndBranches(t *testing.T) {
+	t.Run("Spinner tick messages", func(t *testing.T) {
+		m := testModel()
+
+		m.state = stateScanning
+		_, cmd := m.Update(spinner.TickMsg{})
+		if cmd == nil {
+			t.Error("expected tick cmd in stateScanning")
+		}
+
+		m.state = stateDeleting
+		_, cmd = m.Update(spinner.TickMsg{})
+		if cmd == nil {
+			t.Error("expected tick cmd in stateDeleting")
+		}
+
+		m.state = stateSelecting
+		_, cmd = m.Update(spinner.TickMsg{})
+		if cmd != nil {
+			t.Error("expected nil cmd for spinner in stateSelecting")
+		}
+	})
+
+	t.Run("Ecosystem result messages with error and success", func(t *testing.T) {
+		m := testModel()
+		m.state = stateScanning
+		m.ecoNames = []string{"docker", "node"}
+		m.ecoStatus = map[string]string{"docker": "scanning", "node": "scanning"}
+
+		// With error
+		updated, _ := m.Update(ecosystemResultMsg{
+			result: domain.ScanResult{Ecosystem: "docker", Error: errors.New("err")},
+		})
+		um := updated.(model)
+		if um.ecoStatus["docker"] != "error" {
+			t.Errorf("status = %q, want 'error'", um.ecoStatus["docker"])
+		}
+
+		// With success
+		updated, _ = um.Update(ecosystemResultMsg{
+			result: domain.ScanResult{Ecosystem: "node", Error: nil},
+		})
+		um = updated.(model)
+		if um.ecoStatus["node"] != "done" {
+			t.Errorf("status = %q, want 'done'", um.ecoStatus["node"])
+		}
+	})
+
+	t.Run("ScanDoneMsg with and without results", func(t *testing.T) {
+		// Empty results
+		m := testModel()
+		m.state = stateScanning
+		m.results = nil
+		updated, _ := m.Update(scanDoneMsg{})
+		um := updated.(model)
+		if um.state != stateDone || !um.emptyResult {
+			t.Error("expected stateDone and emptyResult = true for empty scanDoneMsg")
+		}
+
+		// Non-empty results
+		m = testModel()
+		m.state = stateScanning
+		m.results = []domain.ScanResult{
+			{Ecosystem: "go", Targets: []domain.Target{{ID: "g1", Path: "/path"}}},
+		}
+		updated, _ = m.Update(scanDoneMsg{})
+		um = updated.(model)
+		if um.state != stateSelecting {
+			t.Errorf("expected stateSelecting, got %v", um.state)
+		}
+	})
+
+	t.Run("NextGroupStart when visibleTargets is empty", func(t *testing.T) {
+		m := testModel()
+		m.visibleTargets = nil
+		next := m.nextGroupStart()
+		if next != 0 {
+			t.Errorf("nextGroupStart = %d, want 0", next)
+		}
+	})
+
+	t.Run("AdjustOffset edge cases", func(t *testing.T) {
+		m := testModel()
+		m.height = 8 // visibleHeight = overhead - 8 = 0 -> clamped to 20
+		m.cursor = 25
+		m.offset = 0
+		m.adjustOffset()
+		if m.offset == 0 {
+			t.Error("expected offset to adjust when cursor >= offset + visible")
+		}
+
+		m.cursor = 2
+		m.adjustOffset()
+		if m.offset != 2 {
+			t.Errorf("expected offset to adjust to cursor when cursor < offset, got %d", m.offset)
+		}
+	})
+}
+
+func TestDeleteCmd_NilCoordinatorAndError(t *testing.T) {
+	// Coordinator is nil
+	m := testModel()
+	m.coordinator = nil
+	cmd := deleteCmd(m)
+	msg := cmd()
+	completeMsg, ok := msg.(deleteCompleteMsg)
+	if !ok || completeMsg.count != 0 || completeMsg.freed != 0 {
+		t.Errorf("expected zero deleteCompleteMsg when coordinator is nil, got %+v", msg)
+	}
+}
+
+func TestHumanSize_AllUnits(t *testing.T) {
+	tests := []struct {
+		bytes int64
+		want  string
+	}{
+		{500, "500 B"},
+		{1024, "1.0 KB"},
+		{1048576, "1.0 MB"},
+		{1073741824, "1.0 GB"},
+		{1099511627776, "1.0 TB"},
+	}
+
+	for _, tt := range tests {
+		got := humanSize(tt.bytes)
+		if got != tt.want {
+			t.Errorf("humanSize(%d) = %q, want %q", tt.bytes, got, tt.want)
+		}
+	}
+}
+
+func TestModel_WaitForScanResult(t *testing.T) {
+	ch := make(chan domain.ScanResult, 2)
+	ch <- domain.ScanResult{Ecosystem: "node"}
+	close(ch)
+
+	m := testModel()
+	m.scanCh = ch
+
+	cmd := m.waitForScanResult()
+	msg1 := cmd()
+	if ecoMsg, ok := msg1.(ecosystemResultMsg); !ok || ecoMsg.result.Ecosystem != "node" {
+		t.Errorf("expected ecosystemResultMsg for node, got %+v", msg1)
+	}
+
+	msg2 := cmd()
+	if _, ok := msg2.(scanDoneMsg); !ok {
+		t.Errorf("expected scanDoneMsg on closed channel, got %+v", msg2)
+	}
+}
+
+
