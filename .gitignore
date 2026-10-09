@@ -1,0 +1,16 @@
+# Planning & Agent State (GSD)
+.planning/
+MEMORY.md
+memory_summary.md
+
+# Binaries & build artifacts
+devclean
+*.exe
+*.test
+*.out
+*.prof
+
+# OS & Editor
+.DS_Store
+.idea/
+.vscode/
