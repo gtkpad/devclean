@@ -242,3 +242,114 @@ func TestTarget_IsVirtual(t *testing.T) {
 	}
 }
 
+func TestTrash_CorruptedManifestResilience(t *testing.T) {
+	mgr := newTestManager(t)
+	manifestPath := mgr.ManifestPath()
+
+	if err := os.MkdirAll(filepath.Dir(manifestPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	// Gravar JSON corrompido / truncado
+	if err := os.WriteFile(manifestPath, []byte("{invalid-json-content-trunc"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+
+	// 1. List não deve dar panic
+	_, err := mgr.List(ctx)
+	if err == nil {
+		t.Error("expected error when listing with corrupted manifest, got nil")
+	}
+
+	// 2. Purge(all=true) não deve dar panic
+	err = mgr.Purge(ctx, true)
+	if err == nil {
+		t.Error("expected error when purging with corrupted manifest, got nil")
+	}
+
+	// 3. UndoLast não deve dar panic
+	err = mgr.UndoLast(ctx)
+	if err == nil {
+		t.Error("expected error when undoing with corrupted manifest, got nil")
+	}
+}
+
+func TestTrash_ListOrderingAndUndoEntry(t *testing.T) {
+	mgr := newTestManager(t)
+	t1 := createTempTarget(t, "batch1_target", 128)
+	t2 := createTempTarget(t, "batch2_target", 256)
+
+	ctx := context.Background()
+	if err := mgr.Move(ctx, []domain.Target{t1}, "node"); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(10 * time.Millisecond)
+	if err := mgr.Move(ctx, []domain.Target{t2}, "rust"); err != nil {
+		t.Fatal(err)
+	}
+
+	batches, err := mgr.List(ctx)
+	if err != nil {
+		t.Fatalf("List failed: %v", err)
+	}
+	if len(batches) != 2 {
+		t.Fatalf("expected 2 batches, got %d", len(batches))
+	}
+
+	// Newest batch deve vir primeiro
+	if batches[0].CreatedAt.Before(batches[1].CreatedAt) {
+		t.Error("expected batches to be sorted newest first")
+	}
+
+	// Testar UndoEntry em uma entrada específica do batch mais novo
+	entryToUndo := batches[0].Entries[0]
+	if err := mgr.UndoEntry(ctx, entryToUndo.ID); err != nil {
+		t.Fatalf("UndoEntry failed: %v", err)
+	}
+
+	// Verificar restauração
+	if _, err := os.Stat(t2.Path); os.IsNotExist(err) {
+		t.Errorf("expected t2 target %s to be restored", t2.Path)
+	}
+
+	// UndoEntry com ID inexistente deve retornar erro
+	if err := mgr.UndoEntry(ctx, "nonexistent-id"); err == nil {
+		t.Error("expected error for nonexistent entry ID, got nil")
+	}
+}
+
+func TestTrash_CopyDir(t *testing.T) {
+	srcDir := t.TempDir()
+	destDir := filepath.Join(t.TempDir(), "copied")
+
+	subDir := filepath.Join(srcDir, "nested", "pkg")
+	if err := os.MkdirAll(subDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	file1 := filepath.Join(srcDir, "root.txt")
+	file2 := filepath.Join(subDir, "nested.bin")
+	if err := os.WriteFile(file1, []byte("root-data"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file2, []byte("nested-data"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := copyDir(srcDir, destDir); err != nil {
+		t.Fatalf("copyDir failed: %v", err)
+	}
+
+	// Validar que arquivos copiados existem e preservam conteúdo
+	data1, err := os.ReadFile(filepath.Join(destDir, "root.txt"))
+	if err != nil || string(data1) != "root-data" {
+		t.Errorf("copied root.txt mismatch: %s (err: %v)", string(data1), err)
+	}
+
+	data2, err := os.ReadFile(filepath.Join(destDir, "nested", "pkg", "nested.bin"))
+	if err != nil || string(data2) != "nested-data" {
+		t.Errorf("copied nested.bin mismatch: %s (err: %v)", string(data2), err)
+	}
+}
+

@@ -84,3 +84,36 @@ func TestIsSymlink_NonExistentPath(t *testing.T) {
 		t.Error("IsSymlink on non-existent path should return error")
 	}
 }
+
+func TestSymlink_CyclicAndBlacklistedTarget(t *testing.T) {
+	dir := t.TempDir()
+	cyclicLink := filepath.Join(dir, "loop")
+	if err := os.Symlink(dir, cyclicLink); err != nil {
+		t.Fatal(err)
+	}
+
+	// IsSymlink deve identificar corretamente sem entrar em recursão infinita
+	isLink, err := IsSymlink(cyclicLink)
+	if err != nil || !isLink {
+		t.Fatalf("expected IsSymlink = true on cyclic link, got %v, err: %v", isLink, err)
+	}
+
+	// Link apontando para .git na blacklist
+	gitReal := filepath.Join(dir, ".git")
+	if err := os.Mkdir(gitReal, 0755); err != nil {
+		t.Fatal(err)
+	}
+	gitLink := filepath.Join(dir, "git-link")
+	if err := os.Symlink(gitReal, gitLink); err != nil {
+		t.Fatal(err)
+	}
+
+	bl := NewBlacklist(nil)
+	resolved, err := filepath.EvalSymlinks(gitLink)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bl.IsBlacklisted(resolved) {
+		t.Errorf("symlink target %s should be recognized as blacklisted", resolved)
+	}
+}

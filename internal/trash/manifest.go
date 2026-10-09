@@ -2,6 +2,7 @@ package trash
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 )
@@ -22,7 +23,7 @@ func LoadManifest(path string) (*Manifest, error) {
 	}
 	var m Manifest
 	if err := json.Unmarshal(data, &m); err != nil {
-		return &Manifest{}, nil
+		return nil, fmt.Errorf("parsing manifest %s: %w", path, err)
 	}
 	return &m, nil
 }
