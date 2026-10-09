@@ -65,13 +65,19 @@ type HookConfig struct {
 }
 
 type HooksConfig struct {
-	Node   HookConfig `mapstructure:"node"`
-	Go     HookConfig `mapstructure:"go"`
-	Docker HookConfig `mapstructure:"docker"`
-	DotNet HookConfig `mapstructure:"dotnet"`
-	Python HookConfig `mapstructure:"python"`
-	Rust   HookConfig `mapstructure:"rust"`
-	Java   HookConfig `mapstructure:"java"`
+	Node     HookConfig `mapstructure:"node"`
+	Go       HookConfig `mapstructure:"go"`
+	Docker   HookConfig `mapstructure:"docker"`
+	DotNet   HookConfig `mapstructure:"dotnet"`
+	Python   HookConfig `mapstructure:"python"`
+	Rust     HookConfig `mapstructure:"rust"`
+	Java     HookConfig `mapstructure:"java"`
+	AI       HookConfig `mapstructure:"ai"`
+	Pnpm     HookConfig `mapstructure:"pnpm"`
+	Bun      HookConfig `mapstructure:"bun"`
+	NextJS   HookConfig `mapstructure:"nextjs"`
+	Xcode    HookConfig `mapstructure:"xcode"`
+	Homebrew HookConfig `mapstructure:"homebrew"`
 }
 
 type HistoryConfig struct {
@@ -146,6 +152,30 @@ func Load(configPath string) (*Config, error) {
 	v.SetDefault("ecosystems.java.max_age_days", defaults.Ecosystems.Java.MaxAgeDays)
 	v.SetDefault("ecosystems.java.fail_mode", defaults.Ecosystems.Java.FailMode)
 	v.SetDefault("ecosystems.java.exclude_paths", defaults.Ecosystems.Java.ExcludePaths)
+	v.SetDefault("ecosystems.ai.enabled", defaults.Ecosystems.AI.Enabled)
+	v.SetDefault("ecosystems.ai.max_age_days", defaults.Ecosystems.AI.MaxAgeDays)
+	v.SetDefault("ecosystems.ai.fail_mode", defaults.Ecosystems.AI.FailMode)
+	v.SetDefault("ecosystems.ai.exclude_paths", defaults.Ecosystems.AI.ExcludePaths)
+	v.SetDefault("ecosystems.pnpm.enabled", defaults.Ecosystems.Pnpm.Enabled)
+	v.SetDefault("ecosystems.pnpm.max_age_days", defaults.Ecosystems.Pnpm.MaxAgeDays)
+	v.SetDefault("ecosystems.pnpm.fail_mode", defaults.Ecosystems.Pnpm.FailMode)
+	v.SetDefault("ecosystems.pnpm.exclude_paths", defaults.Ecosystems.Pnpm.ExcludePaths)
+	v.SetDefault("ecosystems.bun.enabled", defaults.Ecosystems.Bun.Enabled)
+	v.SetDefault("ecosystems.bun.max_age_days", defaults.Ecosystems.Bun.MaxAgeDays)
+	v.SetDefault("ecosystems.bun.fail_mode", defaults.Ecosystems.Bun.FailMode)
+	v.SetDefault("ecosystems.bun.exclude_paths", defaults.Ecosystems.Bun.ExcludePaths)
+	v.SetDefault("ecosystems.nextjs.enabled", defaults.Ecosystems.NextJS.Enabled)
+	v.SetDefault("ecosystems.nextjs.max_age_days", defaults.Ecosystems.NextJS.MaxAgeDays)
+	v.SetDefault("ecosystems.nextjs.fail_mode", defaults.Ecosystems.NextJS.FailMode)
+	v.SetDefault("ecosystems.nextjs.exclude_paths", defaults.Ecosystems.NextJS.ExcludePaths)
+	v.SetDefault("ecosystems.xcode.enabled", defaults.Ecosystems.Xcode.Enabled)
+	v.SetDefault("ecosystems.xcode.max_age_days", defaults.Ecosystems.Xcode.MaxAgeDays)
+	v.SetDefault("ecosystems.xcode.fail_mode", defaults.Ecosystems.Xcode.FailMode)
+	v.SetDefault("ecosystems.xcode.exclude_paths", defaults.Ecosystems.Xcode.ExcludePaths)
+	v.SetDefault("ecosystems.homebrew.enabled", defaults.Ecosystems.Homebrew.Enabled)
+	v.SetDefault("ecosystems.homebrew.max_age_days", defaults.Ecosystems.Homebrew.MaxAgeDays)
+	v.SetDefault("ecosystems.homebrew.fail_mode", defaults.Ecosystems.Homebrew.FailMode)
+	v.SetDefault("ecosystems.homebrew.exclude_paths", defaults.Ecosystems.Homebrew.ExcludePaths)
 	v.SetDefault("safety.trash_enabled", defaults.Safety.TrashEnabled)
 	v.SetDefault("safety.retention_days", defaults.Safety.RetentionDays)
 	v.SetDefault("safety.max_size_mb", defaults.Safety.MaxSizeMB)
@@ -158,6 +188,12 @@ func Load(configPath string) (*Config, error) {
 	v.SetDefault("hooks.python.timeout", defaults.Hooks.Python.Timeout)
 	v.SetDefault("hooks.rust.timeout", defaults.Hooks.Rust.Timeout)
 	v.SetDefault("hooks.java.timeout", defaults.Hooks.Java.Timeout)
+	v.SetDefault("hooks.ai.timeout", defaults.Hooks.AI.Timeout)
+	v.SetDefault("hooks.pnpm.timeout", defaults.Hooks.Pnpm.Timeout)
+	v.SetDefault("hooks.bun.timeout", defaults.Hooks.Bun.Timeout)
+	v.SetDefault("hooks.nextjs.timeout", defaults.Hooks.NextJS.Timeout)
+	v.SetDefault("hooks.xcode.timeout", defaults.Hooks.Xcode.Timeout)
+	v.SetDefault("hooks.homebrew.timeout", defaults.Hooks.Homebrew.Timeout)
 	v.SetDefault("history.retention_days", defaults.History.RetentionDays)
 	v.SetDefault("intelligence.threshold", defaults.Intelligence.Threshold)
 	v.SetDefault("intelligence.max_age_days", defaults.Intelligence.MaxAgeDays)
