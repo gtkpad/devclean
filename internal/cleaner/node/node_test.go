@@ -291,22 +291,11 @@ func TestScan_GlobalCaches(t *testing.T) {
 	os.MkdirAll(npmCache, 0o755)
 	os.WriteFile(filepath.Join(npmCache, "data"), []byte("cache"), 0o644)
 
-	// pnpm store
-	pnpmDir := filepath.Join(tmp, "pnpm-store")
-	t.Setenv("PNPM_HOME", pnpmDir)
-	os.MkdirAll(filepath.Join(pnpmDir, "store"), 0o755)
-	os.WriteFile(filepath.Join(pnpmDir, "store", "pkg"), []byte("data"), 0o644)
-
 	// yarn cache
 	yarnDir := filepath.Join(tmp, "yarn-cache")
 	t.Setenv("YARN_CACHE_FOLDER", yarnDir)
 	os.MkdirAll(yarnDir, 0o755)
 	os.WriteFile(filepath.Join(yarnDir, "pkg.tgz"), []byte("data"), 0o644)
-
-	// bun cache
-	bunCache := filepath.Join(tmp, ".bun", "install", "cache")
-	os.MkdirAll(bunCache, 0o755)
-	os.WriteFile(filepath.Join(bunCache, "pkg"), []byte("data"), 0o644)
 
 	c := New([]string{})
 	targets, err := c.Scan(context.Background(), domain.EcosystemRules{Enabled: true, MaxAgeDays: 30})
@@ -325,26 +314,20 @@ func TestScan_GlobalCaches(t *testing.T) {
 	if !categories["npm-cache"] {
 		t.Error("expected npm-cache target")
 	}
-	if !categories["pnpm-store"] {
-		t.Error("expected pnpm-store target")
-	}
 	if !categories["yarn-cache"] {
 		t.Error("expected yarn-cache target")
 	}
-	if !categories["bun-cache"] {
-		t.Error("expected bun-cache target")
+	if categories["pnpm-store"] {
+		t.Error("unexpected pnpm-store target in node cleaner")
+	}
+	if categories["bun-cache"] {
+		t.Error("unexpected bun-cache target in node cleaner")
 	}
 }
 
 func TestScan_FrameworkOutput(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", "/nonexistent-home-for-test")
-
-	// Next.js app
-	nextApp := filepath.Join(tmp, "next-app")
-	os.MkdirAll(filepath.Join(nextApp, ".next", "cache"), 0o755)
-	os.WriteFile(filepath.Join(nextApp, "next.config.js"), []byte("module.exports = {}"), 0o644)
-	os.WriteFile(filepath.Join(nextApp, ".next", "cache", "data"), []byte("cached"), 0o644)
 
 	// Nuxt app
 	nuxtApp := filepath.Join(tmp, "nuxt-app")
@@ -363,11 +346,11 @@ func TestScan_FrameworkOutput(t *testing.T) {
 		categories[tgt.Category] = true
 	}
 
-	if !categories["nextjs-cache"] {
-		t.Error("expected nextjs-cache target")
-	}
 	if !categories["nuxt-cache"] {
 		t.Error("expected nuxt-cache target")
+	}
+	if categories["nextjs-cache"] {
+		t.Error("unexpected nextjs-cache target in node cleaner")
 	}
 }
 
