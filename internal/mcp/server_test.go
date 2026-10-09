@@ -7,10 +7,12 @@ import (
 	"time"
 
 	"github.com/gtkpad/devclean/internal/config"
+	"github.com/gtkpad/devclean/internal/deleter"
 	"github.com/gtkpad/devclean/internal/domain"
 	"github.com/gtkpad/devclean/internal/engine"
 	"github.com/gtkpad/devclean/internal/history"
 	"github.com/gtkpad/devclean/internal/platform"
+	"github.com/gtkpad/devclean/internal/safety"
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -421,5 +423,54 @@ func TestHandleGetConfig_NilProvider(t *testing.T) {
 	text := extractText(t, result)
 	if text != "config not available" {
 		t.Errorf("expected error message, got %s", text)
+	}
+}
+
+func TestHandleExecute_WithInjectedCoordinator(t *testing.T) {
+	cfg := &config.Config{
+		Ecosystems: config.EcosystemsConfig{
+			Docker: config.EcosystemConfig{Enabled: true, MaxAgeDays: 30, FailMode: "continue"},
+		},
+	}
+	eng := engine.New(cfg, &fakeResolver{})
+
+	fc := &fakeCleaner{
+		name:      "docker",
+		installed: true,
+		targets: []domain.Target{
+			{ID: "img-custom-1", Name: "dangling", Path: "docker://img-custom-1", SizeBytes: 5000, Category: "dangling-image"},
+		},
+	}
+	eng.Register(fc)
+
+	bl := safety.NewBlacklist(nil)
+	coord := deleter.New(eng, cfg, bl, nil, nil, "", "")
+
+	srv := New(eng, cfg, WithCoordinator(coord))
+
+	req := mcp.CallToolRequest{}
+	req.Params.Arguments = map[string]interface{}{
+		"target_ids": `["img-custom-1"]`,
+	}
+
+	result, err := srv.handleExecute(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	text := extractText(t, result)
+	var out map[string]interface{}
+	if err := json.Unmarshal([]byte(text), &out); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if int(out["deleted_count"].(float64)) != 1 {
+		t.Errorf("expected 1 deleted, got %v", out["deleted_count"])
+	}
+	if int(out["freed_bytes"].(float64)) != 5000 {
+		t.Errorf("expected 5000 freed, got %v", out["freed_bytes"])
+	}
+	if len(fc.cleaned) != 1 || fc.cleaned[0].ID != "img-custom-1" {
+		t.Errorf("expected img-custom-1 to be cleaned, got %v", fc.cleaned)
 	}
 }

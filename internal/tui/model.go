@@ -3,13 +3,19 @@ package tui
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/gtkpad/devclean/internal/config"
+	"github.com/gtkpad/devclean/internal/deleter"
 	"github.com/gtkpad/devclean/internal/domain"
 	"github.com/gtkpad/devclean/internal/engine"
+	"github.com/gtkpad/devclean/internal/hooks"
+	"github.com/gtkpad/devclean/internal/platform"
 	"github.com/gtkpad/devclean/internal/safety"
+	"github.com/gtkpad/devclean/internal/trash"
 )
 
 type viewState int
@@ -41,6 +47,7 @@ type model struct {
 	engine      *engine.Engine
 	blacklist   *safety.Blacklist
 	cfg         *config.Config
+	coordinator *deleter.Coordinator
 
 	// filter/sort state
 	filter         filterState
@@ -76,26 +83,48 @@ func New(eng *engine.Engine, bl *safety.Blacklist, cfg *config.Config) model {
 	s.Spinner = spinner.Dot
 
 	ctx, cancel := context.WithCancel(context.Background())
-	ecoNames := eng.Ecosystems()
+	var ecoNames []string
+	if eng != nil {
+		ecoNames = eng.Ecosystems()
+	}
 	ecoStatus := make(map[string]string, len(ecoNames))
 	for _, name := range ecoNames {
 		ecoStatus[name] = "scanning"
 	}
-	ch := eng.Scan(ctx)
+	var ch <-chan domain.ScanResult
+	if eng != nil {
+		ch = eng.Scan(ctx)
+	}
+
+	resolver := platform.New()
+	paths := resolver.Resolve()
+	home, _ := os.UserHomeDir()
+	dataDir := filepath.Join(home, ".local", "share", "devclean")
+
+	var trashMgr *trash.Manager
+	var hookRunner *hooks.Runner
+	var configDir string
+	if cfg != nil {
+		trashMgr = trash.New(cfg.Safety)
+		hookRunner = hooks.New(cfg.Hooks)
+		configDir = paths.ConfigDir
+	}
+	coord := deleter.New(eng, cfg, bl, trashMgr, hookRunner, configDir, dataDir)
 
 	return model{
-		state:      stateScanning,
-		selected:   make(map[string]bool),
-		spinner:    s,
-		engine:     eng,
-		blacklist:  bl,
-		cfg:        cfg,
-		filter:     filterState{sort: sortSize},
-		scanCh:     ch,
-		scanCtx:    ctx,
-		scanCancel: cancel,
-		ecoStatus:  ecoStatus,
-		ecoNames:   ecoNames,
+		state:       stateScanning,
+		selected:    make(map[string]bool),
+		spinner:     s,
+		engine:      eng,
+		blacklist:   bl,
+		cfg:         cfg,
+		coordinator: coord,
+		filter:      filterState{sort: sortSize},
+		scanCh:      ch,
+		scanCtx:     ctx,
+		scanCancel:  cancel,
+		ecoStatus:   ecoStatus,
+		ecoNames:    ecoNames,
 	}
 }
 
@@ -427,37 +456,30 @@ func humanSize(bytes int64) string {
 }
 
 func deleteCmd(m model) tea.Cmd {
-	// Capture values needed by the closure
-	blacklist := m.blacklist
-	eng := m.engine
+	coordinator := m.coordinator
 	flatTargets := m.flatTargets
 	selected := m.selected
 
 	return func() tea.Msg {
+		if coordinator == nil {
+			return deleteCompleteMsg{freed: 0, count: 0}
+		}
+
 		byEcosystem := make(map[string][]domain.Target)
 		for _, ft := range flatTargets {
 			if selected[ft.target.ID] {
-				if !blacklist.IsBlacklisted(ft.target.Path) {
-					byEcosystem[ft.ecosystem] = append(byEcosystem[ft.ecosystem], ft.target)
-				}
+				byEcosystem[ft.ecosystem] = append(byEcosystem[ft.ecosystem], ft.target)
 			}
 		}
 
-		var totalFreed int64
-		var totalCount int
-		for eco, targets := range byEcosystem {
-			cleaner := eng.GetCleaner(eco)
-			if cleaner == nil {
-				continue
-			}
-			if err := cleaner.Clean(context.Background(), targets); err != nil {
-				continue
-			}
-			for _, t := range targets {
-				totalFreed += t.SizeBytes
-				totalCount++
-			}
+		opts := deleter.Options{
+			Mode: "tui",
 		}
-		return deleteCompleteMsg{freed: totalFreed, count: totalCount}
+
+		res, err := coordinator.Delete(context.Background(), byEcosystem, opts)
+		if err != nil {
+			return deleteCompleteMsg{freed: 0, count: 0}
+		}
+		return deleteCompleteMsg{freed: res.TotalFreed, count: res.TotalCount}
 	}
 }

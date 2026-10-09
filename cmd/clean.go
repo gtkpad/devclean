@@ -15,14 +15,13 @@ import (
 	"github.com/gtkpad/devclean/internal/cleaner/python"
 	"github.com/gtkpad/devclean/internal/cleaner/rust"
 	"github.com/gtkpad/devclean/internal/config"
+	"github.com/gtkpad/devclean/internal/deleter"
 	"github.com/gtkpad/devclean/internal/domain"
 	"github.com/gtkpad/devclean/internal/engine"
-	"github.com/gtkpad/devclean/internal/history"
 	"github.com/gtkpad/devclean/internal/hooks"
 	"github.com/gtkpad/devclean/internal/intelligence"
 	"github.com/gtkpad/devclean/internal/platform"
 	"github.com/gtkpad/devclean/internal/safety"
-	"github.com/gtkpad/devclean/internal/scheduler"
 	"github.com/gtkpad/devclean/internal/trash"
 	"github.com/spf13/cobra"
 )
@@ -42,8 +41,6 @@ func newCleanCmd() *cobra.Command {
 		Long:         "Removes build artifacts, caches, and unused dependencies. Requires --auto or --force flag.",
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			startTime := time.Now()
-
 			if !auto && !force {
 				fmt.Fprintln(os.Stdout, `No deletion mode specified. Use:
   devclean clean --auto   Apply TTL rules from config
@@ -101,38 +98,14 @@ Run 'devclean scan' to preview what would be cleaned.`)
 			}
 
 			bl := safety.NewBlacklist(cfg.ProtectedPatterns)
-			hookRunner := hooks.New(cfg.Hooks)
 
 			var scorer *intelligence.Scorer
 			if smart {
 				scorer = intelligence.NewScorer(cfg.Intelligence)
 			}
 
-			// Resolve trash usage: --permanent > --trash > config
-			trashActive := cfg.Safety.TrashEnabled
-			if useTrash {
-				trashActive = true
-			}
-			if permanent {
-				trashActive = false
-			}
-
-			var trashMgr *trash.Manager
-			if trashActive {
-				trashMgr = trash.New(cfg.Safety)
-				// Enforce retention and max size before new moves
-				if err := trashMgr.EnforceRetention(ctx); err != nil {
-					fmt.Fprintf(os.Stderr, "Warning: trash retention enforcement failed: %v\n", err)
-				}
-				if err := trashMgr.EnforceMaxSize(ctx); err != nil {
-					fmt.Fprintf(os.Stderr, "Warning: trash max size enforcement failed: %v\n", err)
-				}
-			}
-
-			var totalFreed int64
-			var totalCount int
-			var cleanedPaths []string
-			ecosystemSet := map[string]struct{}{}
+			targetsByEco := make(map[string][]domain.Target)
+			totalCandidates := 0
 
 			for _, r := range results {
 				if r.Error != nil || len(r.Targets) == 0 {
@@ -166,107 +139,90 @@ Run 'devclean scan' to preview what would be cleaned.`)
 				}
 
 				targets = rejectBlacklisted(targets, bl)
-
-				if len(targets) == 0 {
-					continue
+				if len(targets) > 0 {
+					targetsByEco[r.Ecosystem] = targets
+					totalCandidates += len(targets)
 				}
-
-				for _, t := range targets {
-					if !quiet {
-						if dryRun {
-							fmt.Fprintf(os.Stdout, "Would delete: %s (%s)\n", t.Path, humanSize(t.SizeBytes))
-						} else if trashActive {
-							fmt.Fprintf(os.Stdout, "Moving to trash: %s\n", t.Path)
-						} else {
-							fmt.Fprintf(os.Stdout, "Deleting: %s\n", t.Path)
-						}
-					}
-				}
-
-				if !dryRun {
-					// Pre-delete hook
-					hookData := hooks.HookData{
-						Ecosystem:   r.Ecosystem,
-						TargetCount: len(targets),
-					}
-					if err := hookRunner.RunPreDelete(ctx, r.Ecosystem, hookData); err != nil {
-						fmt.Fprintf(os.Stderr, "Pre-delete hook failed for %s: %v (skipping)\n", r.Ecosystem, err)
-						continue
-					}
-
-					if trashActive {
-						if err := trashMgr.Move(ctx, targets, r.Ecosystem); err != nil {
-							fmt.Fprintf(os.Stderr, "Error trashing %s: %v\n", r.Ecosystem, err)
-							continue
-						}
-					} else {
-						cleaner := eng.GetCleaner(r.Ecosystem)
-						if cleaner == nil {
-							continue
-						}
-						if err := cleaner.Clean(ctx, targets); err != nil {
-							fmt.Fprintf(os.Stderr, "Error cleaning %s: %v\n", r.Ecosystem, err)
-							continue
-						}
-					}
-
-					// Post-delete hook (warn only)
-					hookData.FreedSize = humanSize(totalFreed)
-					if err := hookRunner.RunPostDelete(ctx, r.Ecosystem, hookData); err != nil {
-						fmt.Fprintf(os.Stderr, "Post-delete hook warning: %v\n", err)
-					}
-				}
-
-				for _, t := range targets {
-					totalFreed += t.SizeBytes
-					totalCount++
-					cleanedPaths = append(cleanedPaths, t.Path)
-				}
-				ecosystemSet[r.Ecosystem] = struct{}{}
 			}
 
-			if totalCount == 0 {
+			if totalCandidates == 0 {
 				return errors.New("nothing to clean")
 			}
 
-			if auto && !dryRun {
-				_ = scheduler.RecordRun(paths.ConfigDir, scheduler.RunResult{
-					Timestamp:    time.Now(),
-					TargetsCount: totalCount,
-					BytesFreed:   totalFreed,
-					Duration:     time.Since(startTime).Round(time.Millisecond).String(),
-				})
+			dataDir := getDataDir()
+			trashActive := cfg.Safety.TrashEnabled
+			if useTrash {
+				trashActive = true
+			}
+			if permanent {
+				trashActive = false
 			}
 
-			// Record history entry
-			if !dryRun && totalCount > 0 {
-				ecosystems := make([]string, 0, len(ecosystemSet))
-				for eco := range ecosystemSet {
-					ecosystems = append(ecosystems, eco)
+			var trashMgr *trash.Manager
+			if trashActive {
+				trashMgr = trash.New(cfg.Safety)
+				if err := trashMgr.EnforceRetention(ctx); err != nil {
+					fmt.Fprintf(os.Stderr, "Warning: trash retention enforcement failed: %v\n", err)
 				}
-				mode := "force"
-				if auto {
-					mode = "auto"
+				if err := trashMgr.EnforceMaxSize(ctx); err != nil {
+					fmt.Fprintf(os.Stderr, "Warning: trash max size enforcement failed: %v\n", err)
 				}
-				dataDir := getDataDir()
-				entry := history.Entry{
-					Timestamp:  time.Now(),
-					Targets:    totalCount,
-					Paths:      cleanedPaths,
-					FreedBytes: totalFreed,
-					Ecosystems: ecosystems,
-					Duration:   time.Since(startTime).Round(time.Millisecond),
-					Mode:       mode,
-				}
-				if err := history.Append(dataDir, entry); err != nil {
-					fmt.Fprintf(os.Stderr, "Warning: failed to record history: %v\n", err)
-				}
+			} else {
+				trashMgr = trash.New(cfg.Safety)
+			}
+
+			hookRunner := hooks.New(cfg.Hooks)
+			coord := deleter.New(eng, cfg, bl, trashMgr, hookRunner, paths.ConfigDir, dataDir)
+
+			var useTrashOpt *bool
+			if useTrash {
+				t := true
+				useTrashOpt = &t
+			} else if permanent {
+				f := false
+				useTrashOpt = &f
+			}
+
+			mode := "force"
+			if auto {
+				mode = "auto"
+			}
+			opts := deleter.Options{
+				DryRun:   dryRun,
+				UseTrash: useTrashOpt,
+				Mode:     mode,
+				Auto:     auto,
+				OnProgress: func(ev deleter.ProgressEvent) {
+					if quiet {
+						return
+					}
+					switch ev.Action {
+					case deleter.ActionWouldDelete:
+						fmt.Fprintf(os.Stdout, "Would delete: %s (%s)\n", ev.Target.Path, humanSize(ev.Target.SizeBytes))
+					case deleter.ActionMovingTrash:
+						fmt.Fprintf(os.Stdout, "Moving to trash: %s\n", ev.Target.Path)
+					case deleter.ActionDeletingDirect, deleter.ActionVirtualDirect:
+						fmt.Fprintf(os.Stdout, "Deleting: %s\n", ev.Target.Path)
+					}
+				},
+				OnWarning: func(msg string) {
+					fmt.Fprintln(os.Stderr, "Warning:", msg)
+				},
+			}
+
+			res, err := coord.Delete(ctx, targetsByEco, opts)
+			if err != nil {
+				return fmt.Errorf("deletion failed: %w", err)
+			}
+
+			for _, err := range res.Errors {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			}
 
 			if dryRun {
-				fmt.Fprintf(os.Stdout, "\nDry-run: would free %s from %d targets\n", humanSize(totalFreed), totalCount)
+				fmt.Fprintf(os.Stdout, "\nDry-run: would free %s from %d targets\n", humanSize(res.TotalFreed), res.TotalCount)
 			} else {
-				fmt.Fprintf(os.Stdout, "\nFreed: %s from %d targets\n", humanSize(totalFreed), totalCount)
+				fmt.Fprintf(os.Stdout, "\nFreed: %s from %d targets\n", humanSize(res.TotalFreed), res.TotalCount)
 			}
 			return nil
 		},

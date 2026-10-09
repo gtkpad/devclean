@@ -2,12 +2,16 @@ package cmd
 
 import (
 	"bytes"
+	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/gtkpad/devclean/internal/config"
 	"github.com/gtkpad/devclean/internal/domain"
 	"github.com/gtkpad/devclean/internal/safety"
+	"github.com/gtkpad/devclean/internal/trash"
 )
 
 func TestFilterByTTL_OlderThanTTL(t *testing.T) {
@@ -172,6 +176,136 @@ func TestCleanCmd_NothingToClean_ReturnsError(t *testing.T) {
 	}
 	if err.Error() != "nothing to clean" {
 		t.Fatalf("expected 'nothing to clean', got %q", err.Error())
+	}
+}
+
+func TestCleanCmd_CoordinatorIntegration_DryRun(t *testing.T) {
+	tmpDir := t.TempDir()
+	appDir := filepath.Join(tmpDir, "app")
+	nodeModules := filepath.Join(appDir, "node_modules")
+	if err := os.MkdirAll(nodeModules, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(appDir, "package.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nodeModules, "dummy.txt"), []byte("data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	content := fmt.Sprintf(`scan_paths:
+  - %q
+protected_patterns:
+  - "*cacache*"
+  - "*store*"
+safety:
+  trash_enabled: false
+ecosystems:
+  docker:
+    enabled: false
+  node:
+    enabled: true
+  go:
+    enabled: false
+  dotnet:
+    enabled: false
+  python:
+    enabled: false
+  rust:
+    enabled: false
+  java:
+    enabled: false
+`, tmpDir)
+	cfgPath := filepath.Join(tmpDir, "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	origConfigPath := configPath
+	configPath = cfgPath
+	defer func() { configPath = origConfigPath }()
+
+	cmd := newCleanCmd()
+	cmd.SetArgs([]string{"--force", "--dry-run"})
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error executing clean dry-run: %v", err)
+	}
+
+	// Verify target still exists after dry-run
+	if _, err := os.Stat(nodeModules); os.IsNotExist(err) {
+		t.Fatal("expected node_modules to still exist after dry-run")
+	}
+}
+
+func TestCleanCmd_CoordinatorIntegration_TrashMove(t *testing.T) {
+	tmpDir := t.TempDir()
+	appDir := filepath.Join(tmpDir, "app")
+	trashDir := filepath.Join(tmpDir, "trash")
+	nodeModules := filepath.Join(appDir, "node_modules")
+	if err := os.MkdirAll(nodeModules, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(appDir, "package.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nodeModules, "dummy.txt"), []byte("data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	content := fmt.Sprintf(`scan_paths:
+  - %q
+protected_patterns:
+  - "*cacache*"
+  - "*store*"
+safety:
+  trash_enabled: true
+  trash_dir: %q
+ecosystems:
+  docker:
+    enabled: false
+  node:
+    enabled: true
+  go:
+    enabled: false
+  dotnet:
+    enabled: false
+  python:
+    enabled: false
+  rust:
+    enabled: false
+  java:
+    enabled: false
+`, tmpDir, trashDir)
+	cfgPath := filepath.Join(tmpDir, "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	origConfigPath := configPath
+	configPath = cfgPath
+	defer func() { configPath = origConfigPath }()
+
+	cmd := newCleanCmd()
+	cmd.SetArgs([]string{"--force", "--trash"})
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error executing clean with trash: %v", err)
+	}
+
+	// Verify target no longer exists in appDir
+	if _, err := os.Stat(nodeModules); !os.IsNotExist(err) {
+		t.Fatal("expected node_modules to be moved from original location")
+	}
+
+	// Verify trash manifest has entry
+	manifestPath := filepath.Join(trashDir, "manifest.json")
+	manifest, err := trash.LoadManifest(manifestPath)
+	if err != nil {
+		t.Fatalf("loading trash manifest: %v", err)
+	}
+	if len(manifest.Batches) == 0 || len(manifest.Batches[0].Entries) == 0 {
+		t.Fatalf("expected trash manifest to have recorded batch and entries")
 	}
 }
 
