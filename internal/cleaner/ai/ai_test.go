@@ -1,6 +1,7 @@
 package ai
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -501,5 +502,115 @@ func TestHuggingFace(t *testing.T) {
 	}
 	if missing != nil {
 		t.Fatalf("expected nil targets for missing directory, got %v", missing)
+	}
+}
+
+func TestAICleaner_FullScanAndClean(t *testing.T) {
+	ctx := context.Background()
+	tmpHome := t.TempDir()
+
+	c := NewWithHome(nil, tmpHome)
+
+	// Verify metadata methods
+	if c.Name() != "ai" {
+		t.Errorf("expected name 'ai', got '%s'", c.Name())
+	}
+	if !c.IsInstalled() {
+		t.Error("expected IsInstalled to be true")
+	}
+
+	// Verify New() constructor
+	cDefault := New(nil)
+	if cDefault.Name() != "ai" {
+		t.Errorf("expected name 'ai' for default constructor, got '%s'", cDefault.Name())
+	}
+
+	// Create fixtures across all 4 sub-cleaners in tmpHome
+	// 1. Claude
+	claudeTmp := filepath.Join(tmpHome, ".claude", "tmp")
+	if err := os.MkdirAll(claudeTmp, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(claudeTmp, "session.tmp"), []byte("temp"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 2. Editors
+	vscodeExt := filepath.Join(tmpHome, ".vscode", "extensions")
+	obsoleteExt := filepath.Join(vscodeExt, "publisher.obsolete-1.0.0")
+	if err := os.MkdirAll(obsoleteExt, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(vscodeExt, ".obsolete"), []byte(`{"publisher.obsolete-1.0.0": true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 3. Ollama
+	ollamaBlobs := filepath.Join(tmpHome, ".ollama", "models", "blobs")
+	if err := os.MkdirAll(ollamaBlobs, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	orphanBlob := filepath.Join(ollamaBlobs, "sha256-orphan123")
+	if err := os.WriteFile(orphanBlob, []byte("orphan"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 4. HuggingFace
+	hfHub := filepath.Join(tmpHome, ".cache", "huggingface", "hub", "models--test")
+	if err := os.MkdirAll(hfHub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(hfHub, "weight.bin"), []byte("weight"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Scan
+	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 0}
+	targets, err := c.Scan(ctx, rules)
+	if err != nil {
+		t.Fatalf("unexpected scan error: %v", err)
+	}
+
+	if len(targets) < 4 {
+		t.Fatalf("expected at least 4 targets across all sub-cleaners, got %d", len(targets))
+	}
+
+	// Verify each target exists on disk before clean
+	for _, target := range targets {
+		if _, err := os.Stat(target.Path); err != nil {
+			t.Fatalf("target path %s does not exist before Clean(): %v", target.Path, err)
+		}
+	}
+
+	// Clean
+	if err := c.Clean(ctx, targets); err != nil {
+		t.Fatalf("unexpected clean error: %v", err)
+	}
+
+	// Verify all target paths are deleted
+	for _, target := range targets {
+		if _, err := os.Stat(target.Path); !os.IsNotExist(err) {
+			t.Errorf("target path %s still exists after Clean()", target.Path)
+		}
+	}
+
+	// Test context cancellation
+	cancelledCtx, cancel := context.WithCancel(ctx)
+	cancel()
+	_, err = c.Scan(cancelledCtx, rules)
+	if err == nil {
+		t.Error("expected error when scanning with cancelled context, got nil")
+	}
+
+	// Test empty homeDir
+	cEmpty := NewWithHome(nil, "")
+	emptyTargets, err := cEmpty.Scan(ctx, rules)
+	if err != nil || len(emptyTargets) != 0 {
+		t.Errorf("expected empty targets and nil error for empty home, got targets=%v, err=%v", emptyTargets, err)
+	}
+
+	// Test Clean with cancelled context
+	if err := c.Clean(cancelledCtx, []domain.Target{{Path: "/tmp/fake"}}); err == nil {
+		t.Error("expected error when cleaning with cancelled context, got nil")
 	}
 }
