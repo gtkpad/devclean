@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -104,6 +105,14 @@ func TestGetMaxAgeDays(t *testing.T) {
 		{"go", 60},
 		{"dotnet", 45},
 		{"python", 30},
+		{"rust", 30},
+		{"java", 30},
+		{"ai", 30},
+		{"pnpm", 30},
+		{"bun", 14},
+		{"nextjs", 7},
+		{"xcode", 14},
+		{"homebrew", 30},
 		{"unknown", 0},
 	}
 
@@ -120,11 +129,19 @@ func TestGetMaxAgeDays(t *testing.T) {
 func testConfig() *config.Config {
 	return &config.Config{
 		Ecosystems: config.EcosystemsConfig{
-			Docker: config.EcosystemConfig{MaxAgeDays: 30},
-			Node:   config.EcosystemConfig{MaxAgeDays: 14},
-			Go:     config.EcosystemConfig{MaxAgeDays: 60},
-			DotNet: config.EcosystemConfig{MaxAgeDays: 45},
-			Python: config.EcosystemConfig{MaxAgeDays: 30},
+			Docker:   config.EcosystemConfig{MaxAgeDays: 30},
+			Node:     config.EcosystemConfig{MaxAgeDays: 14},
+			Go:       config.EcosystemConfig{MaxAgeDays: 60},
+			DotNet:   config.EcosystemConfig{MaxAgeDays: 45},
+			Python:   config.EcosystemConfig{MaxAgeDays: 30},
+			Rust:     config.EcosystemConfig{MaxAgeDays: 30},
+			Java:     config.EcosystemConfig{MaxAgeDays: 30},
+			AI:       config.EcosystemConfig{MaxAgeDays: 30},
+			Pnpm:     config.EcosystemConfig{MaxAgeDays: 30},
+			Bun:      config.EcosystemConfig{MaxAgeDays: 14},
+			NextJS:   config.EcosystemConfig{MaxAgeDays: 7},
+			Xcode:    config.EcosystemConfig{MaxAgeDays: 14},
+			Homebrew: config.EcosystemConfig{MaxAgeDays: 30},
 		},
 	}
 }
@@ -498,6 +515,56 @@ ecosystems:
 		t.Fatalf("clean --force --dry-run --ecosystem node --quiet failed: %v", err)
 	}
 }
+
+func TestCleanCmd_NewEcosystemsValidation(t *testing.T) {
+	newEcos := []string{"ai", "pnpm", "bun", "nextjs", "xcode", "homebrew"}
+	for _, eco := range newEcos {
+		t.Run(eco, func(t *testing.T) {
+			cfgFile := createEmptyConfig(t)
+			origConfigPath := configPath
+			configPath = cfgFile
+			defer func() { configPath = origConfigPath }()
+
+			cmd := newCleanCmd()
+			cmd.SetArgs([]string{"--force", "-e", eco})
+			err := cmd.Execute()
+			// Should fail with "nothing to clean" (empty config), NOT "unknown ecosystem"
+			if err == nil {
+				t.Fatalf("expected error, got nil")
+			}
+			if err.Error() != "nothing to clean" {
+				t.Fatalf("expected 'nothing to clean' for eco %s, got %v", eco, err)
+			}
+		})
+	}
+
+	t.Run("invalid ecosystem", func(t *testing.T) {
+		cmd := newCleanCmd()
+		cmd.SetArgs([]string{"--force", "-e", "nonexistent-eco"})
+		err := cmd.Execute()
+		if err == nil || !strings.Contains(err.Error(), "unknown ecosystem") {
+			t.Fatalf("expected unknown ecosystem error, got %v", err)
+		}
+	})
+}
+
+func TestCleanCmd_AllFlag(t *testing.T) {
+	cfgFile := createEmptyConfig(t)
+	origConfigPath := configPath
+	configPath = cfgFile
+	defer func() { configPath = origConfigPath }()
+
+	cmd := newCleanCmd()
+	cmd.SetArgs([]string{"--auto", "--all"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error when nothing to clean, got nil")
+	}
+	if err.Error() != "nothing to clean" {
+		t.Fatalf("expected 'nothing to clean', got %v", err)
+	}
+}
+
 
 
 

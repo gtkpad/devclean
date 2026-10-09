@@ -4,13 +4,6 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/gtkpad/devclean/internal/cleaner/docker"
-	"github.com/gtkpad/devclean/internal/cleaner/dotnet"
-	"github.com/gtkpad/devclean/internal/cleaner/golang"
-	"github.com/gtkpad/devclean/internal/cleaner/java"
-	"github.com/gtkpad/devclean/internal/cleaner/node"
-	"github.com/gtkpad/devclean/internal/cleaner/python"
-	"github.com/gtkpad/devclean/internal/cleaner/rust"
 	"github.com/gtkpad/devclean/internal/config"
 	"github.com/gtkpad/devclean/internal/deleter"
 	"github.com/gtkpad/devclean/internal/engine"
@@ -61,13 +54,7 @@ func newMCPCmd() *cobra.Command {
 			paths := resolver.Resolve()
 			eng := engine.New(cfg, resolver)
 
-			eng.Register(docker.New())
-			eng.Register(golang.New())
-			eng.Register(node.New(cfg.ScanPaths))
-			eng.Register(dotnet.New(paths, cfg.ScanPaths))
-			eng.Register(python.New(paths.PythonUVCache, cfg.ScanPaths))
-			eng.Register(rust.New(cfg.ScanPaths))
-			eng.Register(java.New(cfg.ScanPaths))
+			engine.RegisterDefaultCleaners(eng, cfg, resolver)
 
 			dataDir := getDataDir()
 
