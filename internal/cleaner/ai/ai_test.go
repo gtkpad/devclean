@@ -152,3 +152,121 @@ func TestOllama(t *testing.T) {
 		t.Fatalf("expected nil targets for missing directory, got %v", missingTargets)
 	}
 }
+
+func TestClaude(t *testing.T) {
+	tmpDir := t.TempDir()
+	claudeDir := filepath.Join(tmpDir, ".claude")
+	if err := os.MkdirAll(claudeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Create protected files
+	protectedFiles := []string{
+		"config.json",
+		"history.jsonl",
+		"settings.json",
+		"auth.json",
+		"credentials.json",
+	}
+	for _, pf := range protectedFiles {
+		if err := os.WriteFile(filepath.Join(claudeDir, pf), []byte(`{"secret": true}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// 2. Create disposable subdirs
+	subdirs := []string{"debug", "tmp", "cache", "telemetry"}
+	for _, sub := range subdirs {
+		dir := filepath.Join(claudeDir, sub)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "temp_data.bin"), []byte("temporary cached content"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// 3. Create loose logs and other files
+	if err := os.WriteFile(filepath.Join(claudeDir, "mcp.log"), []byte("log entry"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(claudeDir, "other.txt"), []byte("do not delete"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Test 1: Scan with MaxAgeDays = 0
+	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 0}
+	targets, err := scanClaude(claudeDir, rules)
+	if err != nil {
+		t.Fatalf("unexpected scan error: %v", err)
+	}
+
+	// Ensure NONE of the protected files or other.txt are targets
+	for _, target := range targets {
+		base := filepath.Base(target.Path)
+		for _, pf := range protectedFiles {
+			if base == pf {
+				t.Fatalf("SECURITY VIOLATION: Protected file %s was returned as target!", pf)
+			}
+		}
+		if base == "other.txt" {
+			t.Fatalf("Unrelated file %s was returned as target!", base)
+		}
+		if target.Risk != domain.RiskLow {
+			t.Errorf("expected RiskLow for Claude target %s, got %v", target.Name, target.Risk)
+		}
+	}
+
+	// Check that debug, tmp, cache, telemetry subdirs and mcp.log are detected
+	foundTargets := make(map[string]bool)
+	for _, t := range targets {
+		foundTargets[filepath.Base(t.Path)] = true
+	}
+	for _, sub := range subdirs {
+		if !foundTargets[sub] {
+			t.Errorf("expected disposable subdir %s to be detected", sub)
+		}
+	}
+	if !foundTargets["mcp.log"] {
+		t.Errorf("expected mcp.log to be detected")
+	}
+
+	// Test 2: Scan with MaxAgeDays = 30 and aged file/dir
+	oldTime := time.Now().AddDate(0, 0, -60)
+	recentTime := time.Now().AddDate(0, 0, -2)
+
+	// Set debug dir to old, cache dir to recent
+	_ = os.Chtimes(filepath.Join(claudeDir, "debug"), oldTime, oldTime)
+	_ = os.Chtimes(filepath.Join(claudeDir, "cache"), recentTime, recentTime)
+	// Set mcp.log to old
+	_ = os.Chtimes(filepath.Join(claudeDir, "mcp.log"), oldTime, oldTime)
+
+	rulesWithAge := domain.EcosystemRules{Enabled: true, MaxAgeDays: 30}
+	agedTargets, err := scanClaude(claudeDir, rulesWithAge)
+	if err != nil {
+		t.Fatalf("unexpected scan error: %v", err)
+	}
+
+	agedFound := make(map[string]bool)
+	for _, t := range agedTargets {
+		agedFound[filepath.Base(t.Path)] = true
+	}
+	if !agedFound["debug"] {
+		t.Errorf("expected old debug dir to be detected")
+	}
+	if !agedFound["mcp.log"] {
+		t.Errorf("expected old mcp.log to be detected")
+	}
+	if agedFound["cache"] {
+		t.Errorf("expected recent cache dir NOT to be detected")
+	}
+
+	// Test 3: Non-existent directory returns nil, nil
+	missing, err := scanClaude(filepath.Join(tmpDir, "nonexistent"), rules)
+	if err != nil {
+		t.Fatalf("expected nil error for missing directory, got %v", err)
+	}
+	if missing != nil {
+		t.Fatalf("expected nil targets for missing directory, got %v", missing)
+	}
+}
