@@ -309,3 +309,197 @@ ecosystems:
 	}
 }
 
+func TestCleanCmd_FlagValidations(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "config.yaml")
+	_ = os.WriteFile(cfgPath, []byte("dry_run: true\n"), 0644)
+	origConfigPath := configPath
+	configPath = cfgPath
+	defer func() { configPath = origConfigPath }()
+
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{"auto and force", []string{"--auto", "--force"}},
+		{"trash and permanent", []string{"--trash", "--permanent", "--force"}},
+		{"smart without auto", []string{"--smart", "--force"}},
+		{"smart and force", []string{"--smart", "--force", "--auto"}},
+		{"invalid ecosystem", []string{"--force", "-e", "nonexistent"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := newCleanCmd()
+			cmd.SetArgs(tt.args)
+			err := cmd.Execute()
+			if err == nil {
+				t.Errorf("expected error for args %v, got nil", tt.args)
+			}
+		})
+	}
+}
+
+func TestCleanCmd_AutoModeWithOldTarget(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	appDir := filepath.Join(tmpDir, "app")
+	nodeModules := filepath.Join(appDir, "node_modules")
+	_ = os.MkdirAll(nodeModules, 0755)
+	_ = os.WriteFile(filepath.Join(appDir, "package.json"), []byte("{}"), 0644)
+	dummy := filepath.Join(nodeModules, "dummy.txt")
+	_ = os.WriteFile(dummy, []byte("old"), 0644)
+	past := time.Now().Add(-60 * 24 * time.Hour)
+	_ = os.Chtimes(nodeModules, past, past)
+	_ = os.Chtimes(dummy, past, past)
+
+	cfgPath := filepath.Join(tmpDir, "config.yaml")
+	cfgContent := fmt.Sprintf(`scan_paths:
+  - %q
+protected_patterns:
+  - "*store*"
+  - "*cacache*"
+intelligence:
+  threshold: 0.0
+ecosystems:
+  docker:
+    enabled: false
+  go:
+    enabled: false
+  dotnet:
+    enabled: false
+  python:
+    enabled: false
+  rust:
+    enabled: false
+  java:
+    enabled: false
+  node:
+    enabled: true
+    max_age_days: 10
+`, tmpDir)
+	_ = os.WriteFile(cfgPath, []byte(cfgContent), 0644)
+
+	origConfigPath := configPath
+	configPath = cfgPath
+	defer func() { configPath = origConfigPath }()
+
+	cmd := newCleanCmd()
+	cmd.SetArgs([]string{"--auto", "--smart", "--dry-run"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("clean --auto --smart --dry-run failed: %v", err)
+	}
+}
+
+func TestCleanCmd_PermanentDirectDelete(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	appDir := filepath.Join(tmpDir, "app")
+	nodeModules := filepath.Join(appDir, "node_modules")
+	_ = os.MkdirAll(nodeModules, 0755)
+	_ = os.WriteFile(filepath.Join(appDir, "package.json"), []byte("{}"), 0644)
+	dummy := filepath.Join(nodeModules, "dummy.txt")
+	_ = os.WriteFile(dummy, []byte("data"), 0644)
+
+	cfgPath := filepath.Join(tmpDir, "config.yaml")
+	cfgContent := fmt.Sprintf(`scan_paths:
+  - %q
+protected_patterns:
+  - "*store*"
+  - "*cacache*"
+ecosystems:
+  docker:
+    enabled: false
+  go:
+    enabled: false
+  dotnet:
+    enabled: false
+  python:
+    enabled: false
+  rust:
+    enabled: false
+  java:
+    enabled: false
+  node:
+    enabled: true
+`, tmpDir)
+	_ = os.WriteFile(cfgPath, []byte(cfgContent), 0644)
+
+	origConfigPath := configPath
+	configPath = cfgPath
+	defer func() { configPath = origConfigPath }()
+
+	cmd := newCleanCmd()
+	cmd.SetArgs([]string{"--force", "--permanent"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("clean --force --permanent failed: %v", err)
+	}
+
+	if _, err := os.Stat(nodeModules); !os.IsNotExist(err) {
+		t.Error("expected node_modules to be deleted directly with permanent")
+	}
+}
+
+func TestCleanCmd_InvalidConfig(t *testing.T) {
+	origConfigPath := configPath
+	configPath = "/invalid/path.yaml"
+	defer func() { configPath = origConfigPath }()
+
+	cmd := newCleanCmd()
+	cmd.SetArgs([]string{"--force"})
+	if err := cmd.Execute(); err == nil {
+		t.Error("expected error for invalid config")
+	}
+}
+
+func TestCleanCmd_DryRunEcosystemAndQuiet(t *testing.T) {
+	tmpDir := t.TempDir()
+	appDir := filepath.Join(tmpDir, "app")
+	nodeModules := filepath.Join(appDir, "node_modules")
+	_ = os.MkdirAll(nodeModules, 0755)
+	_ = os.WriteFile(filepath.Join(appDir, "package.json"), []byte("{}"), 0644)
+	_ = os.WriteFile(filepath.Join(nodeModules, "dummy.txt"), []byte("data"), 0644)
+
+	cfgPath := filepath.Join(tmpDir, "config.yaml")
+	cfgContent := fmt.Sprintf(`scan_paths:
+  - %q
+protected_patterns:
+  - "*store*"
+  - "*cacache*"
+ecosystems:
+  docker:
+    enabled: false
+  go:
+    enabled: false
+  dotnet:
+    enabled: false
+  python:
+    enabled: false
+  rust:
+    enabled: false
+  java:
+    enabled: false
+  node:
+    enabled: true
+`, tmpDir)
+	_ = os.WriteFile(cfgPath, []byte(cfgContent), 0644)
+
+	origConfigPath := configPath
+	configPath = cfgPath
+	defer func() { configPath = origConfigPath }()
+
+	origQuiet := quiet
+	quiet = true
+	defer func() { quiet = origQuiet }()
+
+	cmd := newCleanCmd()
+	cmd.SetArgs([]string{"--force", "--dry-run", "--ecosystem", "node"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("clean --force --dry-run --ecosystem node --quiet failed: %v", err)
+	}
+}
+
+
+
+
+

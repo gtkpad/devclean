@@ -39,6 +39,14 @@ func TestParseDuration_Invalid(t *testing.T) {
 	}
 }
 
+func TestParseDuration_InvalidNumberWithD(t *testing.T) {
+	_, err := parseDuration("xyzd")
+	if err == nil {
+		t.Error("expected error for non-numeric days prefix")
+	}
+}
+
+
 func TestHistoryCmd_ExecutionAndFlags(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
@@ -106,6 +114,19 @@ func TestHistoryCmd_EmptyHistory(t *testing.T) {
 		t.Fatalf("history on empty directory failed: %v", err)
 	}
 }
+
+func TestHistoryCmd_InvalidConfig(t *testing.T) {
+	origConfigPath := configPath
+	configPath = "/invalid/path.yaml"
+	defer func() { configPath = origConfigPath }()
+
+	cmd := newHistoryCmd()
+	if err := cmd.Execute(); err == nil {
+		t.Error("expected error for invalid config")
+	}
+}
+
+
 
 func TestPrintHistoryTable(t *testing.T) {
 	entries := []history.Entry{

@@ -1,8 +1,12 @@
 package cmd
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
+	"time"
+
+	"github.com/gtkpad/devclean/internal/scheduler"
 )
 
 func TestScheduleCmd_MissingFlags(t *testing.T) {
@@ -81,3 +85,87 @@ func TestShowStatus_Function(t *testing.T) {
 		t.Errorf("showStatus watchMode failed: %v", err)
 	}
 }
+
+func TestShowStatus_Active(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	configDir := filepath.Join(tmpDir, "config")
+	_ = os.MkdirAll(configDir, 0755)
+
+	// Simular plist de schedule instalado (macOS)
+	launchDir := filepath.Join(tmpDir, "Library", "LaunchAgents")
+	_ = os.MkdirAll(launchDir, 0755)
+	plistPath := filepath.Join(launchDir, "com.devclean.scheduled.plist")
+	plistContent := `<plist><dict>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/usr/local/bin/devclean</string>
+	</array>
+</dict></plist>`
+	_ = os.WriteFile(plistPath, []byte(plistContent), 0644)
+
+	// Simular histórico de execução
+	_ = scheduler.RecordRun(configDir, scheduler.RunResult{
+		Timestamp:    time.Now(),
+		TargetsCount: 5,
+		BytesFreed:   1048576,
+		Duration:     "500ms",
+	})
+
+	if err := showStatus(configDir, false); err != nil {
+		t.Errorf("showStatus failed on active schedule: %v", err)
+	}
+}
+
+func TestScheduleCmd_WatchModeAlreadyInstalled(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	launchDir := filepath.Join(tmpDir, "Library", "LaunchAgents")
+	_ = os.MkdirAll(launchDir, 0755)
+	watchPlist := filepath.Join(launchDir, "com.devclean.watch.plist")
+	_ = os.WriteFile(watchPlist, []byte("<plist></plist>"), 0644)
+
+	cmd := newScheduleCmd()
+	cmd.SetArgs([]string{"--watch"})
+	if err := cmd.Execute(); err != nil {
+		t.Errorf("unexpected error on schedule --watch: %v", err)
+	}
+
+	cmdStatusWatch := newScheduleCmd()
+	cmdStatusWatch.SetArgs([]string{"--status", "--watch"})
+	if err := cmdStatusWatch.Execute(); err != nil {
+		t.Errorf("unexpected error on --status --watch: %v", err)
+	}
+}
+
+func TestUnscheduleCmd_WhenInstalled(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	launchDir := filepath.Join(tmpDir, "Library", "LaunchAgents")
+	_ = os.MkdirAll(launchDir, 0755)
+	plistPath := filepath.Join(launchDir, "com.devclean.scheduled.plist")
+	_ = os.WriteFile(plistPath, []byte("<plist></plist>"), 0644)
+
+	watchPlist := filepath.Join(launchDir, "com.devclean.watch.plist")
+	_ = os.WriteFile(watchPlist, []byte("<plist></plist>"), 0644)
+
+	unCmd := newUnscheduleCmd()
+	_ = unCmd.Execute()
+
+	unWatchCmd := newUnscheduleCmd()
+	unWatchCmd.SetArgs([]string{"--watch"})
+	_ = unWatchCmd.Execute()
+}
+
+func TestScheduleCmd_WatchModeInstall(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	cmd := newScheduleCmd()
+	cmd.SetArgs([]string{"--watch"})
+	_ = cmd.Execute()
+}
+
+
+
+

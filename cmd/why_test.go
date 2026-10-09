@@ -193,3 +193,36 @@ func TestWhyCmd_Helpers(t *testing.T) {
 		t.Errorf("expected '3 days', got %q", oldAge)
 	}
 }
+
+func TestHasSiblingManifest_UnknownEcosystem(t *testing.T) {
+	if hasSiblingManifest("/some/path", "unknown") {
+		t.Error("expected false for unknown ecosystem")
+	}
+}
+
+func TestWhyCmd_ExcludedByFullPath(t *testing.T) {
+	tmpDir := t.TempDir()
+	workspace := filepath.Join(tmpDir, "workspace")
+	_ = os.MkdirAll(workspace, 0755)
+	excludedDir := filepath.Join(workspace, "full-match")
+	_ = os.MkdirAll(excludedDir, 0755)
+
+	cfgPath := filepath.Join(tmpDir, "config.yaml")
+	cfgContent := fmt.Sprintf(`scan_paths:
+  - %q
+exclude_paths:
+  - %q
+`, workspace, excludedDir)
+	_ = os.WriteFile(cfgPath, []byte(cfgContent), 0644)
+
+	origConfigPath := configPath
+	configPath = cfgPath
+	defer func() { configPath = origConfigPath }()
+
+	cmd := newWhyCmd()
+	cmd.SetArgs([]string{excludedDir})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("why full-match failed: %v", err)
+	}
+}
+

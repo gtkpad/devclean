@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -86,3 +87,30 @@ func TestMCP_CmdMetadataAndConfigError(t *testing.T) {
 		t.Errorf("expected 'loading config' error, got %v", err)
 	}
 }
+
+func TestMCPCmd_ExecutionWithClosedStdin(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "config.yaml")
+	_ = os.WriteFile(cfgPath, []byte("scan_paths: []\n"), 0644)
+
+	origConfigPath := configPath
+	configPath = cfgPath
+	defer func() { configPath = origConfigPath }()
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = w.Close()
+
+	oldStdin := os.Stdin
+	os.Stdin = r
+	defer func() {
+		os.Stdin = oldStdin
+		_ = r.Close()
+	}()
+
+	cmd := newMCPCmd()
+	_ = cmd.Execute()
+}
+

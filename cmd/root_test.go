@@ -105,3 +105,32 @@ func TestRootCmd_ConfigLoadError(t *testing.T) {
 		t.Error("expected error when loading from invalid configPath")
 	}
 }
+
+func TestRootCmd_WatchDaemonPreRunError(t *testing.T) {
+	origWatchDaemon := watchDaemon
+	origConfigPath := configPath
+	watchDaemon = true
+	configPath = "/invalid/path.yaml"
+	defer func() {
+		watchDaemon = origWatchDaemon
+		configPath = origConfigPath
+	}()
+
+	err := rootCmd.PersistentPreRunE(rootCmd, []string{})
+	if err == nil {
+		t.Error("expected error from PersistentPreRunE when loading invalid config")
+	}
+}
+
+func TestRootCmd_RunE_ConfigError(t *testing.T) {
+	origConfigPath := configPath
+	configPath = "/invalid/path.yaml"
+	defer func() {
+		configPath = origConfigPath
+	}()
+
+	err := rootCmd.RunE(rootCmd, []string{})
+	if err == nil {
+		t.Error("expected error from rootCmd.RunE when loading invalid config")
+	}
+}

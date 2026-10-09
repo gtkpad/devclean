@@ -22,7 +22,9 @@ func TestParseBytes(t *testing.T) {
 		{"", 0, true},
 		{"invalid", 0, true},
 		{"100XYZ", 0, true},
+		{"abcGB", 0, true},
 	}
+
 
 	for _, tc := range tests {
 		t.Run(tc.input, func(t *testing.T) {
@@ -78,3 +80,39 @@ func TestWatchCmd_InvalidInterval_ReturnsError(t *testing.T) {
 		t.Fatalf("unexpected error message: %v", err)
 	}
 }
+
+func TestWatchCmd_OneShotMode(t *testing.T) {
+	cfgFile := createEmptyConfig(t)
+	origConfigPath := configPath
+	configPath = cfgFile
+	defer func() { configPath = origConfigPath }()
+
+	cmd := newWatchCmd()
+	cmd.SetArgs([]string{"--threshold", "100GB"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error in watch one-shot mode: %v", err)
+	}
+
+	// Invalid threshold flag
+	cmdInvalid := newWatchCmd()
+	cmdInvalid.SetArgs([]string{"--threshold", "invalid"})
+	if err := cmdInvalid.Execute(); err == nil {
+		t.Error("expected error for invalid threshold, got nil")
+	}
+}
+
+func TestWatchCmd_AboveThreshold(t *testing.T) {
+	_, cfgPath := createTestWorkspace(t)
+	origConfigPath := configPath
+	configPath = cfgPath
+	defer func() { configPath = origConfigPath }()
+
+	cmd := newWatchCmd()
+	// Set threshold to 1B so node_modules will exceed it
+	cmd.SetArgs([]string{"--threshold", "1B"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("expected watch one-shot above threshold to succeed, got: %v", err)
+	}
+}
+
+
