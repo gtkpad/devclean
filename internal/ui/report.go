@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 	"golang.org/x/term"
 )
 
@@ -67,6 +68,13 @@ func RenderReport(w io.Writer, data ReportData) {
 	isTTY := isOutputTerminal(w)
 	noColor := os.Getenv("NO_COLOR") != ""
 
+	renderer := lipgloss.NewRenderer(w)
+	if noColor || !isTTY {
+		renderer.SetColorProfile(termenv.Ascii)
+	} else if renderer.ColorProfile() == termenv.Ascii {
+		renderer.SetColorProfile(termenv.TrueColor)
+	}
+
 	var (
 		cardStyle      lipgloss.Style
 		headerStyle    lipgloss.Style
@@ -77,24 +85,24 @@ func RenderReport(w io.Writer, data ReportData) {
 	)
 
 	if noColor || !isTTY {
-		cardStyle = lipgloss.NewStyle().
+		cardStyle = renderer.NewStyle().
 			Border(lipgloss.NormalBorder()).
 			Padding(0, 1)
-		headerStyle = lipgloss.NewStyle()
-		labelStyle = lipgloss.NewStyle()
-		valueStyle = lipgloss.NewStyle()
-		barFilledStyle = lipgloss.NewStyle()
-		barEmptyStyle = lipgloss.NewStyle()
+		headerStyle = renderer.NewStyle()
+		labelStyle = renderer.NewStyle()
+		valueStyle = renderer.NewStyle()
+		barFilledStyle = renderer.NewStyle()
+		barEmptyStyle = renderer.NewStyle()
 	} else {
-		cardStyle = lipgloss.NewStyle().
+		cardStyle = renderer.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("63")).
 			Padding(0, 1)
-		headerStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("39"))
-		labelStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
-		valueStyle = lipgloss.NewStyle().Bold(true)
-		barFilledStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
-		barEmptyStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("238"))
+		headerStyle = renderer.NewStyle().Bold(true).Foreground(lipgloss.Color("39"))
+		labelStyle = renderer.NewStyle().Foreground(lipgloss.Color("245"))
+		valueStyle = renderer.NewStyle().Bold(true)
+		barFilledStyle = renderer.NewStyle().Foreground(lipgloss.Color("42"))
+		barEmptyStyle = renderer.NewStyle().Foreground(lipgloss.Color("238"))
 	}
 
 	var sb strings.Builder
