@@ -303,3 +303,199 @@ func TestWhitelistAdd_MissingArgs(t *testing.T) {
 	}
 }
 
+func TestWhitelist_BlockImmutable(t *testing.T) {
+	// Test 1: exact names .git, .env, .ssh, secrets.json
+	for _, item := range []string{".git", ".env", ".ssh", "secrets.json"} {
+		cmd := newWhitelistRemoveCmd()
+		cmd.SetArgs([]string{item})
+		err := cmd.Execute()
+		if err == nil {
+			t.Fatalf("expected error removing immutable item %q, got nil", item)
+		}
+		expectedErr := fmt.Sprintf("cannot remove %q: system blacklist is immutable (NFR-03)", item)
+		if !strings.Contains(err.Error(), expectedErr) {
+			t.Errorf("expected error %q, got: %v", expectedErr, err)
+		}
+	}
+
+	// Test 2: deep paths with immutable items
+	deepPaths := []struct {
+		path     string
+		expected string
+	}{
+		{"/qualquer/path/.git", ".git"},
+		{"/home/user/repo/.git", ".git"},
+		{"/home/user/.ssh", ".ssh"},
+		{"/app/.env", ".env"},
+		{"/app/secrets.json", "secrets.json"},
+		{"~/.ssh", ".ssh"},
+	}
+
+	for _, dp := range deepPaths {
+		cmd := newWhitelistRemoveCmd()
+		cmd.SetArgs([]string{dp.path})
+		err := cmd.Execute()
+		if err == nil {
+			t.Fatalf("expected error removing immutable deep path %q, got nil", dp.path)
+		}
+		expectedErr := fmt.Sprintf("cannot remove %q: system blacklist is immutable (NFR-03)", dp.expected)
+		if !strings.Contains(err.Error(), expectedErr) {
+			t.Errorf("expected error %q for %q, got: %v", expectedErr, dp.path, err)
+		}
+	}
+
+	// Test 3: via --pattern flag
+	for _, item := range []string{".git", ".env", ".ssh", "secrets.json"} {
+		cmd := newWhitelistRemoveCmd()
+		cmd.SetArgs([]string{"--pattern", item})
+		err := cmd.Execute()
+		if err == nil {
+			t.Fatalf("expected error removing immutable item via --pattern %q, got nil", item)
+		}
+		expectedErr := fmt.Sprintf("cannot remove %q: system blacklist is immutable (NFR-03)", item)
+		if !strings.Contains(err.Error(), expectedErr) {
+			t.Errorf("expected error %q, got: %v", expectedErr, err)
+		}
+	}
+}
+
+func TestWhitelistRemove_ExcludePath(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "config.yaml")
+	cfgContent := `exclude_paths:
+  - "/path/to/keep"
+  - "/path/to/remove"
+`
+	if err := os.WriteFile(cfgPath, []byte(cfgContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	origConfigPath := configPath
+	configPath = cfgPath
+	defer func() { configPath = origConfigPath }()
+
+	removeCmd := newWhitelistRemoveCmd()
+	var buf bytes.Buffer
+	removeCmd.SetOut(&buf)
+	removeCmd.SetArgs([]string{"/path/to/remove"})
+
+	if err := removeCmd.Execute(); err != nil {
+		t.Fatalf("whitelist remove failed: %v", err)
+	}
+
+	cfg, err := loadConfigWithProfile()
+	if err != nil {
+		t.Fatalf("loading updated config: %v", err)
+	}
+
+	for _, p := range cfg.ExcludePaths {
+		if p == "/path/to/remove" {
+			t.Errorf("expected /path/to/remove to be removed, but still present in %v", cfg.ExcludePaths)
+		}
+	}
+
+	foundKeep := false
+	for _, p := range cfg.ExcludePaths {
+		if p == "/path/to/keep" {
+			foundKeep = true
+			break
+		}
+	}
+	if !foundKeep {
+		t.Errorf("expected /path/to/keep to remain, but missing from %v", cfg.ExcludePaths)
+	}
+}
+
+func TestWhitelistRemove_Pattern(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "config.yaml")
+	cfgContent := `protected_patterns:
+  - "*.keep"
+  - "*.remove"
+`
+	if err := os.WriteFile(cfgPath, []byte(cfgContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	origConfigPath := configPath
+	configPath = cfgPath
+	defer func() { configPath = origConfigPath }()
+
+	removeCmd := newWhitelistRemoveCmd()
+	var buf bytes.Buffer
+	removeCmd.SetOut(&buf)
+	removeCmd.SetArgs([]string{"--pattern", "*.remove"})
+
+	if err := removeCmd.Execute(); err != nil {
+		t.Fatalf("whitelist remove --pattern failed: %v", err)
+	}
+
+	cfg, err := loadConfigWithProfile()
+	if err != nil {
+		t.Fatalf("loading updated config: %v", err)
+	}
+
+	for _, pat := range cfg.ProtectedPatterns {
+		if pat == "*.remove" {
+			t.Errorf("expected *.remove to be removed, but still present in %v", cfg.ProtectedPatterns)
+		}
+	}
+
+	foundKeep := false
+	for _, pat := range cfg.ProtectedPatterns {
+		if pat == "*.keep" {
+			foundKeep = true
+			break
+		}
+	}
+	if !foundKeep {
+		t.Errorf("expected *.keep to remain in %v", cfg.ProtectedPatterns)
+	}
+}
+
+func TestWhitelistRemove_NonExistent(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "config.yaml")
+	cfgContent := `exclude_paths:
+  - "/existing/path"
+`
+	if err := os.WriteFile(cfgPath, []byte(cfgContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	origConfigPath := configPath
+	configPath = cfgPath
+	defer func() { configPath = origConfigPath }()
+
+	removeCmd := newWhitelistRemoveCmd()
+	var buf bytes.Buffer
+	removeCmd.SetOut(&buf)
+	removeCmd.SetArgs([]string{"/non/existent/path"})
+
+	if err := removeCmd.Execute(); err != nil {
+		t.Fatalf("whitelist remove of non-existent path should not return error, got: %v", err)
+	}
+
+	if !strings.Contains(buf.String(), "not found in whitelist") {
+		t.Errorf("expected 'not found in whitelist' message, got: %s", buf.String())
+	}
+
+	// Verify YAML content was not broken
+	cfg, err := loadConfigWithProfile()
+	if err != nil {
+		t.Fatalf("loading config: %v", err)
+	}
+	if len(cfg.ExcludePaths) != 1 || cfg.ExcludePaths[0] != "/existing/path" {
+		t.Errorf("expected exclude_paths to remain unchanged, got: %v", cfg.ExcludePaths)
+	}
+}
+
+func TestWhitelistRemove_MissingArgs(t *testing.T) {
+	removeCmd := newWhitelistRemoveCmd()
+	removeCmd.SetArgs([]string{})
+	if err := removeCmd.Execute(); err == nil {
+		t.Error("expected error when running whitelist remove without args, got nil")
+	}
+}
+
+
