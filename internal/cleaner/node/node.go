@@ -95,7 +95,7 @@ func (c *nodeCleaner) Scan(_ context.Context, rules domain.EcosystemRules) ([]do
 			parentName := filepath.Base(filepath.Dir(f.path))
 			name = parentName + "/node_modules"
 			risk = classifyRisk(f.path, rules.MaxAgeDays)
-		case "nextjs-cache", "nuxt-cache":
+		case "nuxt-cache":
 			parentName := filepath.Base(filepath.Dir(f.path))
 			name = parentName + "/" + filepath.Base(f.path)
 			risk = cleaner.ClassifyLocalArtifactRisk(f.path, f.manifests, rules.MaxAgeDays)
@@ -154,9 +154,7 @@ func (c *nodeCleaner) scanGlobalCaches() []domain.Target {
 		name     string
 	}{
 		{filepath.Join(home, ".npm", "_cacache"), "npm-cache", "npm cache"},
-		{pnpmStorePath(home), "pnpm-store", "pnpm store"},
 		{yarnCachePath(home), "yarn-cache", "yarn cache"},
-		{filepath.Join(home, ".bun", "install", "cache"), "bun-cache", "bun cache"},
 	}
 
 	for _, cache := range caches {
@@ -181,16 +179,6 @@ func (c *nodeCleaner) scanGlobalCaches() []domain.Target {
 	}
 
 	return targets
-}
-
-func pnpmStorePath(home string) string {
-	if v := os.Getenv("PNPM_HOME"); v != "" {
-		return filepath.Join(v, "store")
-	}
-	if runtime.GOOS == "darwin" {
-		return filepath.Join(home, "Library", "pnpm", "store")
-	}
-	return filepath.Join(home, ".local", "share", "pnpm", "store")
 }
 
 func yarnCachePath(home string) string {
@@ -241,12 +229,6 @@ func walkScanPath(root string, rules domain.EcosystemRules) ([]foundTarget, erro
 			found = append(found, foundTarget{path: path, category: "node"})
 			return filepath.SkipDir
 
-		case ".next":
-			parentDir := filepath.Dir(path)
-			manifests := findNextManifests(parentDir)
-			found = append(found, foundTarget{path: path, category: "nextjs-cache", manifests: manifests})
-			return filepath.SkipDir
-
 		case ".nuxt":
 			parentDir := filepath.Dir(path)
 			manifests := findNuxtManifests(parentDir)
@@ -269,22 +251,6 @@ func walkScanPath(root string, rules domain.EcosystemRules) ([]foundTarget, erro
 	})
 
 	return found, err
-}
-
-func findNextManifests(dir string) []string {
-	candidates := []string{
-		filepath.Join(dir, "next.config.js"),
-		filepath.Join(dir, "next.config.mjs"),
-		filepath.Join(dir, "next.config.ts"),
-		filepath.Join(dir, "package.json"),
-	}
-	var manifests []string
-	for _, c := range candidates {
-		if _, err := os.Stat(c); err == nil {
-			manifests = append(manifests, c)
-		}
-	}
-	return manifests
 }
 
 func findNuxtManifests(dir string) []string {

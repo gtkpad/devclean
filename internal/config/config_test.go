@@ -38,6 +38,36 @@ func TestLoad_NoFile_ReturnsDefaults(t *testing.T) {
 	if cfg.Ecosystems.Python.MaxAgeDays != 30 {
 		t.Errorf("Python.MaxAgeDays = %d, want 30", cfg.Ecosystems.Python.MaxAgeDays)
 	}
+	if cfg.Ecosystems.Rust.MaxAgeDays != 30 {
+		t.Errorf("Rust.MaxAgeDays = %d, want 30", cfg.Ecosystems.Rust.MaxAgeDays)
+	}
+	if cfg.Ecosystems.Java.MaxAgeDays != 30 {
+		t.Errorf("Java.MaxAgeDays = %d, want 30", cfg.Ecosystems.Java.MaxAgeDays)
+	}
+	if cfg.Ecosystems.NextJS.MaxAgeDays != 7 {
+		t.Errorf("NextJS.MaxAgeDays = %d, want 7", cfg.Ecosystems.NextJS.MaxAgeDays)
+	}
+	if cfg.Ecosystems.Bun.MaxAgeDays != 14 {
+		t.Errorf("Bun.MaxAgeDays = %d, want 14", cfg.Ecosystems.Bun.MaxAgeDays)
+	}
+	if cfg.Ecosystems.Xcode.MaxAgeDays != 14 {
+		t.Errorf("Xcode.MaxAgeDays = %d, want 14", cfg.Ecosystems.Xcode.MaxAgeDays)
+	}
+	if cfg.Ecosystems.AI.MaxAgeDays != 30 {
+		t.Errorf("AI.MaxAgeDays = %d, want 30", cfg.Ecosystems.AI.MaxAgeDays)
+	}
+	if cfg.Ecosystems.Pnpm.MaxAgeDays != 30 {
+		t.Errorf("Pnpm.MaxAgeDays = %d, want 30", cfg.Ecosystems.Pnpm.MaxAgeDays)
+	}
+	if cfg.Ecosystems.Homebrew.MaxAgeDays != 30 {
+		t.Errorf("Homebrew.MaxAgeDays = %d, want 30", cfg.Ecosystems.Homebrew.MaxAgeDays)
+	}
+	if cfg.Hooks.NextJS.Timeout != "30s" {
+		t.Errorf("Hooks.NextJS.Timeout = %q, want 30s", cfg.Hooks.NextJS.Timeout)
+	}
+	if cfg.Hooks.AI.Timeout != "30s" {
+		t.Errorf("Hooks.AI.Timeout = %q, want 30s", cfg.Hooks.AI.Timeout)
+	}
 	if !cfg.Ecosystems.Docker.Enabled {
 		t.Error("Docker.Enabled should be true by default")
 	}
@@ -139,6 +169,14 @@ func TestDefaults_AllEcosystemsEnabled(t *testing.T) {
 		{"Go", d.Ecosystems.Go, 60},
 		{"DotNet", d.Ecosystems.DotNet, 45},
 		{"Python", d.Ecosystems.Python, 30},
+		{"Rust", d.Ecosystems.Rust, 30},
+		{"Java", d.Ecosystems.Java, 30},
+		{"AI", d.Ecosystems.AI, 30},
+		{"Pnpm", d.Ecosystems.Pnpm, 30},
+		{"Bun", d.Ecosystems.Bun, 14},
+		{"NextJS", d.Ecosystems.NextJS, 7},
+		{"Xcode", d.Ecosystems.Xcode, 14},
+		{"Homebrew", d.Ecosystems.Homebrew, 30},
 	}
 
 	for _, ec := range ecosystems {

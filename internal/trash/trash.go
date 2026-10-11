@@ -78,6 +78,10 @@ func (m *Manager) Move(ctx context.Context, targets []domain.Target, ecosystem s
 		default:
 		}
 
+		if t.IsVirtual() {
+			continue
+		}
+
 		entryID := uuid.New().String()
 		entryDir := filepath.Join(m.baseDir, "batches", batchID, entryID)
 		dataDir := filepath.Join(entryDir, "data")
@@ -101,6 +105,10 @@ func (m *Manager) Move(ctx context.Context, targets []domain.Target, ecosystem s
 		}
 		batch.Entries = append(batch.Entries, entry)
 		batch.TotalSize += t.SizeBytes
+	}
+
+	if len(batch.Entries) == 0 {
+		return nil
 	}
 
 	manifest, err := LoadManifest(m.ManifestPath())

@@ -21,6 +21,9 @@ var manifestFiles = map[string]string{
 	"build.gradle":     "java",
 	"requirements.txt": "python",
 	"pyproject.toml":   "python",
+	"next.config.js":   "nextjs",
+	"next.config.mjs":  "nextjs",
+	"next.config.ts":   "nextjs",
 }
 
 func newInitCmd() *cobra.Command {
@@ -167,6 +170,9 @@ func buildConfig(scanPaths, ecosystems []string) *config.Config {
 	}
 	if _, ok := ecoSet["dotnet"]; !ok {
 		cfg.Ecosystems.DotNet.Enabled = false
+	}
+	if _, ok := ecoSet["nextjs"]; !ok {
+		cfg.Ecosystems.NextJS.Enabled = false
 	}
 
 	return &cfg

@@ -10,13 +10,6 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/gtkpad/devclean/internal/cleaner/docker"
-	"github.com/gtkpad/devclean/internal/cleaner/dotnet"
-	"github.com/gtkpad/devclean/internal/cleaner/golang"
-	"github.com/gtkpad/devclean/internal/cleaner/java"
-	"github.com/gtkpad/devclean/internal/cleaner/node"
-	"github.com/gtkpad/devclean/internal/cleaner/python"
-	"github.com/gtkpad/devclean/internal/cleaner/rust"
 	"github.com/gtkpad/devclean/internal/config"
 	"github.com/gtkpad/devclean/internal/engine"
 	"github.com/gtkpad/devclean/internal/platform"
@@ -54,16 +47,9 @@ var rootCmd = &cobra.Command{
 		}
 
 		resolver := platform.New()
-		paths := resolver.Resolve()
 		eng := engine.New(cfg, resolver)
 
-		eng.Register(docker.New())
-		eng.Register(golang.New())
-		eng.Register(node.New(cfg.ScanPaths))
-		eng.Register(dotnet.New(paths, cfg.ScanPaths))
-		eng.Register(python.New(paths.PythonUVCache, cfg.ScanPaths))
-		eng.Register(rust.New(cfg.ScanPaths))
-		eng.Register(java.New(cfg.ScanPaths))
+		engine.RegisterDefaultCleaners(eng, cfg, resolver)
 
 		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 		defer stop()
@@ -87,16 +73,9 @@ var rootCmd = &cobra.Command{
 		}
 
 		resolver := platform.New()
-		paths := resolver.Resolve()
 		eng := engine.New(cfg, resolver)
 
-		eng.Register(docker.New())
-		eng.Register(golang.New())
-		eng.Register(node.New(cfg.ScanPaths))
-		eng.Register(dotnet.New(paths, cfg.ScanPaths))
-		eng.Register(python.New(paths.PythonUVCache, cfg.ScanPaths))
-		eng.Register(rust.New(cfg.ScanPaths))
-		eng.Register(java.New(cfg.ScanPaths))
+		engine.RegisterDefaultCleaners(eng, cfg, resolver)
 
 		bl := safety.NewBlacklist(cfg.ProtectedPatterns)
 
@@ -117,7 +96,9 @@ func init() {
 
 	rootCmd.AddCommand(newScanCmd())
 	rootCmd.AddCommand(newCleanCmd())
+	rootCmd.AddCommand(newPurgeCmd())
 	rootCmd.AddCommand(newTrashCmd())
+	rootCmd.AddCommand(newWhitelistCmd())
 	rootCmd.AddCommand(newScheduleCmd())
 	rootCmd.AddCommand(newUnscheduleCmd())
 	rootCmd.AddCommand(newVersionCmd())

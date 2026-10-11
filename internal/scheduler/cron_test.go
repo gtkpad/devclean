@@ -1,7 +1,10 @@
 package scheduler
 
 import (
+	"errors"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestValidateCron(t *testing.T) {
@@ -92,5 +95,203 @@ func TestParseCron(t *testing.T) {
 				t.Errorf("ParseCron(%q) = %+v, want %+v", tt.expr, got, tt.expect)
 			}
 		})
+	}
+}
+
+func TestCronScheduler_InstallAndRemove_Success(t *testing.T) {
+	tmpDir := t.TempDir()
+	mock := NewMockExecutor()
+	sched := NewCronSchedulerWithExecutor(tmpDir, mock)
+
+	// Status when crontab is empty
+	st, err := sched.Status()
+	if err != nil {
+		t.Fatalf("Status error: %v", err)
+	}
+	if st.Active {
+		t.Error("expected Active = false")
+	}
+	if sched.IsInstalled() {
+		t.Error("expected IsInstalled = false initially")
+	}
+
+	// Install schedule
+	err = sched.Install(Schedule{
+		CronExpr:   "0 12 * * *",
+		BinaryPath: "/usr/local/bin/devclean",
+	})
+	if err != nil {
+		t.Fatalf("Install unexpected error: %v", err)
+	}
+
+	// Verify crontab write was executed
+	var crontabWritten bool
+	for _, call := range mock.Calls {
+		if len(call) >= 2 && call[0] == "crontab" && call[1] == "-" {
+			crontabWritten = true
+			break
+		}
+	}
+	if !crontabWritten {
+		t.Error("expected call to 'crontab -' in mock calls")
+	}
+
+	// Simulate crontab containing devclean schedule
+	crontabContent := cronMarker + "\n0 12 * * * /usr/local/bin/devclean clean --auto\n"
+	mock.Outputs["crontab -l"] = []byte(crontabContent)
+
+	if !sched.IsInstalled() {
+		t.Error("expected IsInstalled = true")
+	}
+
+	// Subsequent Install should return ErrAlreadyInstalled
+	err = sched.Install(Schedule{
+		CronExpr:   "0 12 * * *",
+		BinaryPath: "/usr/local/bin/devclean",
+	})
+	if !errors.Is(err, ErrAlreadyInstalled) {
+		t.Fatalf("expected ErrAlreadyInstalled, got %v", err)
+	}
+
+	// Record a run and check Status
+	runTime := time.Now().Truncate(time.Second)
+	_ = RecordRun(tmpDir, RunResult{
+		Timestamp:    runTime,
+		TargetsCount: 3,
+		BytesFreed:   4096,
+		Duration:     "50ms",
+	})
+
+	st, err = sched.Status()
+	if err != nil {
+		t.Fatalf("Status error: %v", err)
+	}
+	if !st.Active {
+		t.Error("expected Active = true")
+	}
+	if st.CronExpr != "0 12 * * *" {
+		t.Errorf("CronExpr = %q, want '0 12 * * *'", st.CronExpr)
+	}
+	if st.BinaryPath != "/usr/local/bin/devclean" {
+		t.Errorf("BinaryPath = %q, want '/usr/local/bin/devclean'", st.BinaryPath)
+	}
+	if st.LastRun == nil || !st.LastRun.Equal(runTime) {
+		t.Errorf("LastRun mismatch: got %v, want %v", st.LastRun, runTime)
+	}
+
+	// Remove schedule
+	err = sched.Remove()
+	if err != nil {
+		t.Fatalf("Remove unexpected error: %v", err)
+	}
+
+	// Simulate crontab without marker
+	mock.Outputs["crontab -l"] = []byte("")
+
+	if sched.IsInstalled() {
+		t.Error("expected IsInstalled = false after Remove")
+	}
+
+	// Subsequent Remove should return ErrNotInstalled
+	err = sched.Remove()
+	if !errors.Is(err, ErrNotInstalled) {
+		t.Fatalf("expected ErrNotInstalled on repeated Remove, got %v", err)
+	}
+}
+
+func TestCronScheduler_Watch(t *testing.T) {
+	tmpDir := t.TempDir()
+	mock := NewMockExecutor()
+	sched := NewCronSchedulerWithExecutor(tmpDir, mock)
+
+	if sched.IsWatchInstalled() {
+		t.Error("expected IsWatchInstalled = false initially")
+	}
+
+	// InstallWatch with interval < 30min (clamped to 30min: */30 * * * *)
+	err := sched.InstallWatch(WatchSchedule{
+		BinaryPath: "/usr/local/bin/devclean",
+		Interval:   15 * time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("InstallWatch unexpected error: %v", err)
+	}
+
+	// InstallWatch with interval >= 60min (2 hours: 0 */2 * * *)
+	sched2 := NewCronSchedulerWithExecutor(tmpDir, mock)
+	err = sched2.InstallWatch(WatchSchedule{
+		BinaryPath: "/usr/local/bin/devclean",
+		Interval:   2 * time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("InstallWatch unexpected error for 2h: %v", err)
+	}
+
+	// Simulate crontab containing watch entry
+	watchEntry := watchCronMarker + "\n0 */2 * * * /usr/local/bin/devclean --watch-daemon\n"
+	mock.Outputs["crontab -l"] = []byte(watchEntry)
+
+	if !sched.IsWatchInstalled() {
+		t.Error("expected IsWatchInstalled = true")
+	}
+
+	// Subsequent InstallWatch returns ErrAlreadyInstalled
+	err = sched.InstallWatch(WatchSchedule{BinaryPath: "/usr/local/bin/devclean", Interval: time.Hour})
+	if !errors.Is(err, ErrAlreadyInstalled) {
+		t.Fatalf("expected ErrAlreadyInstalled, got %v", err)
+	}
+
+	// RemoveWatch
+	err = sched.RemoveWatch()
+	if err != nil {
+		t.Fatalf("RemoveWatch unexpected error: %v", err)
+	}
+
+	// Simulate cleaned crontab
+	mock.Outputs["crontab -l"] = []byte("")
+	if sched.IsWatchInstalled() {
+		t.Error("expected IsWatchInstalled = false after RemoveWatch")
+	}
+
+	// Repeat RemoveWatch returns ErrNotInstalled
+	err = sched.RemoveWatch()
+	if !errors.Is(err, ErrNotInstalled) {
+		t.Fatalf("expected ErrNotInstalled, got %v", err)
+	}
+}
+
+func TestCronScheduler_ErrorBranches(t *testing.T) {
+	tmpDir := t.TempDir()
+	mock := NewMockExecutor()
+	sched := NewCronSchedulerWithExecutor(tmpDir, mock)
+
+	// 1. Invalid cron expression
+	err := sched.Install(Schedule{CronExpr: "invalid"})
+	if err == nil || !strings.Contains(err.Error(), "invalid cron expression") {
+		t.Fatalf("expected invalid cron error, got %v", err)
+	}
+
+	// 2. LookPath error when BinaryPath is empty
+	mock.Errors["lookpath:devclean"] = errors.New("devclean not in PATH")
+	err = sched.Install(Schedule{CronExpr: "0 12 * * *"})
+	if err == nil || !strings.Contains(err.Error(), "not found in PATH") {
+		t.Fatalf("expected LookPath error, got %v", err)
+	}
+	delete(mock.Errors, "lookpath:devclean")
+
+	// 3. crontab write error
+	mock.Errors["crontab -"] = errors.New("cannot write crontab")
+	mock.Outputs["crontab -"] = []byte("crontab: access denied")
+	err = sched.Install(Schedule{CronExpr: "0 12 * * *", BinaryPath: "/bin/devclean"})
+	if err == nil || !strings.Contains(err.Error(), "crontab failed") {
+		t.Fatalf("expected crontab write error, got %v", err)
+	}
+	delete(mock.Errors, "crontab -")
+
+	// 4. Watch LookPath error
+	mock.Errors["lookpath:devclean"] = errors.New("devclean not in PATH")
+	err = sched.InstallWatch(WatchSchedule{Interval: time.Hour})
+	if err == nil || !strings.Contains(err.Error(), "not found in PATH") {
+		t.Fatalf("expected watch LookPath error, got %v", err)
 	}
 }

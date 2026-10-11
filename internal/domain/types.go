@@ -2,6 +2,7 @@ package domain
 
 import (
 	"context"
+	"strings"
 	"time"
 )
 
@@ -29,6 +30,12 @@ type Target struct {
 	Category     string        `json:"category"`
 	AI           *AIAssessment `json:"ai_assessment,omitempty"`
 	SmartScore   float64       `json:"smart_score,omitempty"`
+}
+
+// IsVirtual returns true if the target represents a virtual resource (e.g. Docker images,
+// volumes, build cache) that cannot be manipulated via standard filesystem operations.
+func (t Target) IsVirtual() bool {
+	return strings.HasPrefix(t.Path, "docker://") || strings.Contains(t.Path, "://")
 }
 
 type ScanResult struct {
