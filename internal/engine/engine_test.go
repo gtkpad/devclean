@@ -3,10 +3,12 @@ package engine
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/gtkpad/devclean/internal/cleaner"
 	"github.com/gtkpad/devclean/internal/config"
 	"github.com/gtkpad/devclean/internal/domain"
 	"github.com/gtkpad/devclean/internal/platform"
@@ -310,3 +312,249 @@ func TestEcosystems_ReturnsSortedNames(t *testing.T) {
 		}
 	}
 }
+
+func TestScan_NoDroppedResultsUnderConcurrency(t *testing.T) {
+	cfg := defaultConfig()
+	e := New(cfg, &fakeResolver{})
+
+	const numCleaners = 20
+	expectedCleaners := make(map[string]int)
+
+	for i := 0; i < numCleaners; i++ {
+		name := fmt.Sprintf("cleaner-%02d", i)
+		targetCount := (i % 3) + 1
+		expectedCleaners[name] = targetCount
+		delay := time.Duration(10+(i*2)) * time.Millisecond
+
+		tc := targetCount
+		d := delay
+		n := name
+		e.Register(&fakeCleaner{
+			name:      n,
+			installed: true,
+			scanFn: func(_ domain.EcosystemRules) ([]domain.Target, error) {
+				time.Sleep(d)
+				targets := make([]domain.Target, tc)
+				for j := 0; j < tc; j++ {
+					targets[j] = domain.Target{
+						ID:       fmt.Sprintf("%s-target-%d", n, j),
+						Category: "test-category",
+					}
+				}
+				return targets, nil
+			},
+		})
+	}
+
+	ctx := context.Background()
+	results := Collect(ctx, e.Scan(ctx))
+
+	if len(results) != numCleaners {
+		t.Fatalf("expected %d results, got %d", numCleaners, len(results))
+	}
+
+	received := make(map[string]int)
+	for _, res := range results {
+		if res.Error != nil {
+			t.Errorf("cleaner %s returned unexpected error: %v", res.Ecosystem, res.Error)
+		}
+		received[res.Ecosystem] = len(res.Targets)
+	}
+
+	for name, expectedCount := range expectedCleaners {
+		gotCount, exists := received[name]
+		if !exists {
+			t.Errorf("missing result for cleaner %s", name)
+		} else if gotCount != expectedCount {
+			t.Errorf("cleaner %s: expected %d targets, got %d", name, expectedCount, gotCount)
+		}
+	}
+}
+
+type networkMountResolver struct {
+	mounts map[string]bool
+}
+
+func (r *networkMountResolver) Resolve() platform.Paths { return platform.Paths{} }
+func (r *networkMountResolver) IsNetworkMount(path string) bool {
+	return r.mounts[path]
+}
+
+func TestEngine_NetworkMountsAndCleanerLookup(t *testing.T) {
+	cfg := defaultConfig()
+	res := &networkMountResolver{
+		mounts: map[string]bool{
+			"/mnt/nfs/shared": true,
+			"/Volumes/smb":    true,
+		},
+	}
+	eng := New(cfg, res)
+
+	// 1. Cleaner Lookup
+	cleaner := &fakeCleaner{name: "node", installed: true}
+	eng.Register(cleaner)
+
+	if got := eng.GetCleaner("node"); got != cleaner {
+		t.Errorf("GetCleaner(node) = %v, want %v", got, cleaner)
+	}
+	if got := eng.GetCleaner("nonexistent"); got != nil {
+		t.Errorf("GetCleaner(nonexistent) = %v, want nil", got)
+	}
+
+	// 2. FilterNetworkMounts
+	ctx := context.Background()
+	paths := []string{
+		"/Users/dev/project",
+		"/mnt/nfs/shared",
+		"/Volumes/smb",
+		"/var/cache/local",
+	}
+	filtered := eng.FilterNetworkMounts(ctx, paths)
+	if len(filtered) != 2 {
+		t.Fatalf("expected 2 local paths, got %d: %v", len(filtered), filtered)
+	}
+	if filtered[0] != "/Users/dev/project" || filtered[1] != "/var/cache/local" {
+		t.Errorf("unexpected filtered paths: %v", filtered)
+	}
+}
+
+func TestEngine_ScanContextCancellation_NoDeadlock(t *testing.T) {
+	cfg := defaultConfig()
+	eng := New(cfg, &fakeResolver{})
+
+	for i := 0; i < 5; i++ {
+		name := fmt.Sprintf("slow-cleaner-%d", i)
+		eng.Register(&fakeCleaner{
+			name:      name,
+			installed: true,
+			scanFn: func(_ domain.EcosystemRules) ([]domain.Target, error) {
+				time.Sleep(100 * time.Millisecond)
+				return []domain.Target{{ID: "slow"}}, nil
+			},
+		})
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	results := Collect(ctx, eng.Scan(ctx))
+	elapsed := time.Since(start)
+
+	if elapsed > 500*time.Millisecond {
+		t.Errorf("scan with cancellation took too long: %v (possible channel deadlock)", elapsed)
+	}
+
+	// Se houver erros reportados, devem ser de cancelamento de contexto
+	for _, r := range results {
+		if r.Error != nil && !errors.Is(r.Error, context.Canceled) && !errors.Is(r.Error, context.DeadlineExceeded) {
+			t.Errorf("unexpected error on cancelled scan: %v", r.Error)
+		}
+	}
+}
+
+func TestRegisterDefaultCleaners(t *testing.T) {
+	cfg := &config.Config{
+		ScanPaths: []string{"/tmp/test-projects"},
+		Ecosystems: config.EcosystemsConfig{
+			Docker:   config.EcosystemConfig{Enabled: true, MaxAgeDays: 30},
+			Node:     config.EcosystemConfig{Enabled: true, MaxAgeDays: 14},
+			Go:       config.EcosystemConfig{Enabled: true, MaxAgeDays: 60},
+			DotNet:   config.EcosystemConfig{Enabled: true, MaxAgeDays: 45},
+			Python:   config.EcosystemConfig{Enabled: true, MaxAgeDays: 30},
+			Rust:     config.EcosystemConfig{Enabled: true, MaxAgeDays: 30},
+			Java:     config.EcosystemConfig{Enabled: true, MaxAgeDays: 30},
+			AI:       config.EcosystemConfig{Enabled: true, MaxAgeDays: 30},
+			Pnpm:     config.EcosystemConfig{Enabled: true, MaxAgeDays: 30},
+			Bun:      config.EcosystemConfig{Enabled: true, MaxAgeDays: 14},
+			NextJS:   config.EcosystemConfig{Enabled: true, MaxAgeDays: 7},
+			Xcode:    config.EcosystemConfig{Enabled: true, MaxAgeDays: 14},
+			Homebrew: config.EcosystemConfig{Enabled: true, MaxAgeDays: 30},
+		},
+	}
+
+	res := &fakeResolver{}
+	eng := New(cfg, res)
+
+	RegisterDefaultCleaners(eng, cfg, res)
+
+	wantEcosystems := []string{
+		"ai", "bun", "docker", "dotnet", "go",
+		"homebrew", "java", "nextjs", "node", "pnpm",
+		"python", "rust", "xcode",
+	}
+
+	gotEcosystems := eng.Ecosystems()
+	if len(gotEcosystems) != len(wantEcosystems) {
+		t.Fatalf("eng.Ecosystems() count = %d, want %d (%v)", len(gotEcosystems), len(wantEcosystems), gotEcosystems)
+	}
+
+	for i, want := range wantEcosystems {
+		if gotEcosystems[i] != want {
+			t.Errorf("eng.Ecosystems()[%d] = %q, want %q", i, gotEcosystems[i], want)
+		}
+	}
+
+	for _, name := range wantEcosystems {
+		c := eng.GetCleaner(name)
+		if c == nil {
+			t.Errorf("GetCleaner(%q) returned nil", name)
+		} else if c.Name() != name {
+			t.Errorf("GetCleaner(%q).Name() = %q, want %q", name, c.Name(), name)
+		}
+	}
+
+	// Test mapping of each ecosystem configuration
+	tests := []struct {
+		name       string
+		maxAgeDays int
+	}{
+		{"docker", 30},
+		{"node", 14},
+		{"go", 60},
+		{"dotnet", 45},
+		{"python", 30},
+		{"rust", 30},
+		{"java", 30},
+		{"ai", 30},
+		{"pnpm", 30},
+		{"bun", 14},
+		{"nextjs", 7},
+		{"xcode", 14},
+		{"homebrew", 30},
+	}
+
+	for _, tc := range tests {
+		ecoCfg := eng.ecosystemConfig(tc.name)
+		if ecoCfg.MaxAgeDays != tc.maxAgeDays {
+			t.Errorf("ecosystemConfig(%q).MaxAgeDays = %d, want %d", tc.name, ecoCfg.MaxAgeDays, tc.maxAgeDays)
+		}
+		if !ecoCfg.Enabled {
+			t.Errorf("ecosystemConfig(%q).Enabled = false, want true", tc.name)
+		}
+	}
+
+	// Unknown ecosystem fallback
+	unknownCfg := eng.ecosystemConfig("unknown-eco")
+	if !unknownCfg.Enabled || unknownCfg.FailMode != "continue" {
+		t.Errorf("ecosystemConfig(unknown-eco) = %+v, want Enabled: true, FailMode: continue", unknownCfg)
+	}
+}
+
+func TestRegisterDefaultCleanersWithExecutor(t *testing.T) {
+	cfg := &config.Config{
+		ScanPaths: []string{"/tmp/test"},
+	}
+	res := &fakeResolver{}
+	eng := New(cfg, res)
+	exec := &cleaner.MockCommandExecutor{}
+
+	RegisterDefaultCleanersWithExecutor(eng, cfg, res, exec)
+
+	if len(eng.Ecosystems()) != 13 {
+		t.Fatalf("expected 13 ecosystems, got %d", len(eng.Ecosystems()))
+	}
+}
+
+
+

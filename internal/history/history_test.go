@@ -1,6 +1,7 @@
 package history
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -122,5 +123,31 @@ func TestTruncate_EmptyFile(t *testing.T) {
 	dir := t.TempDir()
 	if err := Truncate(dir, 90*24*time.Hour); err != nil {
 		t.Fatalf("Truncate on empty should not error: %v", err)
+	}
+}
+
+func TestRead_CorruptedAndMalformedLines(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, FileName)
+
+	corruptedData := "{\"timestamp\":\"2026-10-09T00:00:00Z\",\"targets\":1}\n" +
+		"{corrupted JSON line\n" +
+		"\n" +
+		"{\"timestamp\":\"2026-10-09T01:00:00Z\",\"targets\":2}\n"
+
+	if err := os.WriteFile(filePath, []byte(corruptedData), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Não deve disparar panic; deve ler entradas válidas ignorando linhas corrompidas ou em branco
+	entries, err := Read(dir)
+	if err != nil {
+		t.Fatalf("Read returned unexpected error: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 valid entries recovered, got %d", len(entries))
+	}
+	if entries[0].Targets != 1 || entries[1].Targets != 2 {
+		t.Errorf("entries mismatch: %+v", entries)
 	}
 }

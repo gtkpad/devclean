@@ -3,22 +3,18 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
+	"time"
 
-	"github.com/gtkpad/devclean/internal/cleaner/docker"
-	"github.com/gtkpad/devclean/internal/cleaner/dotnet"
-	"github.com/gtkpad/devclean/internal/cleaner/golang"
-	"github.com/gtkpad/devclean/internal/cleaner/java"
-	"github.com/gtkpad/devclean/internal/cleaner/node"
-	"github.com/gtkpad/devclean/internal/cleaner/python"
-	"github.com/gtkpad/devclean/internal/cleaner/rust"
 	"github.com/gtkpad/devclean/internal/engine"
 	"github.com/gtkpad/devclean/internal/platform"
 	"github.com/gtkpad/devclean/internal/watch"
 	"github.com/spf13/cobra"
-	"log/slog"
 )
 
 func newWatchCmd() *cobra.Command {
@@ -45,16 +41,9 @@ func newWatchCmd() *cobra.Command {
 			}
 
 			resolver := platform.New()
-			paths := resolver.Resolve()
 			eng := engine.New(cfg, resolver)
 
-			eng.Register(docker.New())
-			eng.Register(golang.New())
-			eng.Register(node.New(cfg.ScanPaths))
-			eng.Register(dotnet.New(paths, cfg.ScanPaths))
-			eng.Register(python.New(paths.PythonUVCache, cfg.ScanPaths))
-			eng.Register(rust.New(cfg.ScanPaths))
-			eng.Register(java.New(cfg.ScanPaths))
+			engine.RegisterDefaultCleaners(eng, cfg, resolver)
 
 			w := &watch.Watcher{
 				ScanFn:         eng.Scan,
@@ -63,7 +52,26 @@ func newWatchCmd() *cobra.Command {
 				Logger:         slog.Default(),
 			}
 
-			ctx := context.Background()
+			if interval != "" {
+				parsedInterval, err := time.ParseDuration(interval)
+				if err != nil {
+					return fmt.Errorf("invalid --interval value %q: %w", interval, err)
+				}
+				w.Interval = parsedInterval
+
+				ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+				defer stop()
+
+				fmt.Fprintf(os.Stdout, "Starting watch daemon (interval: %s, threshold: %s)...\n",
+					interval, humanSize(thresholdBytes))
+
+				return w.Run(ctx)
+			}
+
+			ctx := cmd.Context()
+			if ctx == nil {
+				ctx = context.Background()
+			}
 			totalBytes, targetCount, err := w.RunOnce(ctx)
 			if err != nil {
 				return fmt.Errorf("watch scan failed: %w", err)
@@ -99,23 +107,26 @@ func parseBytes(s string) (int64, error) {
 
 	s = strings.ToUpper(s)
 
-	multipliers := map[string]int64{
-		"TB": 1024 * 1024 * 1024 * 1024,
-		"GB": 1024 * 1024 * 1024,
-		"MB": 1024 * 1024,
-		"KB": 1024,
-		"B":  1,
+	units := []struct {
+		suffix string
+		mult   int64
+	}{
+		{"TB", 1024 * 1024 * 1024 * 1024},
+		{"GB", 1024 * 1024 * 1024},
+		{"MB", 1024 * 1024},
+		{"KB", 1024},
+		{"B", 1},
 	}
 
-	for suffix, mult := range multipliers {
-		if strings.HasSuffix(s, suffix) {
-			numStr := strings.TrimSuffix(s, suffix)
+	for _, u := range units {
+		if strings.HasSuffix(s, u.suffix) {
+			numStr := strings.TrimSuffix(s, u.suffix)
 			numStr = strings.TrimSpace(numStr)
 			val, err := strconv.ParseFloat(numStr, 64)
 			if err != nil {
 				return 0, fmt.Errorf("invalid number %q", numStr)
 			}
-			return int64(val * float64(mult)), nil
+			return int64(val * float64(u.mult)), nil
 		}
 	}
 

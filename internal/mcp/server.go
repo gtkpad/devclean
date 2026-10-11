@@ -7,10 +7,13 @@ import (
 	"time"
 
 	"github.com/gtkpad/devclean/internal/config"
+	"github.com/gtkpad/devclean/internal/deleter"
 	"github.com/gtkpad/devclean/internal/domain"
 	"github.com/gtkpad/devclean/internal/engine"
 	"github.com/gtkpad/devclean/internal/history"
+	"github.com/gtkpad/devclean/internal/hooks"
 	"github.com/gtkpad/devclean/internal/safety"
+	"github.com/gtkpad/devclean/internal/trash"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
@@ -40,11 +43,17 @@ func WithConfigProvider(cp ConfigProvider) Option {
 	return func(s *Server) { s.configProvider = cp }
 }
 
+// WithCoordinator injects a deleter.Coordinator into the server.
+func WithCoordinator(c *deleter.Coordinator) Option {
+	return func(s *Server) { s.coordinator = c }
+}
+
 // Server wraps the MCP server with devclean engine access.
 type Server struct {
 	mcp            *server.MCPServer
 	engine         *engine.Engine
 	bl             *safety.Blacklist
+	coordinator    *deleter.Coordinator
 	history        HistoryReader
 	configProvider ConfigProvider
 	explainer      PathExplainer
@@ -53,13 +62,34 @@ type Server struct {
 
 // New creates a devclean MCP server with all tools registered.
 func New(eng *engine.Engine, cfg *config.Config, opts ...Option) *Server {
+	var bl *safety.Blacklist
+	if cfg != nil {
+		bl = safety.NewBlacklist(cfg.ProtectedPatterns)
+	} else {
+		bl = safety.NewBlacklist(nil)
+	}
+
 	s := &Server{
 		engine: eng,
-		bl:     safety.NewBlacklist(cfg.ProtectedPatterns),
+		bl:     bl,
 	}
 
 	for _, opt := range opts {
 		opt(s)
+	}
+
+	if s.coordinator == nil {
+		var trashMgr *trash.Manager
+		var hookRunner *hooks.Runner
+		if cfg != nil {
+			trashMgr = trash.New(cfg.Safety)
+			hookRunner = hooks.New(cfg.Hooks)
+		}
+		var cfgDir string
+		if s.configProvider != nil {
+			cfgDir = s.configProvider.ConfigDir()
+		}
+		s.coordinator = deleter.New(eng, cfg, s.bl, trashMgr, hookRunner, cfgDir, "")
 	}
 
 	s.mcp = server.NewMCPServer(
@@ -229,59 +259,39 @@ func (s *Server) handleExecute(ctx context.Context, request mcp.CallToolRequest)
 	ch := s.engine.Scan(ctx)
 	results := engine.Collect(ctx, ch)
 
-	type ecoTarget struct {
-		ecosystem string
-		target    domain.Target
-	}
-
 	idSet := make(map[string]struct{}, len(ids))
 	for _, id := range ids {
 		idSet[id] = struct{}{}
 	}
 
-	var toDelete []ecoTarget
+	byEco := make(map[string][]domain.Target)
 	for _, r := range results {
 		for _, t := range r.Targets {
 			if _, ok := idSet[t.ID]; ok {
 				if !s.bl.IsBlacklisted(t.Path) {
-					toDelete = append(toDelete, ecoTarget{ecosystem: r.Ecosystem, target: t})
+					byEco[r.Ecosystem] = append(byEco[r.Ecosystem], t)
 				}
 			}
 		}
 	}
 
-	// Group by ecosystem and clean
-	byEco := make(map[string][]domain.Target)
-	for _, et := range toDelete {
-		byEco[et.ecosystem] = append(byEco[et.ecosystem], et.target)
-	}
-
-	var totalFreed int64
-	var totalCount int
-	var errors []string
-
-	for eco, targets := range byEco {
-		cleaner := s.engine.GetCleaner(eco)
-		if cleaner == nil {
-			errors = append(errors, fmt.Sprintf("no cleaner for %s", eco))
-			continue
-		}
-		if err := cleaner.Clean(ctx, targets); err != nil {
-			errors = append(errors, fmt.Sprintf("%s: %v", eco, err))
-			continue
-		}
-		for _, t := range targets {
-			totalFreed += t.SizeBytes
-			totalCount++
-		}
+	res, err := s.coordinator.Delete(ctx, byEco, deleter.Options{
+		Mode: "mcp",
+	})
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("deletion failed: %v", err)), nil
 	}
 
 	result := map[string]interface{}{
-		"deleted_count": totalCount,
-		"freed_bytes":   totalFreed,
+		"deleted_count": res.TotalCount,
+		"freed_bytes":   res.TotalFreed,
 	}
-	if len(errors) > 0 {
-		result["errors"] = errors
+	if len(res.Errors) > 0 {
+		var errStrs []string
+		for _, e := range res.Errors {
+			errStrs = append(errStrs, e.Error())
+		}
+		result["errors"] = errStrs
 	}
 
 	data, err := json.Marshal(result)

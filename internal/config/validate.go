@@ -25,13 +25,19 @@ func (c *Config) Validate() error {
 	}
 
 	hooks := map[string]HookConfig{
-		"hooks.node":   c.Hooks.Node,
-		"hooks.go":     c.Hooks.Go,
-		"hooks.docker": c.Hooks.Docker,
-		"hooks.dotnet": c.Hooks.DotNet,
-		"hooks.python": c.Hooks.Python,
-		"hooks.rust":   c.Hooks.Rust,
-		"hooks.java":   c.Hooks.Java,
+		"hooks.node":     c.Hooks.Node,
+		"hooks.go":       c.Hooks.Go,
+		"hooks.docker":   c.Hooks.Docker,
+		"hooks.dotnet":   c.Hooks.DotNet,
+		"hooks.python":   c.Hooks.Python,
+		"hooks.rust":     c.Hooks.Rust,
+		"hooks.java":     c.Hooks.Java,
+		"hooks.ai":       c.Hooks.AI,
+		"hooks.pnpm":     c.Hooks.Pnpm,
+		"hooks.bun":      c.Hooks.Bun,
+		"hooks.nextjs":   c.Hooks.NextJS,
+		"hooks.xcode":    c.Hooks.Xcode,
+		"hooks.homebrew": c.Hooks.Homebrew,
 	}
 
 	for name, h := range hooks {

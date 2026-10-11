@@ -85,3 +85,39 @@ func writeFile(t *testing.T, path string, size int) {
 		t.Fatal(err)
 	}
 }
+
+func TestCalcDirSize_ReadOnlyDirectory(t *testing.T) {
+	dir := t.TempDir()
+	subDir := filepath.Join(dir, "readonly_mod")
+	if err := os.MkdirAll(subDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	content := []byte("pkg-bytes-content")
+	filePath := filepath.Join(subDir, "file.a")
+	if err := os.WriteFile(filePath, content, 0444); err != nil {
+		t.Fatal(err)
+	}
+
+	// Gancho de cleanup reverso antes de restringir permissões
+	t.Cleanup(func() {
+		_ = filepath.Walk(subDir, func(path string, info os.FileInfo, err error) error {
+			if err == nil {
+				_ = os.Chmod(path, 0755)
+			}
+			return nil
+		})
+	})
+
+	if err := os.Chmod(subDir, 0555); err != nil {
+		t.Fatal(err)
+	}
+
+	size, err := CalcDirSize(subDir)
+	if err != nil {
+		t.Fatalf("CalcDirSize on read-only dir failed: %v", err)
+	}
+	if size != int64(len(content)) {
+		t.Errorf("expected size %d, got %d", len(content), size)
+	}
+}

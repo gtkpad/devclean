@@ -25,6 +25,10 @@ type Engine struct {
 
 // New creates a scan engine.
 func New(cfg *config.Config, resolver platform.Resolver) *Engine {
+	if cfg == nil {
+		def := config.Defaults()
+		cfg = &def
+	}
 	return &Engine{
 		cleaners: make(map[string]domain.Cleaner),
 		config:   cfg,
@@ -71,9 +75,13 @@ func (e *Engine) Scan(ctx context.Context) <-chan domain.ScanResult {
 			}
 
 			if !cleaner.IsInstalled() {
-				results <- domain.ScanResult{
+				select {
+				case results <- domain.ScanResult{
 					Ecosystem: name,
 					Error:     ErrNotInstalled,
+				}:
+				case <-ctx.Done():
+					return
 				}
 				continue
 			}
@@ -85,9 +93,13 @@ func (e *Engine) Scan(ctx context.Context) <-chan domain.ScanResult {
 			g.Go(func() error {
 				targets, err := c.Scan(gctx, rules)
 				if err != nil {
-					results <- domain.ScanResult{
+					select {
+					case results <- domain.ScanResult{
 						Ecosystem: n,
 						Error:     err,
+					}:
+					case <-gctx.Done():
+						return gctx.Err()
 					}
 					if rules.FailMode == "abort" {
 						mu.Lock()
@@ -97,14 +109,13 @@ func (e *Engine) Scan(ctx context.Context) <-chan domain.ScanResult {
 					}
 					return nil // continue mode
 				}
-				// Use non-blocking send with fallback: even if context is
-				// cancelled (abort from another cleaner), deliver completed results.
 				select {
 				case results <- domain.ScanResult{
 					Ecosystem: n,
 					Targets:   targets,
 				}:
-				default:
+				case <-gctx.Done():
+					return gctx.Err()
 				}
 				return nil
 			})
@@ -160,7 +171,19 @@ func (e *Engine) ecosystemConfig(name string) config.EcosystemConfig {
 		return e.config.Ecosystems.Rust
 	case "java":
 		return e.config.Ecosystems.Java
+	case "ai":
+		return e.config.Ecosystems.AI
+	case "pnpm":
+		return e.config.Ecosystems.Pnpm
+	case "bun":
+		return e.config.Ecosystems.Bun
+	case "nextjs":
+		return e.config.Ecosystems.NextJS
+	case "xcode":
+		return e.config.Ecosystems.Xcode
+	case "homebrew":
+		return e.config.Ecosystems.Homebrew
 	default:
-		return config.EcosystemConfig{}
+		return config.EcosystemConfig{Enabled: true, FailMode: "continue"}
 	}
 }
