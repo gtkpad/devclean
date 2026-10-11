@@ -761,6 +761,229 @@ func TestClean_ReportCard(t *testing.T) {
 	})
 }
 
+func setupMultiEcosystemCleanFixture(t *testing.T) (string, string) {
+	t.Helper()
+	tmpDir := t.TempDir()
+	t.Setenv("CARGO_HOME", filepath.Join(tmpDir, "fake_cargo"))
+
+	// Node target: node_modules/cache.tmp
+	appDir := filepath.Join(tmpDir, "node-app")
+	nodeModules := filepath.Join(appDir, "node_modules")
+	if err := os.MkdirAll(nodeModules, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(appDir, "package.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nodeModules, "cache.tmp"), []byte("node-cache-payload"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Rust target: target/debug/build.bin
+	rustDir := filepath.Join(tmpDir, "rust-app")
+	rustTarget := filepath.Join(rustDir, "target")
+	if err := os.MkdirAll(filepath.Join(rustTarget, "debug"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(rustDir, "Cargo.toml"), []byte("[package]\nname = \"demo\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(rustTarget, "debug", "build.bin"), []byte("rust-binary-payload"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	content := fmt.Sprintf(`scan_paths:
+  - %q
+protected_patterns:
+  - "*cacache*"
+  - "*store*"
+safety:
+  trash_enabled: false
+ecosystems:
+  docker:
+    enabled: false
+  node:
+    enabled: true
+  go:
+    enabled: false
+  dotnet:
+    enabled: false
+  python:
+    enabled: false
+  rust:
+    enabled: true
+  java:
+    enabled: false
+  ai:
+    enabled: false
+  pnpm:
+    enabled: false
+  bun:
+    enabled: false
+  nextjs:
+    enabled: false
+  xcode:
+    enabled: false
+  homebrew:
+    enabled: false
+`, tmpDir)
+	cfgPath := filepath.Join(tmpDir, "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return tmpDir, cfgPath
+}
+
+func TestCleanCmd_ReportAndJSON(t *testing.T) {
+	origQuiet := quiet
+	quiet = false
+	defer func() { quiet = origQuiet }()
+
+	tmpDir, cfgPath := setupMultiEcosystemCleanFixture(t)
+	origConfigPath := configPath
+	configPath = cfgPath
+	defer func() { configPath = origConfigPath }()
+
+	cmd := newCleanCmd()
+	var outBuf bytes.Buffer
+	var errBuf bytes.Buffer
+	cmd.SetOut(&outBuf)
+	cmd.SetErr(&errBuf)
+	cmd.SetArgs([]string{"--force", "--format", "json"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error executing clean --format json: %v", err)
+	}
+
+	var report ui.CleanReportJSON
+	if err := json.Unmarshal(outBuf.Bytes(), &report); err != nil {
+		t.Fatalf("failed to decode JSON output: %v, raw output: %s", err, outBuf.String())
+	}
+
+	if report.Title != "Clean Summary" {
+		t.Errorf("expected title 'Clean Summary', got %q", report.Title)
+	}
+	if report.TotalCount != 2 {
+		t.Errorf("expected total_count == 2, got %d", report.TotalCount)
+	}
+	if report.TotalFreed <= 0 {
+		t.Errorf("expected total_freed > 0, got %d", report.TotalFreed)
+	}
+	if report.TotalFreedHuman == "" {
+		t.Errorf("expected total_freed_human to be non-empty")
+	}
+	if report.DurationMs < 0 {
+		t.Errorf("expected non-negative duration_ms, got %d", report.DurationMs)
+	}
+	if len(report.Ecosystems) != 2 {
+		t.Errorf("expected 2 ecosystems (node, rust), got %d: %+v", len(report.Ecosystems), report.Ecosystems)
+	}
+
+	// Verify both build artifacts were physically removed
+	nodeModules := filepath.Join(tmpDir, "node-app", "node_modules")
+	if _, err := os.Stat(nodeModules); !os.IsNotExist(err) {
+		t.Errorf("expected node_modules to be deleted, but still exists")
+	}
+	rustTarget := filepath.Join(tmpDir, "rust-app", "target")
+	if _, err := os.Stat(rustTarget); !os.IsNotExist(err) {
+		t.Errorf("expected rust target to be deleted, but still exists")
+	}
+}
+
+func TestCleanCmd_QuietFlag(t *testing.T) {
+	origQuiet := quiet
+	quiet = true
+	defer func() { quiet = origQuiet }()
+
+	tmpDir, cfgPath := setupCleanFixture(t)
+	origConfigPath := configPath
+	configPath = cfgPath
+	defer func() { configPath = origConfigPath }()
+
+	cmd := newCleanCmd()
+	var outBuf bytes.Buffer
+	var errBuf bytes.Buffer
+	cmd.SetOut(&outBuf)
+	cmd.SetErr(&errBuf)
+	cmd.SetArgs([]string{"--force", "-e", "node"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error executing clean in quiet mode: %v", err)
+	}
+
+	if outBuf.Len() > 0 {
+		t.Errorf("expected empty stdout with --quiet, got: %q", outBuf.String())
+	}
+
+	// Verify real removal still happened in quiet mode
+	nodeModules := filepath.Join(tmpDir, "app", "node_modules")
+	if _, err := os.Stat(nodeModules); !os.IsNotExist(err) {
+		t.Errorf("expected node_modules to be deleted in quiet mode, but still exists")
+	}
+}
+
+func TestCleanCmd_DryRunReport(t *testing.T) {
+	origQuiet := quiet
+	quiet = false
+	defer func() { quiet = origQuiet }()
+
+	tmpDir, cfgPath := setupCleanFixture(t)
+	origConfigPath := configPath
+	configPath = cfgPath
+	defer func() { configPath = origConfigPath }()
+
+	cmd := newCleanCmd()
+	var outBuf bytes.Buffer
+	var errBuf bytes.Buffer
+	cmd.SetOut(&outBuf)
+	cmd.SetErr(&errBuf)
+	cmd.SetArgs([]string{"--force", "--dry-run", "-e", "node"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error executing clean --dry-run: %v", err)
+	}
+
+	out := outBuf.String()
+	if !strings.Contains(out, "Clean Dry-Run Summary") {
+		t.Errorf("expected 'Clean Dry-Run Summary' in output, got: %s", out)
+	}
+	if !strings.Contains(out, "Espaço Recuperado:") {
+		t.Errorf("expected 'Espaço Recuperado:' in output, got: %s", out)
+	}
+
+	// Verify file was NOT physically deleted
+	nodeModules := filepath.Join(tmpDir, "app", "node_modules")
+	if _, err := os.Stat(nodeModules); os.IsNotExist(err) {
+		t.Fatal("expected node_modules to still exist after dry-run")
+	}
+}
+
+func TestCleanCmd_MutualExclusiveFlags(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{"trash and permanent", []string{"--force", "--trash", "--permanent"}},
+		{"auto and force", []string{"--auto", "--force"}},
+		{"smart and force", []string{"--smart", "--force"}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := newCleanCmd()
+			cmd.SetArgs(tc.args)
+			err := cmd.Execute()
+			if err == nil {
+				t.Fatalf("expected error for %v, got nil", tc.args)
+			}
+		})
+	}
+}
+
+
 
 
 
