@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -9,6 +10,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/gtkpad/devclean/internal/history"
+	"github.com/gtkpad/devclean/internal/ui"
 )
 
 func setupTestRepo(t *testing.T, dir string, branch string, daysAgo int, dirty bool) {
@@ -312,3 +316,225 @@ func TestPurgeCmd_Filters(t *testing.T) {
 		}
 	})
 }
+
+func TestPurgeCmd_Execution(t *testing.T) {
+	origConfigPath := configPath
+	origQuiet := quiet
+	origStdinReader := purgeStdinReader
+	origIsTerminal := purgeIsTerminal
+
+	defer func() {
+		configPath = origConfigPath
+		quiet = origQuiet
+		purgeStdinReader = origStdinReader
+		purgeIsTerminal = origIsTerminal
+	}()
+
+	t.Run("Execution_AuditHistoryModePurge", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		t.Setenv("HOME", tmpDir)
+		repoDir := filepath.Join(tmpDir, "repo-hist")
+		if err := os.MkdirAll(repoDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		setupTestRepo(t, repoDir, "main", 70, false)
+
+		configPath = createPurgeConfig(t, tmpDir, repoDir)
+		quiet = false
+
+		cmd := newPurgeCmd()
+		var outBuf bytes.Buffer
+		cmd.SetOut(&outBuf)
+		cmd.SetArgs([]string{"--yes"})
+
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("purge execution failed: %v", err)
+		}
+
+		// Verify audit history was recorded with mode: "purge"
+		dataDir := getDataDir()
+		entries, err := history.Read(dataDir)
+		if err != nil {
+			t.Fatalf("failed to read history: %v", err)
+		}
+		if len(entries) == 0 {
+			t.Fatal("expected at least 1 history entry, got 0")
+		}
+		lastEntry := entries[len(entries)-1]
+		if lastEntry.Mode != "purge" {
+			t.Errorf("expected history entry mode = %q, got %q", "purge", lastEntry.Mode)
+		}
+		if lastEntry.Targets != 1 {
+			t.Errorf("expected history targets = 1, got %d", lastEntry.Targets)
+		}
+	})
+
+	t.Run("Execution_TrashPreferenceAndOverrides", func(t *testing.T) {
+		// Subtest A: default follows trash_enabled: true
+		{
+			tmpDir := t.TempDir()
+			t.Setenv("HOME", tmpDir)
+			repoDir := filepath.Join(tmpDir, "repo-trash-def")
+			if err := os.MkdirAll(repoDir, 0755); err != nil {
+				t.Fatal(err)
+			}
+			setupTestRepo(t, repoDir, "main", 70, false)
+			configPath = createPurgeConfig(t, tmpDir, repoDir)
+			quiet = false
+
+			cmd := newPurgeCmd()
+			var outBuf bytes.Buffer
+			cmd.SetOut(&outBuf)
+			cmd.SetArgs([]string{"--yes"})
+
+			if err := cmd.Execute(); err != nil {
+				t.Fatalf("purge default trash failed: %v", err)
+			}
+
+			// Target removed from repo
+			if _, err := os.Stat(filepath.Join(repoDir, "node_modules")); !os.IsNotExist(err) {
+				t.Errorf("expected node_modules to be removed from repo")
+			}
+			// Trash manifest exists
+			trashManifest := filepath.Join(tmpDir, ".local", "share", "devclean", "trash", "manifest.json")
+			if _, err := os.Stat(trashManifest); err != nil {
+				t.Errorf("expected trash manifest to exist: %v", err)
+			}
+		}
+
+		// Subtest B: override with --permanent
+		{
+			tmpDir := t.TempDir()
+			t.Setenv("HOME", tmpDir)
+			repoDir := filepath.Join(tmpDir, "repo-perm")
+			if err := os.MkdirAll(repoDir, 0755); err != nil {
+				t.Fatal(err)
+			}
+			setupTestRepo(t, repoDir, "main", 70, false)
+			configPath = createPurgeConfig(t, tmpDir, repoDir)
+			quiet = false
+
+			cmd := newPurgeCmd()
+			var outBuf bytes.Buffer
+			cmd.SetOut(&outBuf)
+			cmd.SetArgs([]string{"--yes", "--permanent"})
+
+			if err := cmd.Execute(); err != nil {
+				t.Fatalf("purge permanent failed: %v", err)
+			}
+
+			if _, err := os.Stat(filepath.Join(repoDir, "node_modules")); !os.IsNotExist(err) {
+				t.Errorf("expected node_modules to be deleted permanently")
+			}
+			// Trash manifest should not exist
+			trashManifest := filepath.Join(tmpDir, ".local", "share", "devclean", "trash", "manifest.json")
+			if _, err := os.Stat(trashManifest); !os.IsNotExist(err) {
+				t.Errorf("expected trash manifest not to exist for permanent delete")
+			}
+		}
+	})
+
+	t.Run("Execution_ReportCardWithDiskMetrics", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		t.Setenv("HOME", tmpDir)
+		repoDir := filepath.Join(tmpDir, "repo-report")
+		if err := os.MkdirAll(repoDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		setupTestRepo(t, repoDir, "main", 70, false)
+
+		configPath = createPurgeConfig(t, tmpDir, repoDir)
+		quiet = false
+
+		cmd := newPurgeCmd()
+		var outBuf bytes.Buffer
+		cmd.SetOut(&outBuf)
+		cmd.SetArgs([]string{"--yes"})
+
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("purge report failed: %v", err)
+		}
+
+		out := outBuf.String()
+		if !strings.Contains(out, "DevClean Purge Summary") {
+			t.Errorf("expected report title in output, got: %s", out)
+		}
+		if !strings.Contains(out, "Espaço Recuperado:") {
+			t.Errorf("expected recovered space line in report, got: %s", out)
+		}
+		if !strings.Contains(out, "Alvos Processados:") {
+			t.Errorf("expected processed targets line in report, got: %s", out)
+		}
+		if !strings.Contains(out, "Volume em Disco:") {
+			t.Errorf("expected disk volume line in report, got: %s", out)
+		}
+	})
+
+	t.Run("Execution_QuietAndJSONOutput", func(t *testing.T) {
+		// Subtest A: quiet mode suppresses visual card and messages
+		{
+			tmpDir := t.TempDir()
+			t.Setenv("HOME", tmpDir)
+			repoDir := filepath.Join(tmpDir, "repo-quiet")
+			if err := os.MkdirAll(repoDir, 0755); err != nil {
+				t.Fatal(err)
+			}
+			setupTestRepo(t, repoDir, "main", 70, false)
+
+			configPath = createPurgeConfig(t, tmpDir, repoDir)
+			quiet = true
+
+			cmd := newPurgeCmd()
+			var outBuf bytes.Buffer
+			cmd.SetOut(&outBuf)
+			cmd.SetArgs([]string{"--yes"})
+
+			if err := cmd.Execute(); err != nil {
+				t.Fatalf("purge quiet failed: %v", err)
+			}
+
+			if outBuf.Len() > 0 {
+				t.Errorf("expected completely empty output in quiet mode, got: %s", outBuf.String())
+			}
+		}
+
+		// Subtest B: json format outputs structured CleanReportJSON
+		{
+			tmpDir := t.TempDir()
+			t.Setenv("HOME", tmpDir)
+			repoDir := filepath.Join(tmpDir, "repo-json")
+			if err := os.MkdirAll(repoDir, 0755); err != nil {
+				t.Fatal(err)
+			}
+			setupTestRepo(t, repoDir, "main", 70, false)
+
+			configPath = createPurgeConfig(t, tmpDir, repoDir)
+			quiet = false
+
+			cmd := newPurgeCmd()
+			var outBuf bytes.Buffer
+			cmd.SetOut(&outBuf)
+			cmd.SetArgs([]string{"--yes", "--format", "json"})
+
+			if err := cmd.Execute(); err != nil {
+				t.Fatalf("purge json failed: %v", err)
+			}
+
+			var jsonReport ui.CleanReportJSON
+			if err := json.Unmarshal(outBuf.Bytes(), &jsonReport); err != nil {
+				t.Fatalf("failed to parse JSON report: %v, raw: %s", err, outBuf.String())
+			}
+
+			if jsonReport.Title != "DevClean Purge Summary" {
+				t.Errorf("expected JSON title = 'DevClean Purge Summary', got %q", jsonReport.Title)
+			}
+			if jsonReport.TotalCount != 1 {
+				t.Errorf("expected total_count = 1, got %d", jsonReport.TotalCount)
+			}
+			if jsonReport.TotalFreed <= 0 {
+				t.Errorf("expected total_freed > 0, got %d", jsonReport.TotalFreed)
+			}
+		}
+	})
+}
+
