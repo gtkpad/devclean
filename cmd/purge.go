@@ -193,7 +193,7 @@ func newPurgeCmd() *cobra.Command {
 				Mode:     "purge",
 				Auto:     false,
 				OnProgress: func(ev deleter.ProgressEvent) {
-					if quiet {
+					if quiet || format == "json" {
 						return
 					}
 					switch ev.Action {
