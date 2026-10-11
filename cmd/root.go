@@ -96,6 +96,7 @@ func init() {
 
 	rootCmd.AddCommand(newScanCmd())
 	rootCmd.AddCommand(newCleanCmd())
+	rootCmd.AddCommand(newPurgeCmd())
 	rootCmd.AddCommand(newTrashCmd())
 	rootCmd.AddCommand(newWhitelistCmd())
 	rootCmd.AddCommand(newScheduleCmd())
