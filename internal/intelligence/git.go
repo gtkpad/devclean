@@ -3,6 +3,7 @@ package intelligence
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,6 +11,67 @@ import (
 	"strings"
 	"time"
 )
+
+// FindGitRepoLocal walks up the directory tree looking for a .git directory or file (worktree/submodule).
+// Returns workTreeDir (the directory containing .git) and gitDir (the metadata directory).
+func FindGitRepoLocal(path string) (workTreeDir, gitDir string) {
+	return findGitRepo(path)
+}
+
+// GetRepoLastCommitTime returns the timestamp of the latest commit in the repository worktree.
+func GetRepoLastCommitTime(ctx context.Context, repoDir string) (time.Time, error) {
+	return gitLastCommitTime(ctx, repoDir, repoDir)
+}
+
+// IsWorkingTreeClean returns true if git status --porcelain is empty (no modified, staged, or untracked files).
+func IsWorkingTreeClean(ctx context.Context, repoDir string) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "git", "-C", repoDir, "status", "--porcelain")
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(stdout.String()) == "", nil
+}
+
+// IsBranchMerged returns true if the current HEAD commit is an ancestor of the main/master branch.
+func IsBranchMerged(ctx context.Context, repoDir string) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	candidates := []string{
+		"refs/heads/main",
+		"refs/heads/master",
+		"refs/remotes/origin/main",
+		"refs/remotes/origin/master",
+	}
+
+	var targetRef string
+	for _, ref := range candidates {
+		checkCmd := exec.CommandContext(ctx, "git", "-C", repoDir, "rev-parse", "--verify", "--quiet", ref)
+		if err := checkCmd.Run(); err == nil {
+			targetRef = ref
+			break
+		}
+	}
+	if targetRef == "" {
+		return false, fmt.Errorf("nenhuma branch principal (main/master) encontrada")
+	}
+
+	cmd := exec.CommandContext(ctx, "git", "-C", repoDir, "merge-base", "--is-ancestor", "HEAD", targetRef)
+	err := cmd.Run()
+	if err == nil {
+		return true, nil
+	}
+	if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+		return false, nil
+	}
+	return false, err
+}
+
 
 // GitActivityScore returns a 0.0-1.0 score based on how recently the target
 // was committed to in git. More recent activity = lower score (less safe to delete).
