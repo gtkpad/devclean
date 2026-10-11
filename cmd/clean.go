@@ -5,17 +5,20 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"time"
 
 	"github.com/gtkpad/devclean/internal/config"
 	"github.com/gtkpad/devclean/internal/deleter"
 	"github.com/gtkpad/devclean/internal/domain"
 	"github.com/gtkpad/devclean/internal/engine"
+	"github.com/gtkpad/devclean/internal/fs"
 	"github.com/gtkpad/devclean/internal/hooks"
 	"github.com/gtkpad/devclean/internal/intelligence"
 	"github.com/gtkpad/devclean/internal/platform"
 	"github.com/gtkpad/devclean/internal/safety"
 	"github.com/gtkpad/devclean/internal/trash"
+	"github.com/gtkpad/devclean/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -28,6 +31,7 @@ func newCleanCmd() *cobra.Command {
 	var permanent bool
 	var smart bool
 	var all bool
+	var format string
 
 	cmd := &cobra.Command{
 		Use:          "clean",
@@ -35,8 +39,12 @@ func newCleanCmd() *cobra.Command {
 		Long:         "Removes build artifacts, caches, and unused dependencies. Requires --auto or --force flag.",
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "table" && format != "json" {
+				return fmt.Errorf("unknown format: %q (supported: table, json)", format)
+			}
+
 			if !auto && !force {
-				fmt.Fprintln(os.Stdout, `No deletion mode specified. Use:
+				fmt.Fprintln(cmd.OutOrStdout(), `No deletion mode specified. Use:
   devclean clean --auto   Apply TTL rules from config
   devclean clean --force  Delete ALL scan targets
 
@@ -135,8 +143,8 @@ Run 'devclean scan' to preview what would be cleaned.`)
 							smartFiltered = append(smartFiltered, t)
 						}
 					}
-					if !quiet {
-						fmt.Fprintf(os.Stdout, "Smart mode [%s]: %d/%d targets above threshold (%.2f)\n",
+					if !quiet && format != "json" {
+						fmt.Fprintf(cmd.OutOrStdout(), "Smart mode [%s]: %d/%d targets above threshold (%.2f)\n",
 							r.Ecosystem, len(smartFiltered), len(targets), cfg.Intelligence.Threshold)
 					}
 					targets = smartFiltered
@@ -165,11 +173,17 @@ Run 'devclean scan' to preview what would be cleaned.`)
 			var trashMgr *trash.Manager
 			if trashActive {
 				trashMgr = trash.New(cfg.Safety)
-				if err := trashMgr.EnforceRetention(ctx); err != nil {
-					fmt.Fprintf(os.Stderr, "Warning: trash retention enforcement failed: %v\n", err)
-				}
-				if err := trashMgr.EnforceMaxSize(ctx); err != nil {
-					fmt.Fprintf(os.Stderr, "Warning: trash max size enforcement failed: %v\n", err)
+				if !dryRun {
+					if err := trashMgr.EnforceRetention(ctx); err != nil {
+						if !quiet {
+							fmt.Fprintf(os.Stderr, "Warning: trash retention enforcement failed: %v\n", err)
+						}
+					}
+					if err := trashMgr.EnforceMaxSize(ctx); err != nil {
+						if !quiet {
+							fmt.Fprintf(os.Stderr, "Warning: trash max size enforcement failed: %v\n", err)
+						}
+					}
 				}
 			} else {
 				trashMgr = trash.New(cfg.Safety)
@@ -197,22 +211,26 @@ Run 'devclean scan' to preview what would be cleaned.`)
 				Mode:     mode,
 				Auto:     auto,
 				OnProgress: func(ev deleter.ProgressEvent) {
-					if quiet {
+					if quiet || format == "json" {
 						return
 					}
 					switch ev.Action {
 					case deleter.ActionWouldDelete:
-						fmt.Fprintf(os.Stdout, "Would delete: %s (%s)\n", ev.Target.Path, humanSize(ev.Target.SizeBytes))
+						fmt.Fprintf(cmd.OutOrStdout(), "Would delete: %s (%s)\n", ev.Target.Path, humanSize(ev.Target.SizeBytes))
 					case deleter.ActionMovingTrash:
-						fmt.Fprintf(os.Stdout, "Moving to trash: %s\n", ev.Target.Path)
+						fmt.Fprintf(cmd.OutOrStdout(), "Moving to trash: %s\n", ev.Target.Path)
 					case deleter.ActionDeletingDirect, deleter.ActionVirtualDirect:
-						fmt.Fprintf(os.Stdout, "Deleting: %s\n", ev.Target.Path)
+						fmt.Fprintf(cmd.OutOrStdout(), "Deleting: %s\n", ev.Target.Path)
 					}
 				},
 				OnWarning: func(msg string) {
-					fmt.Fprintln(os.Stderr, "Warning:", msg)
+					if !quiet {
+						fmt.Fprintln(os.Stderr, "Warning:", msg)
+					}
 				},
 			}
+
+			diskBefore, errBefore := fs.GetDiskSpace(".")
 
 			res, err := coord.Delete(ctx, targetsByEco, opts)
 			if err != nil {
@@ -223,11 +241,70 @@ Run 'devclean scan' to preview what would be cleaned.`)
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			}
 
-			if dryRun {
-				fmt.Fprintf(os.Stdout, "\nDry-run: would free %s from %d targets\n", humanSize(res.TotalFreed), res.TotalCount)
-			} else {
-				fmt.Fprintf(os.Stdout, "\nFreed: %s from %d targets\n", humanSize(res.TotalFreed), res.TotalCount)
+			diskAfter, errAfter := fs.GetDiskSpace(".")
+
+			var diskBeforeFree, diskAfterFree *uint64
+			if errBefore == nil {
+				b := diskBefore.FreeBytes
+				diskBeforeFree = &b
 			}
+			if errAfter == nil {
+				a := diskAfter.FreeBytes
+				diskAfterFree = &a
+			}
+
+			var trashCount, permanentCount int
+			if trashActive {
+				trashCount = res.TotalCount
+			} else {
+				permanentCount = res.TotalCount
+			}
+
+			var ecoMetrics []ui.EcosystemMetric
+			for eco, targets := range targetsByEco {
+				var freed int64
+				for _, t := range targets {
+					freed += t.SizeBytes
+				}
+				ecoMetrics = append(ecoMetrics, ui.EcosystemMetric{
+					Name:       eco,
+					FreedBytes: freed,
+					Count:      len(targets),
+				})
+			}
+			sort.Slice(ecoMetrics, func(i, j int) bool {
+				if ecoMetrics[i].FreedBytes != ecoMetrics[j].FreedBytes {
+					return ecoMetrics[i].FreedBytes > ecoMetrics[j].FreedBytes
+				}
+				return ecoMetrics[i].Name < ecoMetrics[j].Name
+			})
+
+			title := "Clean Summary"
+			if dryRun {
+				title = "Clean Dry-Run Summary"
+			}
+
+			reportData := ui.ReportData{
+				Title:          title,
+				TotalFreed:     res.TotalFreed,
+				TotalCount:     res.TotalCount,
+				TrashCount:     trashCount,
+				PermanentCount: permanentCount,
+				Duration:       res.Duration,
+				DiskBefore:     diskBeforeFree,
+				DiskAfter:      diskAfterFree,
+				Ecosystems:     ecoMetrics,
+			}
+
+			if quiet {
+				return nil
+			}
+
+			if format == "json" {
+				return ui.FormatReportJSON(cmd.OutOrStdout(), reportData)
+			}
+
+			ui.RenderReport(cmd.OutOrStdout(), reportData)
 			return nil
 		},
 	}
@@ -240,6 +317,7 @@ Run 'devclean scan' to preview what would be cleaned.`)
 	cmd.Flags().BoolVar(&permanent, "permanent", false, "force permanent deletion even when trash is enabled")
 	cmd.Flags().BoolVar(&smart, "smart", false, "only delete targets above score threshold (use with --auto)")
 	cmd.Flags().BoolVar(&all, "all", false, "apply zero TTL across all ecosystems")
+	cmd.Flags().StringVar(&format, "format", "table", "output format (table, json)")
 
 	return cmd
 }

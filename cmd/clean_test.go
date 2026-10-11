@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"github.com/gtkpad/devclean/internal/domain"
 	"github.com/gtkpad/devclean/internal/safety"
 	"github.com/gtkpad/devclean/internal/trash"
+	"github.com/gtkpad/devclean/internal/ui"
 )
 
 func TestFilterByTTL_OlderThanTTL(t *testing.T) {
@@ -564,6 +566,201 @@ func TestCleanCmd_AllFlag(t *testing.T) {
 		t.Fatalf("expected 'nothing to clean', got %v", err)
 	}
 }
+
+func setupCleanFixture(t *testing.T) (string, string) {
+	t.Helper()
+	tmpDir := t.TempDir()
+	appDir := filepath.Join(tmpDir, "app")
+	nodeModules := filepath.Join(appDir, "node_modules")
+	if err := os.MkdirAll(nodeModules, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(appDir, "package.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nodeModules, "dummy.txt"), []byte("data-12345"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	content := fmt.Sprintf(`scan_paths:
+  - %q
+protected_patterns:
+  - "*cacache*"
+  - "*store*"
+safety:
+  trash_enabled: false
+ecosystems:
+  docker:
+    enabled: false
+  node:
+    enabled: true
+  go:
+    enabled: false
+  dotnet:
+    enabled: false
+  python:
+    enabled: false
+  rust:
+    enabled: false
+  java:
+    enabled: false
+  ai:
+    enabled: false
+  pnpm:
+    enabled: false
+  bun:
+    enabled: false
+  nextjs:
+    enabled: false
+  xcode:
+    enabled: false
+  homebrew:
+    enabled: false
+`, tmpDir)
+	cfgPath := filepath.Join(tmpDir, "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return tmpDir, cfgPath
+}
+
+func TestClean_ReportCard(t *testing.T) {
+	origQuiet := quiet
+	defer func() { quiet = origQuiet }()
+
+	t.Run("renders visual card on force deletion", func(t *testing.T) {
+		quiet = false
+		_, cfgPath := setupCleanFixture(t)
+		origConfigPath := configPath
+		configPath = cfgPath
+		defer func() { configPath = origConfigPath }()
+
+		cmd := newCleanCmd()
+		var outBuf bytes.Buffer
+		cmd.SetOut(&outBuf)
+		cmd.SetArgs([]string{"--force", "-e", "node"})
+
+		err := cmd.Execute()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		out := outBuf.String()
+		if !strings.Contains(out, "Clean Summary") {
+			t.Errorf("expected 'Clean Summary' in card output, got: %s", out)
+		}
+		if !strings.Contains(out, "Espaço Recuperado:") {
+			t.Errorf("expected 'Espaço Recuperado:' in card output, got: %s", out)
+		}
+		if !strings.Contains(out, "Alvos Processados:") {
+			t.Errorf("expected 'Alvos Processados:' in card output, got: %s", out)
+		}
+		if !strings.Contains(out, "node") {
+			t.Errorf("expected ecosystem 'node' in breakdown, got: %s", out)
+		}
+	})
+
+	t.Run("renders dry run title with simulation", func(t *testing.T) {
+		quiet = false
+		tmpDir, cfgPath := setupCleanFixture(t)
+		origConfigPath := configPath
+		configPath = cfgPath
+		defer func() { configPath = origConfigPath }()
+
+		cmd := newCleanCmd()
+		var outBuf bytes.Buffer
+		cmd.SetOut(&outBuf)
+		cmd.SetArgs([]string{"--force", "--dry-run", "-e", "node"})
+
+		err := cmd.Execute()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		out := outBuf.String()
+		if !strings.Contains(out, "Clean Dry-Run Summary") {
+			t.Errorf("expected 'Clean Dry-Run Summary' in dry run card, got: %s", out)
+		}
+
+		// Ensure file was not deleted
+		nodeModules := filepath.Join(tmpDir, "app", "node_modules")
+		if _, err := os.Stat(nodeModules); os.IsNotExist(err) {
+			t.Fatal("expected node_modules to still exist in dry-run mode")
+		}
+	})
+
+	t.Run("json format outputs structured metrics", func(t *testing.T) {
+		quiet = false
+		_, cfgPath := setupCleanFixture(t)
+		origConfigPath := configPath
+		configPath = cfgPath
+		defer func() { configPath = origConfigPath }()
+
+		cmd := newCleanCmd()
+		var outBuf bytes.Buffer
+		cmd.SetOut(&outBuf)
+		cmd.SetArgs([]string{"--force", "--dry-run", "--format", "json", "-e", "node"})
+
+		err := cmd.Execute()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		var report ui.CleanReportJSON
+		if err := json.Unmarshal(outBuf.Bytes(), &report); err != nil {
+			t.Fatalf("failed to parse JSON report: %v, raw output: %s", err, outBuf.String())
+		}
+
+		if report.Title != "Clean Dry-Run Summary" {
+			t.Errorf("expected title 'Clean Dry-Run Summary', got %q", report.Title)
+		}
+		if report.TotalCount != 1 {
+			t.Errorf("expected TotalCount 1, got %d", report.TotalCount)
+		}
+		if report.TotalFreed <= 0 {
+			t.Errorf("expected TotalFreed > 0, got %d", report.TotalFreed)
+		}
+		if len(report.Ecosystems) != 1 || report.Ecosystems[0].Name != "node" {
+			t.Errorf("expected 1 node ecosystem metric, got %+v", report.Ecosystems)
+		}
+	})
+
+	t.Run("quiet mode suppresses all stdout", func(t *testing.T) {
+		quiet = true
+		_, cfgPath := setupCleanFixture(t)
+		origConfigPath := configPath
+		configPath = cfgPath
+		defer func() { configPath = origConfigPath }()
+
+		cmd := newCleanCmd()
+		var outBuf bytes.Buffer
+		cmd.SetOut(&outBuf)
+		cmd.SetArgs([]string{"--force", "-e", "node"})
+
+		err := cmd.Execute()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if outBuf.Len() > 0 {
+			t.Errorf("expected empty stdout with quiet=true, got: %q", outBuf.String())
+		}
+	})
+
+	t.Run("invalid format returns error", func(t *testing.T) {
+		cmd := newCleanCmd()
+		cmd.SetArgs([]string{"--force", "--format", "xml"})
+
+		err := cmd.Execute()
+		if err == nil {
+			t.Fatal("expected error for invalid format, got nil")
+		}
+		if !strings.Contains(err.Error(), "unknown format") {
+			t.Errorf("expected unknown format error, got %v", err)
+		}
+	})
+}
+
 
 
 
