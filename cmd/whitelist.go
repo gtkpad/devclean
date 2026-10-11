@@ -23,6 +23,7 @@ func newWhitelistCmd() *cobra.Command {
 	}
 	cmd.AddCommand(newWhitelistListCmd())
 	cmd.AddCommand(newWhitelistAddCmd())
+	cmd.AddCommand(newWhitelistRemoveCmd())
 	return cmd
 }
 
@@ -132,6 +133,124 @@ func newWhitelistAddCmd() *cobra.Command {
 	return cmd
 }
 
+func newWhitelistRemoveCmd() *cobra.Command {
+	var pattern string
+
+	cmd := &cobra.Command{
+		Use:          "remove [path]",
+		Short:        "Remove a path or glob pattern from the whitelist",
+		Long:         "Removes an entry from exclude_paths or protected_patterns in config.yaml. System blacklist items cannot be removed.",
+		SilenceUsage: true,
+		Args:         cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if pattern == "" && len(args) == 0 {
+				return fmt.Errorf("specify a path to remove or --pattern <glob>")
+			}
+
+			// Inviolability check FIRST (D-07, NFR-03)
+			if pattern != "" {
+				if err := checkImmutableBlock(pattern); err != nil {
+					return err
+				}
+			}
+			if len(args) > 0 {
+				if err := checkImmutableBlock(args[0]); err != nil {
+					return err
+				}
+			}
+
+			configFile, err := getConfigFile()
+			if err != nil {
+				return err
+			}
+
+			root, err := loadOrCreateConfigNode(configFile)
+			if err != nil {
+				return err
+			}
+			mapNode := getMappingNode(root)
+			if mapNode == nil {
+				return fmt.Errorf("invalid config root structure")
+			}
+
+			w := cmd.OutOrStdout()
+			totalRemoved := 0
+
+			if pattern != "" {
+				seq := findSequence(mapNode, "protected_patterns")
+				if removed := removeFromSequence(seq, pattern); removed > 0 {
+					totalRemoved += removed
+					fmt.Fprintf(w, "Removed pattern %q from protected_patterns\n", pattern)
+				}
+			}
+
+			if len(args) > 0 {
+				rawTarget := args[0]
+				normTarget, _ := normalizePath(rawTarget)
+
+				excludeSeq := findSequence(mapNode, "exclude_paths")
+				if removed := removeFromSequence(excludeSeq, normTarget, rawTarget); removed > 0 {
+					totalRemoved += removed
+					fmt.Fprintf(w, "Removed path %q from exclude_paths\n", normTarget)
+				}
+
+				if pattern == "" {
+					protectSeq := findSequence(mapNode, "protected_patterns")
+					if removed := removeFromSequence(protectSeq, rawTarget); removed > 0 {
+						totalRemoved += removed
+						fmt.Fprintf(w, "Removed pattern %q from protected_patterns\n", rawTarget)
+					}
+				}
+			}
+
+			if totalRemoved == 0 {
+				targetName := pattern
+				if targetName == "" && len(args) > 0 {
+					targetName = args[0]
+				}
+				fmt.Fprintf(w, "Item %q not found in whitelist\n", targetName)
+				return nil
+			}
+
+			return saveConfigNode(configFile, root)
+		},
+	}
+
+	cmd.Flags().StringVar(&pattern, "pattern", "", "glob pattern to remove from protected_patterns")
+	return cmd
+}
+
+func checkImmutableBlock(target string) error {
+	for _, blocked := range safety.CoreBlacklist() {
+		if target == blocked || filepath.Base(target) == blocked {
+			return fmt.Errorf("cannot remove %q: system blacklist is immutable (NFR-03)", blocked)
+		}
+	}
+
+	clean := filepath.Clean(target)
+	if base := filepath.Base(clean); base != "" {
+		for _, blocked := range safety.CoreBlacklist() {
+			if clean == blocked || base == blocked {
+				return fmt.Errorf("cannot remove %q: system blacklist is immutable (NFR-03)", blocked)
+			}
+		}
+	}
+
+	if norm, err := normalizePath(target); err == nil {
+		for _, blocked := range safety.CoreBlacklist() {
+			if norm == blocked || filepath.Base(norm) == blocked {
+				return fmt.Errorf("cannot remove %q: system blacklist is immutable (NFR-03)", blocked)
+			}
+		}
+	}
+
+	if safety.IsCoreBlacklisted(target) {
+		return fmt.Errorf("cannot remove %q: system blacklist is immutable (NFR-03)", filepath.Base(target))
+	}
+
+	return nil
+}
+
 func getConfigFile() (string, error) {
 	if configPath != "" {
 		return configPath, nil
@@ -211,6 +330,20 @@ func getMappingNode(root *yaml.Node) *yaml.Node {
 	return nil
 }
 
+func findSequence(mapNode *yaml.Node, key string) *yaml.Node {
+	for i := 0; i < len(mapNode.Content); i += 2 {
+		k := mapNode.Content[i]
+		if k.Value == key {
+			val := mapNode.Content[i+1]
+			if val.Kind == yaml.SequenceNode {
+				return val
+			}
+			return nil
+		}
+	}
+	return nil
+}
+
 func findOrCreateSequence(mapNode *yaml.Node, key string) *yaml.Node {
 	for i := 0; i < len(mapNode.Content); i += 2 {
 		k := mapNode.Content[i]
@@ -251,6 +384,30 @@ func appendUnique(seqNode *yaml.Node, val string) bool {
 		Value: val,
 	})
 	return true
+}
+
+func removeFromSequence(seqNode *yaml.Node, targets ...string) int {
+	if seqNode == nil {
+		return 0
+	}
+	targetSet := make(map[string]struct{}, len(targets))
+	for _, t := range targets {
+		if t != "" {
+			targetSet[t] = struct{}{}
+		}
+	}
+
+	removed := 0
+	newContent := make([]*yaml.Node, 0, len(seqNode.Content))
+	for _, item := range seqNode.Content {
+		if _, match := targetSet[item.Value]; match {
+			removed++
+		} else {
+			newContent = append(newContent, item)
+		}
+	}
+	seqNode.Content = newContent
+	return removed
 }
 
 func saveConfigNode(configFile string, root *yaml.Node) error {
