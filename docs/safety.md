@@ -1,101 +1,102 @@
-# Safety
+# Safety Architecture
 
-DevClean implements multiple layers of protection to prevent accidental deletion of important files.
+DevClean is built with defense-in-depth safety mechanisms to ensure that user code, secrets, active workspaces, and critical system paths are never destroyed.
 
-## Immutable Blacklist
+---
 
-The following paths are **never** deleted, regardless of configuration or flags (including `--force`):
+## 1. Immutable Core Blacklist
 
-| Pattern        | Reason                  |
-| -------------- | ----------------------- |
-| `.git`         | Version control history |
-| `.env`         | Environment secrets     |
-| `.ssh`         | SSH keys and config     |
-| `secrets.json` | Application secrets     |
+The following directories and sensitive files are **hardcoded into the binary** and can never be cleaned, bypassed, or removed:
 
-This blacklist is compiled into the binary and cannot be overridden.
+| Pattern | Rationale |
+| :--- | :--- |
+| `.git` | Version control repository history, branches, and stashes |
+| `.env` | Local environment secrets and credentials |
+| `.ssh` | SSH key pairs and authentication configurations |
+| `secrets.json` | Local application credentials and token storage |
+| System root paths | Critical OS filesystems (`/`, `/System`, `/usr`, `/bin`, `/etc`) |
 
-## Configurable Protected Patterns
+> [!IMPORTANT]
+> The immutable blacklist cannot be overridden by `--force` or `--all`. Calling `devclean whitelist remove` against any immutable blacklist entry will return an explicit error and reject the modification.
 
-Additional paths can be protected via `protected_patterns` in the config file:
+---
 
-```yaml
-protected_patterns:
-  - "*/proprietary/*"
-  - "*/sensitive/*"
-  - "*/my-important-project/*"
-```
+## 2. Unified Deletion Coordinator (`deleter.Coordinator`)
 
-Patterns use [doublestar](https://github.com/bmatcuk/doublestar) glob syntax and are matched against both:
+All deletion workflows (CLI `clean`, CLI `purge`, interactive TUI, and MCP Server) route through a single architectural pipeline: the [`deleter.Coordinator`](../internal/deleter/deleter.go).
 
-- The file/directory **basename**
-- The **full path**
+- **Domain-level invariance**: Safety checks cannot be circumvented by switching between UI and CLI interfaces.
+- **Hook orchestration**: Manages pre-deletion and post-deletion lifecycle hooks deterministically.
+- **Audit trail**: Persists structured execution summaries to the historical database.
 
-## Risk Classification
+---
 
-Every scan target is assigned a risk level:
+## 3. Virtual Target Isolation
 
-| Level      | Meaning                              | Examples                                             |
-| ---------- | ------------------------------------ | ---------------------------------------------------- |
-| **Low**    | Rebuilt without effort; no data loss | Go caches, NuGet cache, uv cache, Docker build cache |
-| **Medium** | Requires time to rebuild (minutes)   | `node_modules`, .NET `bin/obj`                       |
-| **High**   | Potential data loss                  | Docker volumes                                       |
+Certain targets represent daemon-managed or CLI-managed resources rather than real filesystem paths (e.g., Docker layers `docker://`, Homebrew bottles `homebrew://`, pnpm stores `pnpm://`).
 
-Risk levels are displayed in the TUI and scan output so you can make informed decisions. The `l` key in the TUI selects only Low-risk targets for safe batch cleanup.
+- Virtual targets are tagged with `IsVirtual() == true`.
+- When trash is enabled, virtual targets **bypass filesystem trash staging** with a safety warning instead of raising filesystem I/O errors.
+- Cleaners execute daemon-level prune operations directly.
 
-## Symlink Detection
+---
 
-DevClean uses `os.Lstat()` (not `os.Stat()`) when resolving paths. This means:
+## 4. Git Guards & Dirty Tree Protection (`purge`)
 
-- Symlinks are **not followed** — only the link itself is evaluated
-- Deleting a symlink removes the link, not the target
-- This prevents accidentally wiping shared directories that happen to be linked into a project
+The `devclean purge` command removes build artifacts and orphaned dependencies from inactive or merged repositories with several Git-level safeguards:
 
-## Network Mount Detection
+1. **Dirty Working Tree Guard**:
+   - Before purging, DevClean inspects `git status --porcelain`.
+   - If uncommitted changes, untracked files, or modified tracked files are detected, the repository is **immediately skipped** with a warning to avoid losing uncommitted work.
+2. **Branch Merge Verification (`--merged-only`)**:
+   - Ensures that the current branch is fully merged into `main` or `master` upstream before qualifying the directory for purge.
+3. **Commit Inactivity Cutoff (`--inactive-days`)**:
+   - Reads the repository's latest commit timestamp via `git log -1 --format=%cI`. If recent commits exist within the threshold, the repository is deemed active and spared.
 
-On macOS, paths under `/net/` are automatically detected as NFS automounts and excluded from scanning. This prevents:
+---
 
-- Cleaning shared network drives
-- Triggering slow network I/O during scans
-- Accidentally deleting files on remote filesystems
+## 5. Trash Staging & Safe Restoration
 
-## TTL as Safety Net
+When `safety.trash_enabled` is active (default), DevClean does not delete filesystem files directly:
 
-The `--auto` flag provides an additional safety layer by only cleaning targets that haven't been accessed within `max_age_days`. Active projects are left untouched.
+1. Files are moved atomically into `~/.local/share/devclean/trash/<uuid>/`.
+2. A manifest file (`manifest.json`) records the original absolute path, target ID, ecosystem, deletion timestamp, and SHA-256 integrity checksum.
+3. Users can list staged items:
+   ```bash
+   devclean trash list
+   ```
+4. Files can be restored to their original location:
+   ```bash
+   devclean trash restore <target-id>
+   ```
+5. Expired items are purged based on `safety.retention_days` and `safety.max_size_mb`.
+
+---
+
+## 6. Configurable Exclusions & Globs
+
+Users can specify custom protections via `config.yaml` or CLI:
 
 ```bash
-# Only cleans targets older than their ecosystem's TTL
-devclean clean --auto
-
-# Bypasses TTL (but NOT blacklist or protected patterns)
-devclean clean --force
+devclean whitelist add ~/Work/critical-project
+devclean whitelist add --pattern "*/production-data/*"
 ```
 
-## Fail Modes
+- **`exclude_paths`**: Canonical paths checked before scanning.
+- **`protected_patterns`**: Glob expressions evaluated against both the directory basename and its full path using [doublestar](https://github.com/bmatcuk/doublestar).
 
-Per-ecosystem `fail_mode` controls behavior on errors:
+---
 
-| Mode       | Behavior                                    |
-| ---------- | ------------------------------------------- |
-| `continue` | Log error, skip target, proceed with others |
-| `abort`    | Stop immediately on first error             |
+## 7. Symlink Traversal Guard
 
-Default is `continue` — a single failed deletion doesn't prevent cleaning other valid targets.
+DevClean uses `os.Lstat` instead of `os.Stat`:
+- Symlinks are never traversed or resolved recursively.
+- Deleting a symlink removes only the link itself, never the destination directory or shared library target.
 
-## Summary of Layers
+---
 
-```
-Request to delete path
-  │
-  ├── Immutable blacklist? ──→ BLOCKED (always)
-  │
-  ├── Protected pattern match? ──→ BLOCKED
-  │
-  ├── Is symlink? ──→ Only remove link, not target
-  │
-  ├── Is network mount? ──→ SKIPPED
-  │
-  ├── TTL check (--auto only) ──→ SKIPPED if too recent
-  │
-  └── DELETE
-```
+## 8. Network Mount Detection
+
+On macOS, paths located under `/net/` are detected as NFS automounts and skipped by default. This avoids:
+- Accidental file removal on remote file servers.
+- Unresponsive terminal hangs caused by slow network I/O.

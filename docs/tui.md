@@ -1,6 +1,8 @@
 # TUI (Terminal User Interface)
 
-DevClean's default mode launches an interactive terminal interface built with [Bubble Tea](https://github.com/charmbracelet/bubbletea).
+DevClean's default mode launches an interactive terminal interface built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) and styled with [Lip Gloss](https://github.com/charmbracelet/lipgloss).
+
+---
 
 ## Launch
 
@@ -8,104 +10,122 @@ DevClean's default mode launches an interactive terminal interface built with [B
 devclean
 ```
 
+---
+
 ## State Flow
 
 ```
-scanning → selecting → confirming → deleting → done
+scanning ➔ selecting ➔ confirming ➔ deleting ➔ done
 ```
+
+---
 
 ## Screens
 
-### Scanning
+### 1. Scanning Screen
 
 ```
 ⠙ Scanning ecosystems...
+  • docker: done
+  • node: done
+  • rust: done
+  • ai: scanning
 ```
 
-Spinner displayed while all cleaners run in parallel.
+A live spinner and per-ecosystem status indicators show progress as all 13 cleaners execute in parallel.
 
-### Selecting
+---
+
+### 2. Selecting Screen
 
 ```
-DevClean                                        Selected: 8 targets (3.2 GB)
+DevClean                                        Selected: 12 targets (6.8 GB)
 ──────────────────────────────────────────────────────────────────────────────
 
-── docker (5 targets, 2.3 GB) ─────────────────────────────────────────────
-> [x] dangling-image  abc123f       2.1 GB   LOW
-  [ ] dangling-image  def456a       200 MB   MED
+── docker (3 targets, 2.3 GB) ────────────────────────────────────────────────
+> [x] dangling-image   abc123f       2.1 GB   LOW
+  [ ] orphan-volume    pgdata        200 MB   HIGH
 
-── node (12 targets, 4.1 GB) ──────────────────────────────────────────────
-  [x] node_modules    ~/Work/app1   850 MB   MED
-  [x] node_modules    ~/Work/app2   1.2 GB   MED
+── node (4 targets, 1.8 GB) ──────────────────────────────────────────────────
+  [x] node_modules     ~/Work/web    850 MB   MED
+  [x] node_modules     ~/Work/api    950 MB   MED
 
-── go (2 targets, 1.8 GB) ─────────────────────────────────────────────────
-  [x] go-mod-cache    ~/go/pkg/mod  1.5 GB   LOW
-  [x] go-build-cache  ~/.cache/go   300 MB   LOW
+── ai (2 targets, 1.2 GB) ────────────────────────────────────────────────────
+  [x] claude-cache     ~/.claude     400 MB   LOW
+  [x] ollama-blobs     ~/.ollama     800 MB   LOW
 
-[8/32]
+[12/48] | Filter: none | Sort: size
 
-↑↓/jk: navigate | space: toggle | a: all | n: none | l: low-risk | enter: confirm | q: quit
+↑↓/jk: navigate | space: toggle | /: filter | s: sort | r: risk | m: mass | l: low-risk | enter: confirm | q: quit
 ```
 
 Features:
+- Targets grouped by ecosystem with collapsible visual headers.
+- Real-time selection counter displaying live aggregated byte totals.
+- Smart mode indicators when enabled (`⚡` high reclaim score, `🛡️` preserve candidate).
+- Fuzzy search bar (`/`) filtering paths and names in real time.
+- Interactive multi-criteria sorting (`s`) and risk cycling (`r`).
 
-- Targets grouped by ecosystem with section headers
-- Per-section totals (target count + size)
-- Global selection counter with total size (updates in real time)
-- Scroll position indicator
-- Risk level displayed per target
+---
 
-### Confirming
+### 3. Confirming Screen
 
 ```
 Confirm deletion?
 
-Targets: 8 selected
-Space to free: 3.2 GB
+Targets: 12 selected
+Space to free: 6.8 GB
+Mode: Move to trash (~/.local/share/devclean/trash)
 
 Paths:
-  ~/.../image-abc123
-  ~/Work/app1/node_modules
-  ~/Work/app2/node_modules
-  ~/go/pkg/mod
-  + 4 more
+  docker://image/abc123f
+  ~/Work/web/node_modules
+  ~/Work/api/node_modules
+  ~/.claude/cache
+  + 8 more
 
 [y] confirm  [n] cancel
 ```
 
-### Deleting
+---
+
+### 4. Done Screen (Report Card)
 
 ```
-⠙ Deleting targets...
+DevClean Cleanup Summary
+──────────────────────────────────────────────────────────────────────────────
+Freed: 6.8 GB across 12 targets (staged in trash)
+Elapsed: 1.42s
+Disk Space: 142.3 GB free ➔ 149.1 GB free (+6.8 GB)
 ```
 
-Spinner while deletion is in progress.
+Displays the post-cleanup summary with real Statfs disk recovery metrics and exits cleanly.
 
-### Done
+---
 
-```
-✓ Freed: 3.2 GB from 8 targets
-```
+## Complete Keybindings
 
-Exits automatically after displaying the result.
+| Key | Action | Description |
+| :--- | :--- | :--- |
+| `j` / `↓` | Move down | Advance cursor to the next item |
+| `k` / `↑` | Move up | Move cursor to previous item |
+| `Tab` | Next group | Jump cursor directly to the start of the next ecosystem section |
+| `Space` | Toggle | Select or deselect the highlighted target |
+| `/` | Search filter | Open live fuzzy filter prompt to search by path or target name |
+| `s` | Cycle sort | Cycle sorting criteria: **Size** ➔ **Path** ➔ **Risk** ➔ **Age** |
+| `r` | Cycle risk | Cycle risk visibility: **All** ➔ **Low Only** ➔ **Medium Only** ➔ **High Only** |
+| `m` | Mass select | Select all visible targets exceeding the mass threshold (e.g. >= 1 GB) |
+| `l` | Low risk | Select only Low-risk targets (safe cache purge) |
+| `a` | Select all | Select all currently visible targets |
+| `n` | Deselect all | Clear all active selections |
+| `Esc` | Reset | Exit search input mode and reset filters to default |
+| `Enter` | Proceed | Advance to confirmation screen |
+| `q` / `Ctrl-C` | Quit | Exit DevClean without making changes |
 
-## Keybindings
+---
 
-| Key            | Action                           |
-| -------------- | -------------------------------- |
-| `j` / `↓`      | Move cursor down                 |
-| `k` / `↑`      | Move cursor up                   |
-| `Tab`          | Jump to next ecosystem group     |
-| `Space`        | Toggle selection on current item |
-| `a`            | Select all targets               |
-| `n`            | Deselect all targets             |
-| `l`            | Select only Low-risk targets     |
-| `Enter`        | Proceed to confirmation          |
-| `q` / `Ctrl-C` | Quit without changes             |
+## Pro Tips
 
-## Tips
-
-- Use `l` (low-risk) for safe bulk cleanup — selects only targets that are trivially rebuilt (caches)
-- `Tab` lets you quickly jump between ecosystems when the list is long
-- The size counter updates instantly as you toggle, helping you gauge impact before confirming
-- Press `n` then manually select specific items for targeted cleanup
+- **Safe One-Key Cleanup**: Press `l` immediately after scan completes to select only low-risk caches across all 13 ecosystems, then hit `Enter`.
+- **Target Heavy Hogs**: Press `m` to select only artifacts above the configured `mass_select_threshold_mb` (default: 1 GB).
+- **Fast Jump**: Use `Tab` to leap across huge lists without holding down the arrow keys.
