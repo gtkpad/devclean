@@ -1,6 +1,6 @@
 # MCP Server (AI Agent Integration)
 
-DevClean exposes its scanning and cleaning capabilities as an [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server, allowing autonomous AI agents to manage disk space programmatically.
+DevClean exposes its scanning and cleaning capabilities across all 13 supported ecosystems as an [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server, allowing autonomous AI agents to manage disk space programmatically. All deletion actions route through the unified `deleter.Coordinator` with immutable blacklist enforcement.
 
 ## Starting the Server
 
