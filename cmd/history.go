@@ -11,7 +11,6 @@ import (
 
 	"github.com/gtkpad/devclean/internal/config"
 	"github.com/gtkpad/devclean/internal/history"
-	"github.com/gtkpad/devclean/internal/platform"
 	"github.com/spf13/cobra"
 )
 
@@ -83,14 +82,7 @@ func newHistoryCmd() *cobra.Command {
 
 func getDataDir() string {
 	home, _ := os.UserHomeDir()
-	resolver := platform.New()
-	paths := resolver.Resolve()
-	// Use config dir parent + share for data
-	// Standard pattern: ~/.local/share/devclean/
-	dataDir := filepath.Join(filepath.Dir(paths.ConfigDir), "..", ".local", "share", "devclean")
-	// Simplify to standard XDG path
-	dataDir = filepath.Join(home, ".local", "share", "devclean")
-	return dataDir
+	return filepath.Join(home, ".local", "share", "devclean")
 }
 
 // parseDuration parses human-friendly durations like "7d", "30d", "1h".

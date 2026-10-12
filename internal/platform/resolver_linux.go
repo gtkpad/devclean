@@ -24,11 +24,11 @@ func (r *linuxResolver) Resolve() Paths {
 		DockerDataRoot: "/var/lib/docker",
 		GoModCache:     "",
 		GoBuildCache:   "",
-		DotNetNuGet:    filepath.Join(home, ".nuget/packages"),
-		DotNetHTTP:     filepath.Join(home, ".local/share/NuGet/http-cache"),
-		DotNetTemp:     filepath.Join(home, ".local/share/NuGet/temp"),
+		DotNetNuGet:    filepath.Join(home, ".nuget", "packages"),
+		DotNetHTTP:     filepath.Join(home, ".local", "share", "NuGet", "http-cache"),
+		DotNetTemp:     filepath.Join(home, ".local", "share", "NuGet", "temp"),
 		PythonUVCache:  filepath.Join(cacheDir, "uv"),
-		ConfigDir:      filepath.Join(home, ".config/devclean"),
+		ConfigDir:      filepath.Join(home, ".config", "devclean"),
 	}
 }
 

@@ -21,7 +21,7 @@ type Watcher struct {
 	Logger         *slog.Logger
 }
 
-// Run starts the watch loop. Blocks until ctx is cancelled.
+// Run starts the watch loop. Blocks until ctx is canceled.
 // Runs one immediate scan, then repeats at Interval.
 func (w *Watcher) Run(ctx context.Context) error {
 	w.scanAndNotify(ctx)

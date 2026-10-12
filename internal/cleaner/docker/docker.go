@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/build"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/volume"
@@ -144,7 +145,7 @@ func (c *dockerCleaner) Clean(ctx context.Context, targets []domain.Target) erro
 		case "orphan-volume":
 			_ = cli.VolumeRemove(ctx, t.ID, true)
 		case "build-cache":
-			_, _ = cli.BuildCachePrune(ctx, types.BuildCachePruneOptions{All: true})
+			_, _ = cli.BuildCachePrune(ctx, build.CachePruneOptions{All: true})
 		}
 	}
 	return nil

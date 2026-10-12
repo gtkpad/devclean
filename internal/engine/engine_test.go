@@ -139,7 +139,7 @@ func TestScan_GracefulDegradation_Abort(t *testing.T) {
 		name:      "go",
 		installed: true,
 		scanFn: func(rules domain.EcosystemRules) ([]domain.Target, error) {
-			// Simulate slow scan that should be cancelled
+			// Simulate slow scan that should be canceled
 			time.Sleep(200 * time.Millisecond)
 			return []domain.Target{{ID: "go"}}, nil
 		},
@@ -448,7 +448,7 @@ func TestEngine_ScanContextCancellation_NoDeadlock(t *testing.T) {
 	// Se houver erros reportados, devem ser de cancelamento de contexto
 	for _, r := range results {
 		if r.Error != nil && !errors.Is(r.Error, context.Canceled) && !errors.Is(r.Error, context.DeadlineExceeded) {
-			t.Errorf("unexpected error on cancelled scan: %v", r.Error)
+			t.Errorf("unexpected error on canceled scan: %v", r.Error)
 		}
 	}
 }

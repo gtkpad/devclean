@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gtkpad/devclean/internal/config"
 	"github.com/gtkpad/devclean/internal/fs"
 	"github.com/gtkpad/devclean/internal/safety"
 	"github.com/spf13/cobra"
@@ -45,7 +44,7 @@ func newWhyCmd() *cobra.Command {
 				return fmt.Errorf("resolving path: %w", err)
 			}
 
-			cfg, err := config.Load(configPath)
+			cfg, err := loadConfigWithProfile()
 			if err != nil {
 				return fmt.Errorf("loading config: %w", err)
 			}

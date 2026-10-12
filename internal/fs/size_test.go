@@ -61,7 +61,7 @@ func TestCalcDirSizes_Parallel(t *testing.T) {
 	}
 }
 
-func TestCalcDirSizes_ContextCancelled(t *testing.T) {
+func TestCalcDirSizes_ContextCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 

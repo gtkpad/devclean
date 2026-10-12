@@ -25,9 +25,7 @@ import (
 
 var (
 	purgeStdinReader io.Reader = os.Stdin
-	purgeIsTerminal            = func(fd int) bool {
-		return term.IsTerminal(fd)
-	}
+	purgeIsTerminal            = term.IsTerminal
 )
 
 type repoCheckResult struct {

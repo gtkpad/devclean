@@ -87,7 +87,7 @@ func (c *pythonCleaner) Clean(_ context.Context, targets []domain.Target) error 
 	for _, t := range targets {
 		if t.Category == "python-pycache" {
 			// For pycache, the path is the root — we need to walk and remove all __pycache__ dirs
-			filepath.WalkDir(t.Path, func(path string, d fs.DirEntry, err error) error {
+			_ = filepath.WalkDir(t.Path, func(path string, d fs.DirEntry, err error) error {
 				if err != nil {
 					return nil
 				}
@@ -208,7 +208,7 @@ func (c *pythonCleaner) walkScanPath(root string, rules domain.EcosystemRules) (
 	var venvTargets []domain.Target
 	var pycacheSize int64
 
-	filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			if path == root {
 				return err

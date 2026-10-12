@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -124,7 +125,14 @@ func loadConfigWithProfile() (*config.Config, error) {
 	if profileName != "" {
 		resolver := platform.New()
 		paths := resolver.Resolve()
-		profile, err := config.LoadProfile(paths.ConfigDir, profileName)
+		cfgDir := paths.ConfigDir
+		if configPath != "" {
+			profileCandidate := filepath.Join(filepath.Dir(configPath), "profiles", profileName+".yaml")
+			if _, err := os.Stat(profileCandidate); err == nil {
+				cfgDir = filepath.Dir(configPath)
+			}
+		}
+		profile, err := config.LoadProfile(cfgDir, profileName)
 		if err != nil {
 			return nil, fmt.Errorf("loading profile %q: %w", profileName, err)
 		}

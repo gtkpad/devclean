@@ -437,7 +437,7 @@ func TestTrash_EdgeCases(t *testing.T) {
 	cancel()
 	err := mgr.Move(cancelCtx, []domain.Target{target}, "node")
 	if err == nil {
-		t.Error("expected error with cancelled context on Move")
+		t.Error("expected error with canceled context on Move")
 	}
 
 	// Move normal
@@ -451,7 +451,7 @@ func TestTrash_EdgeCases(t *testing.T) {
 
 	err = mgr.EnforceRetention(cancelCtx)
 	if err == nil {
-		t.Error("expected error with cancelled context on EnforceRetention")
+		t.Error("expected error with canceled context on EnforceRetention")
 	}
 
 	// Context cancel no EnforceMaxSize
@@ -462,7 +462,7 @@ func TestTrash_EdgeCases(t *testing.T) {
 	})
 	err = smallMgr.EnforceMaxSize(cancelCtx)
 	if err == nil {
-		t.Error("expected error with cancelled context on EnforceMaxSize")
+		t.Error("expected error with canceled context on EnforceMaxSize")
 	}
 }
 
