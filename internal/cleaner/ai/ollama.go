@@ -138,9 +138,3 @@ func hashPath(path string) string {
 	return fmt.Sprintf("%x", sum[:6])
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}

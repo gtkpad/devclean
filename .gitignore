@@ -14,3 +14,9 @@ devclean
 .DS_Store
 .idea/
 .vscode/
+
+# QA & Local test scripts
+QA_REPORT.md
+qa_prompt.md
+scripts/
+

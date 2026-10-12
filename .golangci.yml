@@ -13,10 +13,10 @@ linters:
     - gocritic
     - revive
     - misspell
-    - prealloc
   disable:
     - exhaustruct
     - wrapcheck
+    - prealloc
 
 linters-settings:
   revive:
@@ -27,6 +27,13 @@ linters-settings:
     enabled-tags:
       - diagnostic
       - performance
+    disabled-checks:
+      - hugeParam
+      - rangeValCopy
+  misspell:
+    locale: US
+    ignore-words:
+      - editores
 
 issues:
   exclude-rules:
@@ -34,3 +41,4 @@ issues:
       linters:
         - errcheck
         - gocritic
+

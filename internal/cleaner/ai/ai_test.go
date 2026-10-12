@@ -595,11 +595,11 @@ func TestAICleaner_FullScanAndClean(t *testing.T) {
 	}
 
 	// Test context cancellation
-	cancelledCtx, cancel := context.WithCancel(ctx)
+	canceledCtx, cancel := context.WithCancel(ctx)
 	cancel()
-	_, err = c.Scan(cancelledCtx, rules)
+	_, err = c.Scan(canceledCtx, rules)
 	if err == nil {
-		t.Error("expected error when scanning with cancelled context, got nil")
+		t.Error("expected error when scanning with canceled context, got nil")
 	}
 
 	// Test empty homeDir
@@ -609,8 +609,8 @@ func TestAICleaner_FullScanAndClean(t *testing.T) {
 		t.Errorf("expected empty targets and nil error for empty home, got targets=%v, err=%v", emptyTargets, err)
 	}
 
-	// Test Clean with cancelled context
-	if err := c.Clean(cancelledCtx, []domain.Target{{Path: "/tmp/fake"}}); err == nil {
-		t.Error("expected error when cleaning with cancelled context, got nil")
+	// Test Clean with canceled context
+	if err := c.Clean(canceledCtx, []domain.Target{{Path: "/tmp/fake"}}); err == nil {
+		t.Error("expected error when cleaning with canceled context, got nil")
 	}
 }

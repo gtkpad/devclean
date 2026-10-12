@@ -100,7 +100,7 @@ func discoverPaths(root string) ([]string, []string) {
 		dirPath := filepath.Join(root, entry.Name())
 
 		// Walk up to 2 levels deep to find manifests
-		filepath.WalkDir(dirPath, func(path string, d fs.DirEntry, err error) error {
+		_ = filepath.WalkDir(dirPath, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return fs.SkipDir
 			}

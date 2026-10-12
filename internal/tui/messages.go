@@ -12,11 +12,6 @@ type ecosystemResultMsg struct {
 
 type scanDoneMsg struct{}
 
-type deleteProgressMsg struct {
-	current int
-	total   int
-	path    string
-}
 
 type deleteCompleteMsg struct {
 	freed int64

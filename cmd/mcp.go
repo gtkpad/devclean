@@ -60,7 +60,7 @@ func newMCPCmd() *cobra.Command {
 
 			cfgDir := filepath.Dir(viper.ConfigFileUsed())
 			if cfgDir == "." {
-				cfgDir = filepath.Join(paths.ConfigDir)
+				cfgDir = paths.ConfigDir
 			}
 
 			ha := &historyAdapter{dataDir: dataDir}

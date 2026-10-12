@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/gtkpad/devclean/internal/config"
 	"github.com/gtkpad/devclean/internal/domain"
 	"github.com/gtkpad/devclean/internal/engine"
 	"github.com/gtkpad/devclean/internal/intelligence"
@@ -26,7 +25,7 @@ func newScanCmd() *cobra.Command {
 		Long:         "Discovers build artifacts, caches, and unused dependencies that can be safely removed.",
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := config.Load(configPath)
+			cfg, err := loadConfigWithProfile()
 			if err != nil {
 				return fmt.Errorf("loading config: %w", err)
 			}

@@ -34,7 +34,7 @@ func TestMockCommandExecutor(t *testing.T) {
 	}
 
 	// Test error Output call
-	out, err = mock.Output(ctx, "git", "commit", "-m", "test")
+	_, err = mock.Output(ctx, "git", "commit", "-m", "test")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}

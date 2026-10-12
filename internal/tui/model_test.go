@@ -465,33 +465,32 @@ func TestModel_KeyHandling(t *testing.T) {
 	t.Run("Scanning state keys", func(t *testing.T) {
 		m := testModel()
 		m.state = stateScanning
-		cancelled := false
-		m.scanCancel = func() { cancelled = true }
+		canceled := false
+		m.scanCancel = func() { canceled = true }
 
 		// 'q' quits and cancels
-		updated, cmd := m.Update(keyMsg('q'))
+		_, cmd := m.Update(keyMsg('q'))
 		if cmd == nil {
 			t.Error("expected quit cmd for 'q' in scanning")
 		}
-		if !cancelled {
+		if !canceled {
 			t.Error("expected scanCancel called on 'q'")
 		}
 
 		// Ctrl+C quits and cancels
-		cancelled = false
-		updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+		canceled = false
+		_, cmd = m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
 		if cmd == nil {
 			t.Error("expected quit cmd for Ctrl+C in scanning")
 		}
-		if !cancelled {
+		if !canceled {
 			t.Error("expected scanCancel called on Ctrl+C")
 		}
 
 		// Other key does nothing
-		cancelled = false
-		updated, cmd = m.Update(keyMsg('x'))
-		_ = updated
-		if cmd != nil || cancelled {
+		canceled = false
+		_, cmd = m.Update(keyMsg('x'))
+		if cmd != nil || canceled {
 			t.Error("expected no quit or cancel for unrecognized key in scanning")
 		}
 	})

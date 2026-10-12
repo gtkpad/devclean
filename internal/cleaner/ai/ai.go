@@ -14,7 +14,7 @@ type aiCleaner struct {
 	homeDir   string
 }
 
-// New instancia o cleaner para o ecossistema de Inteligência Artificial e Editores.
+// New creates a new AI cleaner for artificial intelligence tools and editors.
 func New(scanPaths []string) domain.Cleaner {
 	home, _ := os.UserHomeDir()
 	return &aiCleaner{

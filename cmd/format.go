@@ -52,13 +52,14 @@ func formatTable(w io.Writer, results []domain.ScanResult, verbose bool, smart b
 
 			lastAccessed := t.LastAccessed.Format("2006-01-02")
 
-			if smart {
+			switch {
+			case smart:
 				fmt.Fprintf(w, "%-12s %-50s %10s %8s %12s %6.2f\n",
 					r.Ecosystem, path, humanSize(t.SizeBytes), string(t.Risk), lastAccessed, t.SmartScore)
-			} else if verbose {
+			case verbose:
 				fmt.Fprintf(w, "%-12s %-50s %10s %8s %12s  [%s] %s\n",
 					r.Ecosystem, path, humanSize(t.SizeBytes), string(t.Risk), lastAccessed, t.ID, t.Name)
-			} else {
+			default:
 				fmt.Fprintf(w, "%-12s %-50s %10s %8s %12s\n",
 					r.Ecosystem, path, humanSize(t.SizeBytes), string(t.Risk), lastAccessed)
 			}

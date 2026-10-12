@@ -61,17 +61,11 @@ type model struct {
 	ecoNames   []string
 
 	// deletion progress
-	deleteProgress int
-	deleteTotal    int
-	deletePath     string
 	freedBytes     int64
 	freedCount     int
 
 	// empty result flag
 	emptyResult bool
-
-	// error
-	err error
 
 	// smart mode
 	SmartMode      bool
@@ -415,14 +409,6 @@ func (m model) waitForScanResult() tea.Cmd {
 	}
 }
 
-func scanCmd(eng *engine.Engine) tea.Cmd {
-	return func() tea.Msg {
-		ctx := context.Background()
-		ch := eng.Scan(ctx)
-		results := engine.Collect(ctx, ch)
-		return scanCompleteMsg{results: results}
-	}
-}
 
 func flattenResults(results []domain.ScanResult) []flatTarget {
 	var flat []flatTarget
