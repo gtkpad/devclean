@@ -18,8 +18,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-var schedulerFactory = func(configDir string) scheduler.Scheduler {
-	return scheduler.New(configDir)
+var schedulerFactory = func(configDir, provider string) (scheduler.Scheduler, error) {
+	return scheduler.NewWithProvider(configDir, provider)
 }
 
 func newScheduleCmd() *cobra.Command {
@@ -53,8 +53,10 @@ func newScheduleCmd() *cobra.Command {
 				return installWatch(configDir)
 			}
 
-			if provider != "" && provider != "systemd" && provider != "cron" {
-				return fmt.Errorf("unknown provider: %q (supported: systemd, cron)", provider)
+			// Validate and instantiate scheduler provider before any modifications (D-06)
+			sched, err := schedulerFactory(configDir, provider)
+			if err != nil {
+				return err
 			}
 
 			cronExpr, err := resolveCronExpression(daily, weekly, hourly, cron, atTime)
@@ -92,8 +94,6 @@ func newScheduleCmd() *cobra.Command {
 			if err := validateScheduledRun(cleanArgs, skipValidation); err != nil {
 				return err
 			}
-
-			sched := schedulerFactory(configDir)
 
 			// Conflict detection
 			if sched.IsInstalled() {
@@ -137,6 +137,8 @@ func newScheduleCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&extraArgs, "args", nil, "additional clean arguments to persist for scheduled runs")
 	cmd.Flags().BoolVar(&skipValidation, "skip-validation", false, "skip pre-registration dry-run validation")
 	cmd.Flags().StringVar(&provider, "provider", "", "scheduler provider override: systemd or cron")
+
+	cmd.AddCommand(newScheduleRunCmd())
 
 	return cmd
 }

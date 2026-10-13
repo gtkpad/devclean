@@ -89,11 +89,11 @@ func TestGeneratePlist_ContainsLabel(t *testing.T) {
 	if !strings.Contains(content, "/usr/local/bin/devclean") {
 		t.Error("expected binary path in output")
 	}
-	if !strings.Contains(content, "<string>clean</string>") {
-		t.Error("expected clean argument in ProgramArguments")
+	if !strings.Contains(content, "<string>schedule</string>") {
+		t.Error("expected schedule argument in ProgramArguments")
 	}
-	if !strings.Contains(content, "<string>--auto</string>") {
-		t.Error("expected --auto argument in ProgramArguments")
+	if !strings.Contains(content, "<string>run</string>") {
+		t.Error("expected run argument in ProgramArguments")
 	}
 }
 

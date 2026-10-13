@@ -153,14 +153,15 @@ func populateEndMarker(run *LogRun, line string) {
 		} else if strings.HasPrefix(p, "freed=") {
 			freedStr := strings.TrimPrefix(p, "freed=")
 			run.FreedHuman = freedStr
-			run.BytesFreed = parseFreedBytes(freedStr)
+			run.BytesFreed = ParseFreedBytes(freedStr)
 		} else if strings.HasPrefix(p, "duration=") {
 			run.Duration = strings.TrimPrefix(p, "duration=")
 		}
 	}
 }
 
-func parseFreedBytes(s string) int64 {
+// ParseFreedBytes parses a human-readable size string (e.g., "145.2 MB", "0 B") into bytes.
+func ParseFreedBytes(s string) int64 {
 	s = strings.TrimSpace(s)
 	parts := strings.Fields(s)
 	if len(parts) == 0 {

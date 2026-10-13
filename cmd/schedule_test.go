@@ -309,8 +309,8 @@ func TestScheduleCmd_ShortcutsAndArgs(t *testing.T) {
 	mock := &mockScheduler{}
 	oldFactory := schedulerFactory
 	defer func() { schedulerFactory = oldFactory }()
-	schedulerFactory = func(dir string) scheduler.Scheduler {
-		return mock
+	schedulerFactory = func(dir, prov string) (scheduler.Scheduler, error) {
+		return mock, nil
 	}
 
 	oldExec := dryRunExecutor
@@ -353,8 +353,8 @@ func TestScheduleCmd_DryRunFailure(t *testing.T) {
 	mock := &mockScheduler{}
 	oldFactory := schedulerFactory
 	defer func() { schedulerFactory = oldFactory }()
-	schedulerFactory = func(dir string) scheduler.Scheduler {
-		return mock
+	schedulerFactory = func(dir, prov string) (scheduler.Scheduler, error) {
+		return mock, nil
 	}
 
 	oldExec := dryRunExecutor
@@ -381,8 +381,8 @@ func TestScheduleCmd_SkipValidation(t *testing.T) {
 	mock := &mockScheduler{}
 	oldFactory := schedulerFactory
 	defer func() { schedulerFactory = oldFactory }()
-	schedulerFactory = func(dir string) scheduler.Scheduler {
-		return mock
+	schedulerFactory = func(dir, prov string) (scheduler.Scheduler, error) {
+		return mock, nil
 	}
 
 	oldExec := dryRunExecutor
@@ -411,8 +411,11 @@ func TestScheduleCmd_ProviderFlag(t *testing.T) {
 	mock := &mockScheduler{}
 	oldFactory := schedulerFactory
 	defer func() { schedulerFactory = oldFactory }()
-	schedulerFactory = func(dir string) scheduler.Scheduler {
-		return mock
+	schedulerFactory = func(dir, prov string) (scheduler.Scheduler, error) {
+		if prov != "" && prov != "systemd" && prov != "cron" && prov != "launchd" && prov != "auto" {
+			return nil, fmt.Errorf("unknown provider: %q", prov)
+		}
+		return mock, nil
 	}
 	oldExec := dryRunExecutor
 	defer func() { dryRunExecutor = oldExec }()
@@ -437,6 +440,33 @@ func TestScheduleCmd_ProviderFlag(t *testing.T) {
 	cmdCron.SetArgs([]string{"--daily", "--provider", "cron", "--skip-validation"})
 	if err := cmdCron.Execute(); err != nil {
 		t.Errorf("expected provider cron to succeed, got: %v", err)
+	}
+}
+
+func TestScheduleCmd_ProviderWiring(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	// Ensure the real factory is active
+	cmd := newScheduleCmd()
+	cmd.SetArgs([]string{"--daily", "--provider", "unsupported-xyz-provider"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Error("expected error for unsupported provider from NewWithProvider")
+	}
+}
+
+func TestScheduleCmd_SubcommandRunRegistered(t *testing.T) {
+	cmd := newScheduleCmd()
+	subCmd, _, err := cmd.Find([]string{"run"})
+	if err != nil || subCmd == nil {
+		t.Fatalf("expected 'run' subcommand to be registered under schedule: %v", err)
+	}
+	if subCmd.Name() != "run" {
+		t.Errorf("expected subcommand name 'run', got: %s", subCmd.Name())
+	}
+	if !subCmd.Hidden {
+		t.Error("expected 'run' subcommand to be hidden")
 	}
 }
 
