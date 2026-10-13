@@ -132,6 +132,14 @@ type CleanStats struct {
 
 // CleanExpired removes entries older than the configured retention period and returns structured stats (D-09, D-11).
 func (m *Manager) CleanExpired(ctx context.Context) (CleanStats, error) {
+	select {
+	case <-ctx.Done():
+		return CleanStats{}, ctx.Err()
+	default:
+	}
+	if m.retention <= 0 {
+		return CleanStats{}, nil
+	}
 	manifest, err := LoadManifest(m.ManifestPath())
 	if err != nil {
 		return CleanStats{}, fmt.Errorf("loading manifest: %w", err)
