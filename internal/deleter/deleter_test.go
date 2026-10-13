@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/gtkpad/devclean/internal/config"
 	"github.com/gtkpad/devclean/internal/deleter"
@@ -492,3 +494,167 @@ func TestCoordinator_ContextCancellation(t *testing.T) {
 		t.Fatal("expected non-nil result even on cancel")
 	}
 }
+
+func TestCoordinator_TriggersSilentRetention(t *testing.T) {
+	tempDir := t.TempDir()
+	trashDir := filepath.Join(tempDir, "trash")
+
+	cleaners := newFakeCleanerProvider()
+	cfg := &config.Config{
+		Safety: config.SafetyConfig{
+			TrashEnabled:  true,
+			TrashDir:      trashDir,
+			RetentionDays: 7,
+			MaxSizeMB:     1024,
+		},
+	}
+	trashMgr := trash.New(cfg.Safety)
+	coord := deleter.New(cleaners, cfg, nil, trashMgr, nil, "", "")
+
+	// Create physical target and move it to trash
+	target := createPhysicalTarget(t, tempDir, "old-build", 512)
+	if err := trashMgr.Move(context.Background(), []domain.Target{target}, "node"); err != nil {
+		t.Fatalf("trash.Move failed: %v", err)
+	}
+
+	// Age the batch in the manifest to 10 days ago (expired)
+	m, err := trash.LoadManifest(trashMgr.ManifestPath())
+	if err != nil {
+		t.Fatalf("loading manifest failed: %v", err)
+	}
+	if len(m.Batches) != 1 {
+		t.Fatalf("expected 1 batch, got %d", len(m.Batches))
+	}
+	oldTime := time.Now().Add(-10 * 24 * time.Hour)
+	m.Batches[0].CreatedAt = oldTime
+	m.Batches[0].Entries[0].MovedAt = oldTime
+	if err := trash.SaveManifest(trashMgr.ManifestPath(), m); err != nil {
+		t.Fatalf("saving aged manifest failed: %v", err)
+	}
+
+	// Execute Delete (even with empty targets or dummy target)
+	_, err = coord.Delete(context.Background(), map[string][]domain.Target{}, deleter.Options{})
+	if err != nil {
+		t.Fatalf("Delete failed: %v", err)
+	}
+
+	// Verify the expired batch was automatically purged by Stage 6.1
+	updatedManifest, err := trash.LoadManifest(trashMgr.ManifestPath())
+	if err != nil {
+		t.Fatalf("loading updated manifest failed: %v", err)
+	}
+	if len(updatedManifest.Batches) != 0 {
+		t.Fatalf("expected 0 batches after silent retention enforcement, got %d", len(updatedManifest.Batches))
+	}
+}
+
+func TestCoordinator_QuotaWarningEmitted(t *testing.T) {
+	tempDir := t.TempDir()
+	trashDir := filepath.Join(tempDir, "trash")
+
+	cleaners := newFakeCleanerProvider()
+	cfg := &config.Config{
+		Safety: config.SafetyConfig{
+			TrashEnabled:  true,
+			TrashDir:      trashDir,
+			RetentionDays: 30,
+			MaxSizeMB:     1, // 1 MB limit
+		},
+	}
+	trashMgr := trash.New(cfg.Safety)
+	coord := deleter.New(cleaners, cfg, nil, trashMgr, nil, "", "")
+
+	// Create physical target of 2 MB (exceeds 1 MB quota)
+	target := createPhysicalTarget(t, tempDir, "heavy-build", 2*1024*1024)
+	if err := trashMgr.Move(context.Background(), []domain.Target{target}, "node"); err != nil {
+		t.Fatalf("trash.Move failed: %v", err)
+	}
+
+	var warnings []string
+	_, err := coord.Delete(context.Background(), map[string][]domain.Target{}, deleter.Options{
+		OnWarning: func(msg string) {
+			warnings = append(warnings, msg)
+		},
+	})
+	if err != nil {
+		t.Fatalf("Delete failed: %v", err)
+	}
+
+	if len(warnings) == 0 {
+		t.Fatal("expected quota warning to be emitted, got none")
+	}
+
+	found := false
+	for _, w := range warnings {
+		if strings.Contains(w, "Aviso: Lixeira atingiu") && strings.Contains(w, "limite configurado") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected quota warning format in warnings, got %v", warnings)
+	}
+}
+
+func TestCoordinator_DryRun_NoRetention(t *testing.T) {
+	tempDir := t.TempDir()
+	trashDir := filepath.Join(tempDir, "trash")
+
+	cleaners := newFakeCleanerProvider()
+	cfg := &config.Config{
+		Safety: config.SafetyConfig{
+			TrashEnabled:  true,
+			TrashDir:      trashDir,
+			RetentionDays: 7,
+			MaxSizeMB:     1024,
+		},
+	}
+	trashMgr := trash.New(cfg.Safety)
+	coord := deleter.New(cleaners, cfg, nil, trashMgr, nil, "", "")
+
+	target := createPhysicalTarget(t, tempDir, "old-build", 512)
+	if err := trashMgr.Move(context.Background(), []domain.Target{target}, "node"); err != nil {
+		t.Fatalf("trash.Move failed: %v", err)
+	}
+
+	// Age the batch
+	m, err := trash.LoadManifest(trashMgr.ManifestPath())
+	if err != nil {
+		t.Fatalf("loading manifest failed: %v", err)
+	}
+	oldTime := time.Now().Add(-10 * 24 * time.Hour)
+	m.Batches[0].CreatedAt = oldTime
+	m.Batches[0].Entries[0].MovedAt = oldTime
+	if err := trash.SaveManifest(trashMgr.ManifestPath(), m); err != nil {
+		t.Fatalf("saving aged manifest failed: %v", err)
+	}
+
+	// Execute with DryRun: true
+	_, err = coord.Delete(context.Background(), map[string][]domain.Target{}, deleter.Options{
+		DryRun: true,
+	})
+	if err != nil {
+		t.Fatalf("Delete failed: %v", err)
+	}
+
+	// In dry-run, expired batches MUST NOT be purged
+	mPost, err := trash.LoadManifest(trashMgr.ManifestPath())
+	if err != nil {
+		t.Fatalf("loading manifest failed: %v", err)
+	}
+	if len(mPost.Batches) != 1 {
+		t.Fatalf("expected batch to remain in dry-run, got %d batches", len(mPost.Batches))
+	}
+}
+
+func TestCoordinator_NilTrashMgr_NoPanic(t *testing.T) {
+	coord := deleter.New(nil, nil, nil, nil, nil, "", "")
+	res, err := coord.Delete(context.Background(), map[string][]domain.Target{}, deleter.Options{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res == nil {
+		t.Fatal("expected non-nil result")
+	}
+}
+

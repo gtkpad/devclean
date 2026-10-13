@@ -340,6 +340,28 @@ func (c *Coordinator) Delete(
 		}
 	}
 
+	// Stage 6.1: Silent Trash Auto-Expiration & Quota Management (D-09, D-10)
+	if !opts.DryRun && c.trashMgr != nil {
+		_ = c.trashMgr.EnforceRetention(ctx)
+
+		quotaBefore := c.trashMgr.QuotaStatus()
+		_ = c.trashMgr.EnforceMaxSize(ctx)
+		quotaAfter := c.trashMgr.QuotaStatus()
+
+		if quotaBefore.Exceeded || quotaAfter.Exceeded {
+			reportQuota := quotaBefore
+			if !reportQuota.Exceeded {
+				reportQuota = quotaAfter
+			}
+			if opts.OnWarning != nil {
+				opts.OnWarning(fmt.Sprintf(
+					"Aviso: Lixeira atingiu %s (limite configurado: %s). Lotes mais antigos foram expurgados.",
+					humanSize(reportQuota.CurrentBytes), humanSize(reportQuota.MaxBytes),
+				))
+			}
+		}
+	}
+
 	return res, nil
 }
 
