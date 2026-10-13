@@ -62,14 +62,47 @@ func TestLoad_NoFile_ReturnsDefaults(t *testing.T) {
 	if cfg.Ecosystems.Homebrew.MaxAgeDays != 30 {
 		t.Errorf("Homebrew.MaxAgeDays = %d, want 30", cfg.Ecosystems.Homebrew.MaxAgeDays)
 	}
+	if cfg.Ecosystems.CPP.MaxAgeDays != 14 {
+		t.Errorf("CPP.MaxAgeDays = %d, want 14", cfg.Ecosystems.CPP.MaxAgeDays)
+	}
+	if cfg.Ecosystems.Flutter.MaxAgeDays != 14 {
+		t.Errorf("Flutter.MaxAgeDays = %d, want 14", cfg.Ecosystems.Flutter.MaxAgeDays)
+	}
+	if cfg.Ecosystems.Terraform.MaxAgeDays != 30 {
+		t.Errorf("Terraform.MaxAgeDays = %d, want 30", cfg.Ecosystems.Terraform.MaxAgeDays)
+	}
+	if cfg.Ecosystems.CocoaPods.MaxAgeDays != 14 {
+		t.Errorf("CocoaPods.MaxAgeDays = %d, want 14", cfg.Ecosystems.CocoaPods.MaxAgeDays)
+	}
+	if cfg.Ecosystems.Elixir.MaxAgeDays != 14 {
+		t.Errorf("Elixir.MaxAgeDays = %d, want 14", cfg.Ecosystems.Elixir.MaxAgeDays)
+	}
 	if cfg.Hooks.NextJS.Timeout != "30s" {
 		t.Errorf("Hooks.NextJS.Timeout = %q, want 30s", cfg.Hooks.NextJS.Timeout)
 	}
 	if cfg.Hooks.AI.Timeout != "30s" {
 		t.Errorf("Hooks.AI.Timeout = %q, want 30s", cfg.Hooks.AI.Timeout)
 	}
+	if cfg.Hooks.CPP.Timeout != "30s" {
+		t.Errorf("Hooks.CPP.Timeout = %q, want 30s", cfg.Hooks.CPP.Timeout)
+	}
+	if cfg.Hooks.Flutter.Timeout != "30s" {
+		t.Errorf("Hooks.Flutter.Timeout = %q, want 30s", cfg.Hooks.Flutter.Timeout)
+	}
+	if cfg.Hooks.Terraform.Timeout != "30s" {
+		t.Errorf("Hooks.Terraform.Timeout = %q, want 30s", cfg.Hooks.Terraform.Timeout)
+	}
+	if cfg.Hooks.CocoaPods.Timeout != "30s" {
+		t.Errorf("Hooks.CocoaPods.Timeout = %q, want 30s", cfg.Hooks.CocoaPods.Timeout)
+	}
+	if cfg.Hooks.Elixir.Timeout != "30s" {
+		t.Errorf("Hooks.Elixir.Timeout = %q, want 30s", cfg.Hooks.Elixir.Timeout)
+	}
 	if !cfg.Ecosystems.Docker.Enabled {
 		t.Error("Docker.Enabled should be true by default")
+	}
+	if !cfg.Ecosystems.CPP.Enabled || !cfg.Ecosystems.Flutter.Enabled || !cfg.Ecosystems.Terraform.Enabled || !cfg.Ecosystems.CocoaPods.Enabled || !cfg.Ecosystems.Elixir.Enabled {
+		t.Error("New ecosystems should be enabled by default")
 	}
 	if len(cfg.ScanPaths) != 0 {
 		t.Errorf("ScanPaths should be empty, got %v", cfg.ScanPaths)
@@ -177,6 +210,11 @@ func TestDefaults_AllEcosystemsEnabled(t *testing.T) {
 		{"NextJS", d.Ecosystems.NextJS, 7},
 		{"Xcode", d.Ecosystems.Xcode, 14},
 		{"Homebrew", d.Ecosystems.Homebrew, 30},
+		{"CPP", d.Ecosystems.CPP, 14},
+		{"Flutter", d.Ecosystems.Flutter, 14},
+		{"Terraform", d.Ecosystems.Terraform, 30},
+		{"CocoaPods", d.Ecosystems.CocoaPods, 14},
+		{"Elixir", d.Ecosystems.Elixir, 14},
 	}
 
 	for _, ec := range ecosystems {

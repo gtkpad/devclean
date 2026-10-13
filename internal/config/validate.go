@@ -37,7 +37,12 @@ func (c *Config) Validate() error {
 		"hooks.bun":      c.Hooks.Bun,
 		"hooks.nextjs":   c.Hooks.NextJS,
 		"hooks.xcode":    c.Hooks.Xcode,
-		"hooks.homebrew": c.Hooks.Homebrew,
+		"hooks.homebrew":  c.Hooks.Homebrew,
+		"hooks.cpp":       c.Hooks.CPP,
+		"hooks.flutter":   c.Hooks.Flutter,
+		"hooks.terraform": c.Hooks.Terraform,
+		"hooks.cocoapods": c.Hooks.CocoaPods,
+		"hooks.elixir":    c.Hooks.Elixir,
 	}
 
 	for name, h := range hooks {

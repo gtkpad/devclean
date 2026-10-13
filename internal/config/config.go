@@ -43,7 +43,12 @@ type EcosystemsConfig struct {
 	Bun      EcosystemConfig `mapstructure:"bun"`
 	NextJS   EcosystemConfig `mapstructure:"nextjs"`
 	Xcode    EcosystemConfig `mapstructure:"xcode"`
-	Homebrew EcosystemConfig `mapstructure:"homebrew"`
+	Homebrew  EcosystemConfig `mapstructure:"homebrew"`
+	CPP       EcosystemConfig `mapstructure:"cpp"`
+	Flutter   EcosystemConfig `mapstructure:"flutter"`
+	Terraform EcosystemConfig `mapstructure:"terraform"`
+	CocoaPods EcosystemConfig `mapstructure:"cocoapods"`
+	Elixir    EcosystemConfig `mapstructure:"elixir"`
 }
 
 type SafetyConfig struct {
@@ -65,19 +70,24 @@ type HookConfig struct {
 }
 
 type HooksConfig struct {
-	Node     HookConfig `mapstructure:"node"`
-	Go       HookConfig `mapstructure:"go"`
-	Docker   HookConfig `mapstructure:"docker"`
-	DotNet   HookConfig `mapstructure:"dotnet"`
-	Python   HookConfig `mapstructure:"python"`
-	Rust     HookConfig `mapstructure:"rust"`
-	Java     HookConfig `mapstructure:"java"`
-	AI       HookConfig `mapstructure:"ai"`
-	Pnpm     HookConfig `mapstructure:"pnpm"`
-	Bun      HookConfig `mapstructure:"bun"`
-	NextJS   HookConfig `mapstructure:"nextjs"`
-	Xcode    HookConfig `mapstructure:"xcode"`
-	Homebrew HookConfig `mapstructure:"homebrew"`
+	Node      HookConfig `mapstructure:"node"`
+	Go        HookConfig `mapstructure:"go"`
+	Docker    HookConfig `mapstructure:"docker"`
+	DotNet    HookConfig `mapstructure:"dotnet"`
+	Python    HookConfig `mapstructure:"python"`
+	Rust      HookConfig `mapstructure:"rust"`
+	Java      HookConfig `mapstructure:"java"`
+	AI        HookConfig `mapstructure:"ai"`
+	Pnpm      HookConfig `mapstructure:"pnpm"`
+	Bun       HookConfig `mapstructure:"bun"`
+	NextJS    HookConfig `mapstructure:"nextjs"`
+	Xcode     HookConfig `mapstructure:"xcode"`
+	Homebrew  HookConfig `mapstructure:"homebrew"`
+	CPP       HookConfig `mapstructure:"cpp"`
+	Flutter   HookConfig `mapstructure:"flutter"`
+	Terraform HookConfig `mapstructure:"terraform"`
+	CocoaPods HookConfig `mapstructure:"cocoapods"`
+	Elixir    HookConfig `mapstructure:"elixir"`
 }
 
 type HistoryConfig struct {
@@ -176,6 +186,26 @@ func Load(configPath string) (*Config, error) {
 	v.SetDefault("ecosystems.homebrew.max_age_days", defaults.Ecosystems.Homebrew.MaxAgeDays)
 	v.SetDefault("ecosystems.homebrew.fail_mode", defaults.Ecosystems.Homebrew.FailMode)
 	v.SetDefault("ecosystems.homebrew.exclude_paths", defaults.Ecosystems.Homebrew.ExcludePaths)
+	v.SetDefault("ecosystems.cpp.enabled", defaults.Ecosystems.CPP.Enabled)
+	v.SetDefault("ecosystems.cpp.max_age_days", defaults.Ecosystems.CPP.MaxAgeDays)
+	v.SetDefault("ecosystems.cpp.fail_mode", defaults.Ecosystems.CPP.FailMode)
+	v.SetDefault("ecosystems.cpp.exclude_paths", defaults.Ecosystems.CPP.ExcludePaths)
+	v.SetDefault("ecosystems.flutter.enabled", defaults.Ecosystems.Flutter.Enabled)
+	v.SetDefault("ecosystems.flutter.max_age_days", defaults.Ecosystems.Flutter.MaxAgeDays)
+	v.SetDefault("ecosystems.flutter.fail_mode", defaults.Ecosystems.Flutter.FailMode)
+	v.SetDefault("ecosystems.flutter.exclude_paths", defaults.Ecosystems.Flutter.ExcludePaths)
+	v.SetDefault("ecosystems.terraform.enabled", defaults.Ecosystems.Terraform.Enabled)
+	v.SetDefault("ecosystems.terraform.max_age_days", defaults.Ecosystems.Terraform.MaxAgeDays)
+	v.SetDefault("ecosystems.terraform.fail_mode", defaults.Ecosystems.Terraform.FailMode)
+	v.SetDefault("ecosystems.terraform.exclude_paths", defaults.Ecosystems.Terraform.ExcludePaths)
+	v.SetDefault("ecosystems.cocoapods.enabled", defaults.Ecosystems.CocoaPods.Enabled)
+	v.SetDefault("ecosystems.cocoapods.max_age_days", defaults.Ecosystems.CocoaPods.MaxAgeDays)
+	v.SetDefault("ecosystems.cocoapods.fail_mode", defaults.Ecosystems.CocoaPods.FailMode)
+	v.SetDefault("ecosystems.cocoapods.exclude_paths", defaults.Ecosystems.CocoaPods.ExcludePaths)
+	v.SetDefault("ecosystems.elixir.enabled", defaults.Ecosystems.Elixir.Enabled)
+	v.SetDefault("ecosystems.elixir.max_age_days", defaults.Ecosystems.Elixir.MaxAgeDays)
+	v.SetDefault("ecosystems.elixir.fail_mode", defaults.Ecosystems.Elixir.FailMode)
+	v.SetDefault("ecosystems.elixir.exclude_paths", defaults.Ecosystems.Elixir.ExcludePaths)
 	v.SetDefault("safety.trash_enabled", defaults.Safety.TrashEnabled)
 	v.SetDefault("safety.retention_days", defaults.Safety.RetentionDays)
 	v.SetDefault("safety.max_size_mb", defaults.Safety.MaxSizeMB)
@@ -194,6 +224,11 @@ func Load(configPath string) (*Config, error) {
 	v.SetDefault("hooks.nextjs.timeout", defaults.Hooks.NextJS.Timeout)
 	v.SetDefault("hooks.xcode.timeout", defaults.Hooks.Xcode.Timeout)
 	v.SetDefault("hooks.homebrew.timeout", defaults.Hooks.Homebrew.Timeout)
+	v.SetDefault("hooks.cpp.timeout", defaults.Hooks.CPP.Timeout)
+	v.SetDefault("hooks.flutter.timeout", defaults.Hooks.Flutter.Timeout)
+	v.SetDefault("hooks.terraform.timeout", defaults.Hooks.Terraform.Timeout)
+	v.SetDefault("hooks.cocoapods.timeout", defaults.Hooks.CocoaPods.Timeout)
+	v.SetDefault("hooks.elixir.timeout", defaults.Hooks.Elixir.Timeout)
 	v.SetDefault("history.retention_days", defaults.History.RetentionDays)
 	v.SetDefault("intelligence.threshold", defaults.Intelligence.Threshold)
 	v.SetDefault("intelligence.max_age_days", defaults.Intelligence.MaxAgeDays)
