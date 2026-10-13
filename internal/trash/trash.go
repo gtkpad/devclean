@@ -209,6 +209,40 @@ func (m *Manager) Purge(ctx context.Context, all bool) error {
 	return m.EnforceRetention(ctx)
 }
 
+// SanitizeOrphans removes unlisted physical batch directories from batches/ (D-11).
+func (m *Manager) SanitizeOrphans(ctx context.Context) error {
+	manifest, err := LoadManifest(m.ManifestPath())
+	if err != nil {
+		return fmt.Errorf("loading manifest: %w", err)
+	}
+
+	knownBatches := make(map[string]bool, len(manifest.Batches))
+	for _, b := range manifest.Batches {
+		knownBatches[b.ID] = true
+	}
+
+	batchesDir := filepath.Join(m.baseDir, "batches")
+	entries, err := os.ReadDir(batchesDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("reading batches directory: %w", err)
+	}
+
+	for _, e := range entries {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+		if e.IsDir() && !knownBatches[e.Name()] {
+			_ = os.RemoveAll(filepath.Join(batchesDir, e.Name()))
+		}
+	}
+	return nil
+}
+
 func (m *Manager) findOldestEntry(manifest *Manifest) *Entry {
 	var oldest *Entry
 	for i := range manifest.Batches {

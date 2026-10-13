@@ -509,4 +509,179 @@ func TestTrash_UndoBranches(t *testing.T) {
 	}
 }
 
+func TestSaveManifest_AtomicWrite(t *testing.T) {
+	dir := t.TempDir()
+	manifestPath := filepath.Join(dir, "manifest.json")
+
+	manifest := &Manifest{
+		Batches: []Batch{
+			{
+				ID:        "b-1",
+				CreatedAt: time.Now().Truncate(time.Second),
+				TotalSize: 100,
+				Entries: []Entry{
+					{
+						ID:           "e-1",
+						BatchID:      "b-1",
+						OriginalPath: "/path/to/file",
+						SizeBytes:    100,
+						Ecosystem:    "node",
+					},
+				},
+			},
+		},
+	}
+
+	if err := SaveManifest(manifestPath, manifest); err != nil {
+		t.Fatalf("SaveManifest failed: %v", err)
+	}
+
+	// Verify file exists
+	loaded, err := LoadManifest(manifestPath)
+	if err != nil {
+		t.Fatalf("LoadManifest failed: %v", err)
+	}
+	if len(loaded.Batches) != 1 || loaded.Batches[0].ID != "b-1" {
+		t.Fatalf("loaded manifest mismatch: %+v", loaded)
+	}
+	if loaded.Batches[0].TotalSize != 100 {
+		t.Errorf("TotalSize = %d, want 100", loaded.Batches[0].TotalSize)
+	}
+
+	// Verify no temporary files remain in dir
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if filepath.Ext(e.Name()) == ".tmp" || len(e.Name()) > len("manifest.json") && e.Name()[:8] == "manifest" && e.Name() != "manifest.json" {
+			t.Errorf("unexpected temporary file found: %s", e.Name())
+		}
+	}
+}
+
+func TestSaveManifest_CleansTempOnError(t *testing.T) {
+	// Create a read-only directory so CreateTemp or Rename might fail, or test invalid directory path
+	dir := t.TempDir()
+	readOnlyDir := filepath.Join(dir, "readonly")
+	if err := os.MkdirAll(readOnlyDir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	// Restore permissions on test cleanup so TempDir can be removed
+	t.Cleanup(func() {
+		_ = os.Chmod(readOnlyDir, 0o755)
+	})
+
+	manifestPath := filepath.Join(readOnlyDir, "subdir", "manifest.json")
+	manifest := &Manifest{}
+
+	// If parent cannot be created, should return error and not leak tmp files
+	err := SaveManifest(manifestPath, manifest)
+	if err == nil {
+		t.Error("expected error when saving to read-only path, got nil")
+	}
+
+	// Also check that no tmp files were left in dir
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if filepath.Ext(e.Name()) == ".tmp" {
+			t.Errorf("found leftover tmp file: %s", e.Name())
+		}
+	}
+}
+
+func TestSanitizeOrphans_RemovesUnlistedBatches(t *testing.T) {
+	mgr := newTestManager(t)
+	target := createTempTarget(t, "legit_target", 100)
+	ctx := context.Background()
+
+	if err := mgr.Move(ctx, []domain.Target{target}, "node"); err != nil {
+		t.Fatalf("Move failed: %v", err)
+	}
+
+	manifest, err := LoadManifest(mgr.ManifestPath())
+	if err != nil || len(manifest.Batches) != 1 {
+		t.Fatalf("unexpected manifest: %v", err)
+	}
+	legitBatchID := manifest.Batches[0].ID
+	legitBatchDir := filepath.Join(mgr.BaseDir(), "batches", legitBatchID)
+
+	// Inject an orphan batch directory
+	orphanBatchDir := filepath.Join(mgr.BaseDir(), "batches", "orphan-batch-456")
+	if err := os.MkdirAll(filepath.Join(orphanBatchDir, "entry-1"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(orphanBatchDir, "entry-1", "data.bin"), []byte("orphan"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := mgr.SanitizeOrphans(ctx); err != nil {
+		t.Fatalf("SanitizeOrphans failed: %v", err)
+	}
+
+	// Orphan should be deleted
+	if _, err := os.Stat(orphanBatchDir); !os.IsNotExist(err) {
+		t.Errorf("expected orphan batch %s to be removed", orphanBatchDir)
+	}
+
+	// Legitimate batch should still exist
+	if _, err := os.Stat(legitBatchDir); os.IsNotExist(err) {
+		t.Errorf("expected legitimate batch %s to remain intact", legitBatchDir)
+	}
+}
+
+func TestSanitizeOrphans_NoBatchesDir(t *testing.T) {
+	mgr := newTestManager(t)
+	ctx := context.Background()
+
+	// Batches dir does not exist yet
+	if err := mgr.SanitizeOrphans(ctx); err != nil {
+		t.Fatalf("expected nil error when batches dir missing, got %v", err)
+	}
+}
+
+func TestSanitizeOrphans_ContextCanceled(t *testing.T) {
+	mgr := newTestManager(t)
+	// Create batches dir with multiple orphan entries
+	batchesDir := filepath.Join(mgr.BaseDir(), "batches")
+	_ = os.MkdirAll(filepath.Join(batchesDir, "orphan-1"), 0o755)
+	_ = os.MkdirAll(filepath.Join(batchesDir, "orphan-2"), 0o755)
+
+	cancelCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := mgr.SanitizeOrphans(cancelCtx)
+	if err == nil {
+		t.Error("expected error on canceled context, got nil")
+	}
+}
+
+func TestSanitizeOrphans_CorruptedManifestPreservesDirectories(t *testing.T) {
+	mgr := newTestManager(t)
+	// Write corrupted manifest
+	manifestPath := mgr.ManifestPath()
+	if err := os.MkdirAll(filepath.Dir(manifestPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manifestPath, []byte("invalid-json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a batch dir
+	batchDir := filepath.Join(mgr.BaseDir(), "batches", "batch-1")
+	if err := os.MkdirAll(batchDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	err := mgr.SanitizeOrphans(context.Background())
+	if err == nil {
+		t.Error("expected error when manifest is corrupted, got nil")
+	}
+
+	// Batch directory must NOT be deleted if manifest fails to load
+	if _, err := os.Stat(batchDir); os.IsNotExist(err) {
+		t.Errorf("batch directory %s was deleted unexpectedly on manifest load error", batchDir)
+	}
+}
+
 

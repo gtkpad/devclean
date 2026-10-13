@@ -28,23 +28,43 @@ func LoadManifest(path string) (*Manifest, error) {
 	return &m, nil
 }
 
-// SaveManifest writes the manifest atomically using temp+rename.
+// SaveManifest writes the manifest atomically using CreateTemp + Sync + Rename (D-11).
 func SaveManifest(path string, m *Manifest) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
+		return fmt.Errorf("creating manifest dir: %w", err)
 	}
 
 	data, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
-		return err
+		return fmt.Errorf("marshaling manifest: %w", err)
 	}
 
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return err
+	tmpFile, err := os.CreateTemp(dir, "manifest-*.tmp")
+	if err != nil {
+		return fmt.Errorf("creating temp manifest: %w", err)
 	}
-	return os.Rename(tmp, path)
+	tmpName := tmpFile.Name()
+	defer func() {
+		_ = os.Remove(tmpName) // Cleans up if error occurs before rename
+	}()
+
+	if _, err := tmpFile.Write(data); err != nil {
+		_ = tmpFile.Close()
+		return fmt.Errorf("writing temp manifest: %w", err)
+	}
+	if err := tmpFile.Sync(); err != nil {
+		_ = tmpFile.Close()
+		return fmt.Errorf("syncing temp manifest: %w", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		return fmt.Errorf("closing temp manifest: %w", err)
+	}
+
+	if err := os.Rename(tmpName, path); err != nil {
+		return fmt.Errorf("renaming temp manifest: %w", err)
+	}
+	return nil
 }
 
 // FindBatch returns the batch with the given ID or nil.
