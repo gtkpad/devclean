@@ -41,6 +41,16 @@ func createEmptyConfig(t *testing.T) string {
     enabled: false
   homebrew:
     enabled: false
+  cpp:
+    enabled: false
+  flutter:
+    enabled: false
+  terraform:
+    enabled: false
+  cocoapods:
+    enabled: false
+  elixir:
+    enabled: false
 `
 	tmpDir := t.TempDir()
 	cfgPath := filepath.Join(tmpDir, "config.yaml")
