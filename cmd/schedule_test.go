@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -258,6 +259,184 @@ func TestValidateScheduledRun(t *testing.T) {
 	}
 	if err := validateScheduledRun([]string{"--preset", "safe"}, false); err != nil {
 		t.Errorf("expected nil when dryRunExecutor succeeds, got %v", err)
+	}
+}
+
+type mockScheduler struct {
+	installed   *scheduler.Schedule
+	isInstalled bool
+	removed     bool
+}
+
+func (m *mockScheduler) Install(s scheduler.Schedule) error {
+	m.installed = &s
+	m.isInstalled = true
+	return nil
+}
+
+func (m *mockScheduler) Remove() error {
+	m.removed = true
+	m.isInstalled = false
+	return nil
+}
+
+func (m *mockScheduler) Status() (*scheduler.Status, error) {
+	return &scheduler.Status{Active: m.isInstalled}, nil
+}
+
+func (m *mockScheduler) IsInstalled() bool {
+	return m.isInstalled
+}
+
+func (m *mockScheduler) InstallWatch(scheduler.WatchSchedule) error { return nil }
+func (m *mockScheduler) RemoveWatch() error                         { return nil }
+func (m *mockScheduler) IsWatchInstalled() bool                     { return false }
+
+func TestScheduleCmd_ShortcutsAndArgs(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	configDir := filepath.Join(tmpDir, ".config", "devclean")
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	configFile := filepath.Join(configDir, "config.yaml")
+	initialContent := "# Preserved Comment\nscan_paths:\n  - /tmp\n"
+	if err := os.WriteFile(configFile, []byte(initialContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	mock := &mockScheduler{}
+	oldFactory := schedulerFactory
+	defer func() { schedulerFactory = oldFactory }()
+	schedulerFactory = func(dir string) scheduler.Scheduler {
+		return mock
+	}
+
+	oldExec := dryRunExecutor
+	defer func() { dryRunExecutor = oldExec }()
+	dryRunExecutor = func(args []string) error {
+		return nil
+	}
+
+	cmd := newScheduleCmd()
+	cmd.SetArgs([]string{"--weekly", "--preset", "safe"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("expected successful schedule execution, got: %v", err)
+	}
+
+	if mock.installed == nil {
+		t.Fatal("expected scheduler.Install to be called")
+	}
+	if mock.installed.CronExpr != "0 0 * * 0" {
+		t.Errorf("CronExpr = %q, want '0 0 * * 0'", mock.installed.CronExpr)
+	}
+
+	// Verify config.yaml
+	data, err := os.ReadFile(configFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	if !strings.Contains(content, "# Preserved Comment") {
+		t.Errorf("expected comment '# Preserved Comment' to be preserved in config.yaml, got:\n%s", content)
+	}
+	if !strings.Contains(content, "safe") || !strings.Contains(content, "preset") {
+		t.Errorf("expected scheduler.args to contain preset safe, got:\n%s", content)
+	}
+}
+
+func TestScheduleCmd_DryRunFailure(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	mock := &mockScheduler{}
+	oldFactory := schedulerFactory
+	defer func() { schedulerFactory = oldFactory }()
+	schedulerFactory = func(dir string) scheduler.Scheduler {
+		return mock
+	}
+
+	oldExec := dryRunExecutor
+	defer func() { dryRunExecutor = oldExec }()
+	dryRunExecutor = func(args []string) error {
+		return fmt.Errorf("simulated dry-run failure")
+	}
+
+	cmd := newScheduleCmd()
+	cmd.SetArgs([]string{"--daily"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error due to dry-run failure, got nil")
+	}
+	if mock.installed != nil {
+		t.Error("expected scheduler.Install NOT to be called after dry-run failure")
+	}
+}
+
+func TestScheduleCmd_SkipValidation(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	mock := &mockScheduler{}
+	oldFactory := schedulerFactory
+	defer func() { schedulerFactory = oldFactory }()
+	schedulerFactory = func(dir string) scheduler.Scheduler {
+		return mock
+	}
+
+	oldExec := dryRunExecutor
+	defer func() { dryRunExecutor = oldExec }()
+	dryRunExecutor = func(args []string) error {
+		return fmt.Errorf("dry-run should not be called")
+	}
+
+	cmd := newScheduleCmd()
+	cmd.SetArgs([]string{"--daily", "--skip-validation"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("expected schedule to succeed with --skip-validation, got: %v", err)
+	}
+	if mock.installed == nil {
+		t.Fatal("expected scheduler.Install to be called")
+	}
+	if mock.installed.CronExpr != "0 12 * * *" {
+		t.Errorf("CronExpr = %q, want '0 12 * * *'", mock.installed.CronExpr)
+	}
+}
+
+func TestScheduleCmd_ProviderFlag(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	mock := &mockScheduler{}
+	oldFactory := schedulerFactory
+	defer func() { schedulerFactory = oldFactory }()
+	schedulerFactory = func(dir string) scheduler.Scheduler {
+		return mock
+	}
+	oldExec := dryRunExecutor
+	defer func() { dryRunExecutor = oldExec }()
+	dryRunExecutor = func(args []string) error { return nil }
+
+	// Invalid provider
+	cmd := newScheduleCmd()
+	cmd.SetArgs([]string{"--daily", "--provider", "invalid-provider"})
+	if err := cmd.Execute(); err == nil {
+		t.Error("expected error for invalid provider, got nil")
+	}
+
+	// Valid provider systemd
+	cmdSystemd := newScheduleCmd()
+	cmdSystemd.SetArgs([]string{"--daily", "--provider", "systemd", "--skip-validation"})
+	if err := cmdSystemd.Execute(); err != nil {
+		t.Errorf("expected provider systemd to succeed, got: %v", err)
+	}
+
+	// Valid provider cron
+	cmdCron := newScheduleCmd()
+	cmdCron.SetArgs([]string{"--daily", "--provider", "cron", "--skip-validation"})
+	if err := cmdCron.Execute(); err != nil {
+		t.Errorf("expected provider cron to succeed, got: %v", err)
 	}
 }
 
