@@ -18,6 +18,11 @@ func RecordRun(configDir string, result RunResult) error {
 	return os.WriteFile(filepath.Join(configDir, "last-run.json"), data, 0644)
 }
 
+// WriteLastRun persists a RunResult as JSON in the config directory (alias for RecordRun).
+func WriteLastRun(configDir string, result RunResult) error {
+	return RecordRun(configDir, result)
+}
+
 // ReadLastRun reads the last execution result from the config directory.
 // Returns nil, nil if the file does not exist.
 func ReadLastRun(configDir string) (*RunResult, error) {

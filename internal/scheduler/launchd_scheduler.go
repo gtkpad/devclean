@@ -146,8 +146,8 @@ var plistTemplate = template.Must(template.New("plist").Parse(`<?xml version="1.
 	<key>ProgramArguments</key>
 	<array>
 		<string>{{.BinaryPath}}</string>
-		<string>clean</string>
-		<string>--auto</string>
+		<string>schedule</string>
+		<string>run</string>
 	</array>
 	<key>StartCalendarInterval</key>
 	<dict>

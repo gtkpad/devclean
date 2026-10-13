@@ -74,13 +74,13 @@ func TestGenerateCronEntry_Format(t *testing.T) {
 	if !strings.Contains(entry, cronMarker) {
 		t.Error("entry should contain cronMarker")
 	}
-	if !strings.Contains(entry, "0 3 * * * /usr/local/bin/devclean clean --auto") {
+	if !strings.Contains(entry, "0 3 * * * /usr/local/bin/devclean schedule run") {
 		t.Error("entry should contain the full cron line")
 	}
 }
 
 func TestRemoveCronEntryFromContent_Exported(t *testing.T) {
-	content := "# devclean-scheduled\n0 3 * * * /usr/local/bin/devclean clean --auto\n"
+	content := "# devclean-scheduled\n0 3 * * * /usr/local/bin/devclean schedule run\n"
 	result := RemoveCronEntryFromContent(content)
 	if strings.Contains(result, "devclean") {
 		t.Error("exported function should remove devclean entries")
