@@ -314,3 +314,37 @@ func TestValidate_InstallerMaxDepth(t *testing.T) {
 	}
 }
 
+func TestConfig_DefaultsV22(t *testing.T) {
+	d := Defaults()
+	if !d.Safety.TrashEnabled {
+		t.Errorf("Safety.TrashEnabled = false, want true for v2.2")
+	}
+	if d.Safety.RetentionDays != 30 {
+		t.Errorf("Safety.RetentionDays = %d, want 30", d.Safety.RetentionDays)
+	}
+	if d.Safety.MaxSizeMB != 10240 {
+		t.Errorf("Safety.MaxSizeMB = %d, want 10240", d.Safety.MaxSizeMB)
+	}
+}
+
+func TestValidate_SafetyRules(t *testing.T) {
+	cfg := Defaults()
+	cfg.Safety.RetentionDays = 0
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected error for RetentionDays < 1, got nil")
+	}
+
+	cfg = Defaults()
+	cfg.Safety.MaxSizeMB = 50
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected error for MaxSizeMB < 100, got nil")
+	}
+
+	cfg = Defaults()
+	cfg.Safety.RetentionDays = 30
+	cfg.Safety.MaxSizeMB = 10240
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("expected nil error for valid SafetyConfig, got %v", err)
+	}
+}
+

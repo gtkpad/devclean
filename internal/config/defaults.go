@@ -27,9 +27,9 @@ func Defaults() Config {
 			Elixir:    EcosystemConfig{Enabled: true, MaxAgeDays: 14, FailMode: "continue", ExcludePaths: []string{}},
 		},
 		Safety: SafetyConfig{
-			TrashEnabled:  false,
-			RetentionDays: 7,
-			MaxSizeMB:     5120,
+			TrashEnabled:  true,
+			RetentionDays: 30,
+			MaxSizeMB:     10240,
 			TrashDir:      "",
 		},
 		TUI: TUIConfig{
