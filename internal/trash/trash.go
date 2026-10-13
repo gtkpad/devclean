@@ -123,34 +123,85 @@ func (m *Manager) Move(ctx context.Context, targets []domain.Target, ecosystem s
 	return nil
 }
 
-// EnforceRetention removes entries older than the configured retention period.
-func (m *Manager) EnforceRetention(ctx context.Context) error {
+// CleanStats holds metrics about a purge or retention operation.
+type CleanStats struct {
+	BatchesPurged int   `json:"batches_purged"`
+	EntriesPurged int   `json:"entries_purged"`
+	BytesFreed    int64 `json:"bytes_freed"`
+}
+
+// CleanExpired removes entries older than the configured retention period and returns structured stats (D-09, D-11).
+func (m *Manager) CleanExpired(ctx context.Context) (CleanStats, error) {
 	manifest, err := LoadManifest(m.ManifestPath())
 	if err != nil {
-		return err
+		return CleanStats{}, fmt.Errorf("loading manifest: %w", err)
 	}
 
+	var stats CleanStats
 	now := time.Now()
-	var toRemove []string
+
+	type expiredItem struct {
+		batchID   string
+		entryID   string
+		sizeBytes int64
+	}
+	var expired []expiredItem
 
 	for i := range manifest.Batches {
-		for j := range manifest.Batches[i].Entries {
-			if now.Sub(manifest.Batches[i].Entries[j].MovedAt) > m.retention {
-				toRemove = append(toRemove, manifest.Batches[i].Entries[j].ID)
+		b := &manifest.Batches[i]
+		for j := range b.Entries {
+			e := &b.Entries[j]
+			if now.Sub(e.MovedAt) > m.retention {
+				expired = append(expired, expiredItem{
+					batchID:   b.ID,
+					entryID:   e.ID,
+					sizeBytes: e.SizeBytes,
+				})
 			}
 		}
 	}
 
-	for _, id := range toRemove {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-		m.removeEntryData(manifest, id)
+	if len(expired) == 0 {
+		return stats, nil
 	}
 
-	return SaveManifest(m.ManifestPath(), manifest)
+	batchesTouched := make(map[string]bool)
+	for _, item := range expired {
+		select {
+		case <-ctx.Done():
+			return stats, ctx.Err()
+		default:
+		}
+
+		entryDir := filepath.Join(m.baseDir, "batches", item.batchID, item.entryID)
+		_ = os.RemoveAll(entryDir)
+		manifest.RemoveEntry(item.entryID)
+
+		stats.EntriesPurged++
+		stats.BytesFreed += item.sizeBytes
+		batchesTouched[item.batchID] = true
+	}
+
+	// Remove physical directory for any batch whose entries were all purged
+	for bID := range batchesTouched {
+		if manifest.FindBatch(bID) == nil {
+			batchDir := filepath.Join(m.baseDir, "batches", bID)
+			_ = os.RemoveAll(batchDir)
+			stats.BatchesPurged++
+		}
+	}
+
+	if err := SaveManifest(m.ManifestPath(), manifest); err != nil {
+		return stats, fmt.Errorf("saving manifest: %w", err)
+	}
+
+	return stats, nil
+}
+
+// EnforceRetention removes entries older than the configured retention period.
+func (m *Manager) EnforceRetention(ctx context.Context) error {
+	_, err := m.CleanExpired(ctx)
+	return err
 }
 
 // EnforceMaxSize purges oldest entries until total size is within limits.
@@ -261,9 +312,14 @@ func (m *Manager) removeEntryData(manifest *Manifest, entryID string) {
 	if entry == nil {
 		return
 	}
-	entryDir := filepath.Join(m.baseDir, "batches", batch.ID, entryID)
-	os.RemoveAll(entryDir)
+	batchID := batch.ID
+	entryDir := filepath.Join(m.baseDir, "batches", batchID, entryID)
+	_ = os.RemoveAll(entryDir)
 	manifest.RemoveEntry(entryID)
+	if manifest.FindBatch(batchID) == nil {
+		batchDir := filepath.Join(m.baseDir, "batches", batchID)
+		_ = os.RemoveAll(batchDir)
+	}
 }
 
 // moveItem moves src to dest, falling back to copy+remove on cross-device errors.
