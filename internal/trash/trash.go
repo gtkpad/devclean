@@ -204,13 +204,48 @@ func (m *Manager) EnforceRetention(ctx context.Context) error {
 	return err
 }
 
-// EnforceMaxSize purges oldest entries until total size is within limits.
-func (m *Manager) EnforceMaxSize(ctx context.Context) error {
+// QuotaInfo represents disk usage metrics and capacity limits for the trash.
+type QuotaInfo struct {
+	CurrentBytes int64   `json:"current_bytes"`
+	MaxBytes     int64   `json:"max_bytes"`
+	Percent      float64 `json:"percent"`
+	Exceeded     bool    `json:"exceeded"`
+}
+
+// QuotaStatus returns current usage metrics and exceeded status against m.maxSize (D-10, D-15).
+func (m *Manager) QuotaStatus() QuotaInfo {
+	info := QuotaInfo{
+		MaxBytes: m.maxSize,
+	}
 	manifest, err := LoadManifest(m.ManifestPath())
 	if err != nil {
-		return err
+		return info
 	}
 
+	info.CurrentBytes = manifest.TotalSize()
+	if m.maxSize > 0 {
+		info.Percent = (float64(info.CurrentBytes) / float64(m.maxSize)) * 100.0
+		info.Exceeded = info.CurrentBytes > m.maxSize
+	}
+	return info
+}
+
+// EnforceMaxSize purges oldest entries strictly FIFO/LRU until total size is within limits (D-10).
+func (m *Manager) EnforceMaxSize(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	if m.maxSize <= 0 {
+		return nil
+	}
+	manifest, err := LoadManifest(m.ManifestPath())
+	if err != nil {
+		return fmt.Errorf("loading manifest: %w", err)
+	}
+
+	changed := false
 	for manifest.TotalSize() > m.maxSize {
 		select {
 		case <-ctx.Done():
@@ -223,9 +258,13 @@ func (m *Manager) EnforceMaxSize(ctx context.Context) error {
 			break
 		}
 		m.removeEntryData(manifest, oldest.ID)
+		changed = true
 	}
 
-	return SaveManifest(m.ManifestPath(), manifest)
+	if changed {
+		return SaveManifest(m.ManifestPath(), manifest)
+	}
+	return nil
 }
 
 // List returns all batches in the manifest, newest first.

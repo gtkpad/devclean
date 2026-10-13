@@ -97,6 +97,14 @@ func (c *Config) Validate() error {
 		}
 	}
 
+	// Safety validation
+	if c.Safety.RetentionDays < 1 {
+		errs = append(errs, "safety.retention_days: must be >= 1")
+	}
+	if c.Safety.MaxSizeMB < 100 {
+		errs = append(errs, "safety.max_size_mb: must be >= 100")
+	}
+
 	if len(errs) > 0 {
 		return fmt.Errorf("config validation failed:\n  %s", strings.Join(errs, "\n  "))
 	}
