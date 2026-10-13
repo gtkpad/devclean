@@ -73,5 +73,9 @@ func Defaults() Config {
 			Interval:    "6h",
 			ThresholdMB: 2048,
 		},
+		Installer: InstallerConfig{
+			Paths:    []string{"~/Downloads", "~/Desktop"},
+			MaxDepth: 2,
+		},
 	}
 }
