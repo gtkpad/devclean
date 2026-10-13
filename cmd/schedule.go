@@ -5,21 +5,35 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/gtkpad/devclean/internal/config"
 	"github.com/gtkpad/devclean/internal/platform"
 	"github.com/gtkpad/devclean/internal/scheduler"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
+	"gopkg.in/yaml.v3"
 )
+
+var schedulerFactory = func(configDir string) scheduler.Scheduler {
+	return scheduler.New(configDir)
+}
 
 func newScheduleCmd() *cobra.Command {
 	var daily bool
+	var weekly bool
+	var hourly bool
+	var atTime string
 	var cron string
 	var status bool
 	var watchMode bool
+	var preset string
+	var extraArgs []string
+	var skipValidation bool
+	var provider string
 
 	cmd := &cobra.Command{
 		Use:   "schedule",
@@ -29,6 +43,7 @@ func newScheduleCmd() *cobra.Command {
 			resolver := platform.New()
 			paths := resolver.Resolve()
 			configDir := paths.ConfigDir
+			configFile := filepath.Join(configDir, "config.yaml")
 
 			if status {
 				return showStatus(configDir, watchMode)
@@ -38,37 +53,52 @@ func newScheduleCmd() *cobra.Command {
 				return installWatch(configDir)
 			}
 
-			if daily && cron != "" {
-				return fmt.Errorf("cannot use both --daily and --cron flags")
-			}
-			if !daily && cron == "" {
-				return fmt.Errorf("specify --daily or --cron <expression>")
+			if provider != "" && provider != "systemd" && provider != "cron" {
+				return fmt.Errorf("unknown provider: %q (supported: systemd, cron)", provider)
 			}
 
-			cronExpr := cron
-			if daily {
-				cronExpr = "0 12 * * *"
+			cronExpr, err := resolveCronExpression(daily, weekly, hourly, cron, atTime)
+			if err != nil {
+				return err
 			}
 
-			if err := scheduler.ValidateCron(cronExpr); err != nil {
-				return fmt.Errorf("invalid cron expression %q: %w", cronExpr, err)
-			}
+			// Persist / update scheduler.args in config.yaml if --preset or --args were specified
+			var cleanArgs []string
+			if preset != "" || len(extraArgs) > 0 {
+				var newArgs []string
+				if preset != "" {
+					newArgs = append(newArgs, "--preset", preset)
+				}
+				if len(extraArgs) > 0 {
+					newArgs = append(newArgs, extraArgs...)
+				}
+				cleanArgs = newArgs
 
-			// Pre-registration dry-run validation
-			self, err := os.Executable()
-			if err == nil {
-				dryRun := exec.Command(self, "clean", "--auto", "--dry-run")
-				if out, runErr := dryRun.CombinedOutput(); runErr != nil {
-					return fmt.Errorf("config validation failed (dry-run): %s", strings.TrimSpace(string(out)))
+				cfgTest := config.Defaults()
+				cfgTest.Scheduler.Args = cleanArgs
+				if err := cfgTest.Validate(); err != nil {
+					return fmt.Errorf("invalid scheduler args: %w", err)
+				}
+				if err := updateSchedulerArgs(configFile, cleanArgs); err != nil {
+					return fmt.Errorf("persisting scheduler args: %w", err)
+				}
+			} else {
+				if loadedCfg, err := config.Load(configFile); err == nil {
+					cleanArgs = loadedCfg.Scheduler.Args
 				}
 			}
 
-			sched := scheduler.New(configDir)
+			// Pre-registration dry-run validation
+			if err := validateScheduledRun(cleanArgs, skipValidation); err != nil {
+				return err
+			}
+
+			sched := schedulerFactory(configDir)
 
 			// Conflict detection
 			if sched.IsInstalled() {
 				if term.IsTerminal(int(os.Stdin.Fd())) {
-					fmt.Fprint(os.Stdout, "Schedule already exists. Overwrite? [y/N] ")
+					fmt.Fprint(cmd.OutOrStdout(), "Schedule already exists. Overwrite? [y/N] ")
 					reader := bufio.NewReader(os.Stdin)
 					answer, _ := reader.ReadString('\n')
 					answer = strings.TrimSpace(strings.ToLower(answer))
@@ -76,7 +106,7 @@ func newScheduleCmd() *cobra.Command {
 						return nil
 					}
 				} else {
-					fmt.Fprintln(os.Stderr, "Warning: overwriting existing schedule (non-interactive mode)")
+					fmt.Fprintln(cmd.ErrOrStderr(), "Warning: overwriting existing schedule (non-interactive mode)")
 				}
 				if err := sched.Remove(); err != nil {
 					return fmt.Errorf("removing existing schedule: %w", err)
@@ -88,15 +118,25 @@ func newScheduleCmd() *cobra.Command {
 				return fmt.Errorf("installing schedule: %w", err)
 			}
 
-			fmt.Fprintf(os.Stdout, "Schedule registered: %s\n", cronExpr)
+			fmt.Fprintf(cmd.OutOrStdout(), "Schedule registered: %s\n", cronExpr)
+			if len(cleanArgs) > 0 {
+				fmt.Fprintf(cmd.OutOrStdout(), "Configured clean args: %s\n", strings.Join(cleanArgs, " "))
+			}
 			return nil
 		},
 	}
 
 	cmd.Flags().BoolVar(&daily, "daily", false, "schedule daily cleanup at noon (alias for --cron '0 12 * * *')")
+	cmd.Flags().BoolVar(&weekly, "weekly", false, "schedule weekly cleanup on Sunday at midnight (alias for --cron '0 0 * * 0')")
+	cmd.Flags().BoolVar(&hourly, "hourly", false, "schedule hourly cleanup at minute 0 (alias for --cron '0 * * * *')")
+	cmd.Flags().StringVar(&atTime, "at", "", "specific time for schedule in HH:MM format (24-hour)")
 	cmd.Flags().StringVar(&cron, "cron", "", "custom cron expression (5-field format)")
 	cmd.Flags().BoolVar(&status, "status", false, "show current schedule status")
 	cmd.Flags().BoolVar(&watchMode, "watch", false, "register watch daemon for disk monitoring")
+	cmd.Flags().StringVar(&preset, "preset", "", "cleanup preset strategy: safe, standard, aggressive")
+	cmd.Flags().StringSliceVar(&extraArgs, "args", nil, "additional clean arguments to persist for scheduled runs")
+	cmd.Flags().BoolVar(&skipValidation, "skip-validation", false, "skip pre-registration dry-run validation")
+	cmd.Flags().StringVar(&provider, "provider", "", "scheduler provider override: systemd or cron")
 
 	return cmd
 }
@@ -321,3 +361,82 @@ func resolveCronExpression(daily, weekly, hourly bool, cron string, atTime strin
 	}
 	return baseCron, nil
 }
+
+func updateSchedulerArgs(configFile string, args []string) error {
+	root, err := loadOrCreateConfigNode(configFile)
+	if err != nil {
+		return err
+	}
+	mapNode := getMappingNode(root)
+	if mapNode == nil {
+		return fmt.Errorf("invalid config yaml root: expected mapping")
+	}
+
+	schedNode := findOrCreateMapping(mapNode, "scheduler")
+	setSequenceValues(schedNode, "args", args)
+
+	return saveConfigNode(configFile, root)
+}
+
+func findOrCreateMapping(mapNode *yaml.Node, key string) *yaml.Node {
+	for i := 0; i < len(mapNode.Content); i += 2 {
+		k := mapNode.Content[i]
+		if k.Value == key {
+			val := mapNode.Content[i+1]
+			if val.Kind != yaml.MappingNode {
+				val.Kind = yaml.MappingNode
+				val.Tag = "!!map"
+				val.Content = nil
+			}
+			return val
+		}
+	}
+	keyNode := &yaml.Node{
+		Kind:  yaml.ScalarNode,
+		Tag:   "!!str",
+		Value: key,
+	}
+	childMap := &yaml.Node{
+		Kind: yaml.MappingNode,
+		Tag:  "!!map",
+	}
+	mapNode.Content = append(mapNode.Content, keyNode, childMap)
+	return childMap
+}
+
+func setSequenceValues(mapNode *yaml.Node, key string, values []string) {
+	var seqNode *yaml.Node
+	for i := 0; i < len(mapNode.Content); i += 2 {
+		if mapNode.Content[i].Value == key {
+			seqNode = mapNode.Content[i+1]
+			break
+		}
+	}
+	if seqNode == nil {
+		keyNode := &yaml.Node{
+			Kind:  yaml.ScalarNode,
+			Tag:   "!!str",
+			Value: key,
+		}
+		seqNode = &yaml.Node{
+			Kind:  yaml.SequenceNode,
+			Tag:   "!!seq",
+			Style: 0,
+		}
+		mapNode.Content = append(mapNode.Content, keyNode, seqNode)
+	} else {
+		seqNode.Kind = yaml.SequenceNode
+		seqNode.Tag = "!!seq"
+		seqNode.Style = 0
+	}
+
+	seqNode.Content = make([]*yaml.Node, 0, len(values))
+	for _, v := range values {
+		seqNode.Content = append(seqNode.Content, &yaml.Node{
+			Kind:  yaml.ScalarNode,
+			Tag:   "!!str",
+			Value: v,
+		})
+	}
+}
+
