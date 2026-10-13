@@ -260,3 +260,57 @@ func TestEcosystemConfig_ToRules(t *testing.T) {
 		t.Errorf("ToRules().ExcludePaths = %v, want [/skip/this]", rules.ExcludePaths)
 	}
 }
+
+func TestLoad_InstallerDefaults(t *testing.T) {
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	if cfg.Installer.MaxDepth != 2 {
+		t.Errorf("Installer.MaxDepth = %d, want 2", cfg.Installer.MaxDepth)
+	}
+	if len(cfg.Installer.Paths) != 2 || cfg.Installer.Paths[0] != "~/Downloads" || cfg.Installer.Paths[1] != "~/Desktop" {
+		t.Errorf("Installer.Paths = %v, want [~/Downloads ~/Desktop]", cfg.Installer.Paths)
+	}
+}
+
+func TestLoad_InstallerCustomConfig(t *testing.T) {
+	yaml := `
+installer:
+  paths:
+    - /custom/installers
+  max_depth: 3
+`
+	path := writeTestConfig(t, yaml)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	if cfg.Installer.MaxDepth != 3 {
+		t.Errorf("Installer.MaxDepth = %d, want 3", cfg.Installer.MaxDepth)
+	}
+	if len(cfg.Installer.Paths) != 1 || cfg.Installer.Paths[0] != "/custom/installers" {
+		t.Errorf("Installer.Paths = %v, want [/custom/installers]", cfg.Installer.Paths)
+	}
+}
+
+func TestValidate_InstallerMaxDepth(t *testing.T) {
+	cfg := Defaults()
+	cfg.Installer.MaxDepth = 6
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected error for MaxDepth > 5, got nil")
+	}
+
+	cfg.Installer.MaxDepth = -1
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected error for MaxDepth < 0, got nil")
+	}
+
+	cfg.Installer.MaxDepth = 2
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("expected nil error for valid MaxDepth, got %v", err)
+	}
+}
+

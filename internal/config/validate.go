@@ -87,6 +87,16 @@ func (c *Config) Validate() error {
 		errs = append(errs, "watch.threshold_mb: must be > 0")
 	}
 
+	// Installer validation
+	if c.Installer.MaxDepth < 0 || c.Installer.MaxDepth > 5 {
+		errs = append(errs, "installer.max_depth: must be between 0 and 5")
+	}
+	for i, p := range c.Installer.Paths {
+		if strings.TrimSpace(p) == "" {
+			errs = append(errs, fmt.Sprintf("installer.paths[%d]: empty path", i))
+		}
+	}
+
 	if len(errs) > 0 {
 		return fmt.Errorf("config validation failed:\n  %s", strings.Join(errs, "\n  "))
 	}
