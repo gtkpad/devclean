@@ -77,5 +77,8 @@ func Defaults() Config {
 			Paths:    []string{"~/Downloads", "~/Desktop"},
 			MaxDepth: 2,
 		},
+		Scheduler: SchedulerConfig{
+			Args: []string{},
+		},
 	}
 }

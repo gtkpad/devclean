@@ -348,3 +348,64 @@ func TestValidate_SafetyRules(t *testing.T) {
 	}
 }
 
+func TestSchedulerConfig_Defaults(t *testing.T) {
+	d := Defaults()
+	if d.Scheduler.Args == nil {
+		t.Fatal("expected Scheduler.Args to be non-nil empty slice, got nil")
+	}
+	if len(d.Scheduler.Args) != 0 {
+		t.Errorf("expected empty slice, got %v", d.Scheduler.Args)
+	}
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatalf("Load(\"\") error: %v", err)
+	}
+	if cfg.Scheduler.Args == nil {
+		t.Fatal("expected loaded default Scheduler.Args to be non-nil slice")
+	}
+	if len(cfg.Scheduler.Args) != 0 {
+		t.Errorf("expected empty slice from Load(\"\"), got %v", cfg.Scheduler.Args)
+	}
+}
+
+func TestSchedulerConfig_ValidationValid(t *testing.T) {
+	cfg := Defaults()
+	cfg.Scheduler.Args = []string{"--preset", "safe", "--dry-run"}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("expected valid scheduler args, got error: %v", err)
+	}
+
+	cfg.Scheduler.Args = []string{"--preset=standard", "--smart", "--trash"}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("expected valid scheduler args, got error: %v", err)
+	}
+}
+
+func TestSchedulerConfig_ValidationInvalid(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+	}{
+		{"semicolon injection", []string{"--preset", "safe; rm -rf /"}},
+		{"pipe injection", []string{"--preset", "safe | cat"}},
+		{"ampersand injection", []string{"--preset", "safe & echo pwn"}},
+		{"variable expansion", []string{"--preset", "$SECRET"}},
+		{"backtick injection", []string{"--preset", "`id`"}},
+		{"redirection", []string{"--preset", "safe > /dev/null"}},
+		{"newline injection", []string{"--preset", "safe\nrm -rf /"}},
+		{"unknown flag", []string{"--malicious-flag"}},
+		{"arbitrary command", []string{"curl", "http://attacker.com"}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := Defaults()
+			cfg.Scheduler.Args = tc.args
+			if err := cfg.Validate(); err == nil {
+				t.Errorf("expected validation error for args %v, got nil", tc.args)
+			}
+		})
+	}
+}
+

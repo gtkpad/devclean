@@ -14,6 +14,51 @@ var validPlatforms = map[string]bool{
 	"windows": true,
 }
 
+var allowedCleanFlags = map[string]bool{
+	"--auto":        true,
+	"--force":       true,
+	"--dry-run":     true,
+	"--trash":       true,
+	"--permanent":   true,
+	"--smart":       true,
+	"--all":         true,
+	"--preset":      true,
+	"--format":      true,
+	"--ecosystem":   true,
+	"-e":            true,
+	"--keep-builds": true,
+	"--quiet":       true,
+	"-q":            true,
+	"--verbose":     true,
+	"-v":            true,
+}
+
+var allowedCleanValues = map[string]bool{
+	"safe":        true,
+	"standard":    true,
+	"aggressive":  true,
+	"table":       true,
+	"json":        true,
+	"docker":      true,
+	"node":        true,
+	"go":          true,
+	"dotnet":      true,
+	"python":      true,
+	"rust":        true,
+	"java":        true,
+	"ai":          true,
+	"pnpm":        true,
+	"bun":         true,
+	"nextjs":      true,
+	"xcode":       true,
+	"homebrew":    true,
+	"cpp":         true,
+	"flutter":     true,
+	"terraform":   true,
+	"cocoapods":   true,
+	"elixir":      true,
+}
+
 // Validate checks the config for invalid values and returns a clear error message.
 func (c *Config) Validate() error {
 	var errs []string
@@ -103,6 +148,43 @@ func (c *Config) Validate() error {
 	}
 	if c.Safety.MaxSizeMB < 100 {
 		errs = append(errs, "safety.max_size_mb: must be >= 100")
+	}
+
+	// Scheduler.Args validation
+	dangerousChars := []string{";", "|", "&", "$", "`", "<", ">", "\n", "\r"}
+	for i, arg := range c.Scheduler.Args {
+		hasDanger := false
+		for _, ch := range dangerousChars {
+			if strings.Contains(arg, ch) {
+				errs = append(errs, fmt.Sprintf("scheduler.args[%d]: dangerous shell character in %q", i, arg))
+				hasDanger = true
+				break
+			}
+		}
+		if hasDanger {
+			continue
+		}
+
+		if strings.HasPrefix(arg, "--") && strings.Contains(arg, "=") {
+			parts := strings.SplitN(arg, "=", 2)
+			flag, val := parts[0], parts[1]
+			if !allowedCleanFlags[flag] {
+				errs = append(errs, fmt.Sprintf("scheduler.args[%d]: unsupported flag %q", i, flag))
+			} else if !allowedCleanValues[val] {
+				errs = append(errs, fmt.Sprintf("scheduler.args[%d]: unsupported value %q for flag %q", i, val, flag))
+			}
+			continue
+		}
+
+		if strings.HasPrefix(arg, "-") {
+			if !allowedCleanFlags[arg] {
+				errs = append(errs, fmt.Sprintf("scheduler.args[%d]: unsupported flag %q", i, arg))
+			}
+		} else {
+			if !allowedCleanValues[arg] {
+				errs = append(errs, fmt.Sprintf("scheduler.args[%d]: unsupported argument %q", i, arg))
+			}
+		}
 	}
 
 	if len(errs) > 0 {
