@@ -19,6 +19,10 @@ func (r *linuxResolver) Resolve() Paths {
 	if cacheDir == "" {
 		cacheDir = filepath.Join(home, ".cache")
 	}
+	stateDir := os.Getenv("XDG_STATE_HOME")
+	if stateDir == "" {
+		stateDir = filepath.Join(home, ".local", "state")
+	}
 	return Paths{
 		DockerSocket:   resolveDockerSocket(),
 		DockerDataRoot: "/var/lib/docker",
@@ -29,6 +33,7 @@ func (r *linuxResolver) Resolve() Paths {
 		DotNetTemp:     filepath.Join(home, ".local", "share", "NuGet", "temp"),
 		PythonUVCache:  filepath.Join(cacheDir, "uv"),
 		ConfigDir:      filepath.Join(home, ".config", "devclean"),
+		LogDir:         filepath.Join(stateDir, "devclean", "logs"),
 	}
 }
 

@@ -118,6 +118,10 @@ type InstallerConfig struct {
 	MaxDepth int      `mapstructure:"max_depth"`
 }
 
+type SchedulerConfig struct {
+	Args []string `mapstructure:"args"`
+}
+
 type Config struct {
 	ScanPaths         []string           `mapstructure:"scan_paths"`
 	ExcludePaths      []string           `mapstructure:"exclude_paths"`
@@ -130,6 +134,7 @@ type Config struct {
 	Intelligence      IntelligenceConfig `mapstructure:"intelligence"`
 	Watch             WatchConfig        `mapstructure:"watch"`
 	Installer         InstallerConfig    `mapstructure:"installer"`
+	Scheduler         SchedulerConfig    `mapstructure:"scheduler"`
 }
 
 // Load reads configuration with precedence: defaults < file < flags.
@@ -247,6 +252,7 @@ func Load(configPath string) (*Config, error) {
 	v.SetDefault("watch.threshold_mb", defaults.Watch.ThresholdMB)
 	v.SetDefault("installer.paths", defaults.Installer.Paths)
 	v.SetDefault("installer.max_depth", defaults.Installer.MaxDepth)
+	v.SetDefault("scheduler.args", defaults.Scheduler.Args)
 
 	if configPath != "" {
 		v.SetConfigFile(configPath)
