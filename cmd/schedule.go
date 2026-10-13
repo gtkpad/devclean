@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -217,4 +218,106 @@ func newUnscheduleCmd() *cobra.Command {
 
 	cmd.Flags().BoolVar(&watchMode, "watch", false, "remove watch daemon registration")
 	return cmd
+}
+
+var dryRunExecutor = func(args []string) error {
+	self, err := os.Executable()
+	if err != nil {
+		return nil
+	}
+	dryRun := exec.Command(self, args...)
+	if out, runErr := dryRun.CombinedOutput(); runErr != nil {
+		return fmt.Errorf("config validation failed (dry-run): %s", strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+func validateScheduledRun(cleanArgs []string, skipValidation bool) error {
+	if skipValidation {
+		return nil
+	}
+	args := []string{"clean", "--auto", "--dry-run"}
+	for _, a := range cleanArgs {
+		if a != "--auto" && a != "--dry-run" {
+			args = append(args, a)
+		}
+	}
+	return dryRunExecutor(args)
+}
+
+func applyAtTime(baseCron string, atTime string) (string, error) {
+	parts := strings.Split(atTime, ":")
+	if len(parts) != 2 || len(parts[0]) != 2 || len(parts[1]) != 2 {
+		return "", fmt.Errorf("invalid time format %q for --at, expected HH:MM (24-hour)", atTime)
+	}
+	hour, errH := strconv.Atoi(parts[0])
+	min, errM := strconv.Atoi(parts[1])
+	if errH != nil || errM != nil || hour < 0 || hour > 23 || min < 0 || min > 59 {
+		return "", fmt.Errorf("invalid time %q for --at, hour must be 00-23 and minute 00-59", atTime)
+	}
+
+	fields, err := scheduler.ParseCron(baseCron)
+	if err != nil {
+		return "", fmt.Errorf("invalid base cron expression %q: %w", baseCron, err)
+	}
+
+	fields.Minute = fmt.Sprintf("%d", min)
+	fields.Hour = fmt.Sprintf("%d", hour)
+	return fmt.Sprintf("%s %s %s %s %s", fields.Minute, fields.Hour, fields.DayOfMonth, fields.Month, fields.DayOfWeek), nil
+}
+
+func resolveCronExpression(daily, weekly, hourly bool, cron string, atTime string) (string, error) {
+	count := 0
+	if daily {
+		count++
+	}
+	if weekly {
+		count++
+	}
+	if hourly {
+		count++
+	}
+
+	if count > 1 {
+		return "", fmt.Errorf("cannot specify multiple frequency shortcuts (--daily, --weekly, --hourly)")
+	}
+	if count > 0 && cron != "" {
+		return "", fmt.Errorf("cannot specify both frequency shortcut and --cron")
+	}
+	if count == 0 && cron == "" {
+		return "", fmt.Errorf("specify a schedule frequency: --daily, --weekly, --hourly, or --cron <expression>")
+	}
+
+	var baseCron string
+	if weekly {
+		baseCron = "0 0 * * 0"
+	} else if hourly {
+		baseCron = "0 * * * *"
+	} else if daily {
+		baseCron = "0 12 * * *"
+	} else {
+		baseCron = cron
+	}
+
+	if atTime != "" {
+		if hourly {
+			atClean := strings.TrimPrefix(atTime, ":")
+			m, err := strconv.Atoi(atClean)
+			if err != nil || m < 0 || m > 59 || (strings.Contains(atTime, ":") && !strings.HasPrefix(atTime, ":")) {
+				return "", fmt.Errorf("invalid --at for --hourly: must specify minute only (e.g. 15 or :15): %q", atTime)
+			}
+			baseCron = fmt.Sprintf("%d * * * *", m)
+		} else {
+			modified, err := applyAtTime(baseCron, atTime)
+			if err != nil {
+				return "", err
+			}
+			baseCron = modified
+		}
+	}
+
+	if err := scheduler.ValidateCron(baseCron); err != nil {
+		return "", fmt.Errorf("invalid cron expression %q: %w", baseCron, err)
+	}
+	return baseCron, nil
 }
