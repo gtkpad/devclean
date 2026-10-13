@@ -1,21 +1,38 @@
 package cmd
 
 import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/lipgloss/table"
 	"github.com/gtkpad/devclean/internal/platform"
 	"github.com/gtkpad/devclean/internal/scheduler"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
+)
+
+var (
+	scheduleLogsIsTerminal  = term.IsTerminal
+	scheduleLogsStdinReader io.Reader = os.Stdin
+	streamLogFunc           = scheduler.StreamLog
 )
 
 func newScheduleLogsCmd() *cobra.Command {
 	var lines int
+	var follow bool
+	var format string
+	var clear bool
+	var yes bool
 
 	cmd := &cobra.Command{
 		Use:   "logs",
@@ -32,6 +49,39 @@ func newScheduleLogsCmd() *cobra.Command {
 			}
 			logPath := filepath.Join(logDir, "schedule.log")
 
+			// 1. Clear mode (--clear) (D-14, T-03-07)
+			if clear {
+				return executeLogsClear(cmd, logDir, yes)
+			}
+
+			// Validate output format
+			format = strings.ToLower(strings.TrimSpace(format))
+			if format != "" && format != "text" && format != "json" {
+				return fmt.Errorf("formato não suportado %q: utilize 'text' ou 'json'", format)
+			}
+
+			// 2. Follow mode (--follow) (D-14, T-03-08)
+			if follow {
+				parentCtx := cmd.Context()
+				if parentCtx == nil {
+					parentCtx = context.Background()
+				}
+				ctx, stop := signal.NotifyContext(parentCtx, os.Interrupt, syscall.SIGTERM)
+				defer stop()
+
+				err := streamLogFunc(ctx, logPath, cmd.OutOrStdout())
+				if err != nil && !errors.Is(err, context.Canceled) {
+					return fmt.Errorf("streaming log: %w", err)
+				}
+				return nil
+			}
+
+			// 3. JSON Export mode (--format json) (D-14)
+			if format == "json" {
+				return executeLogsJSON(cmd.OutOrStdout(), logPath, lines)
+			}
+
+			// 4. Default Text / Table mode (D-13, D-15, D-16)
 			fi, err := os.Stat(logPath)
 			if err != nil || fi.Size() == 0 {
 				return renderLogsEmptyState(cmd.OutOrStdout(), paths.ConfigDir)
@@ -58,8 +108,90 @@ func newScheduleLogsCmd() *cobra.Command {
 	}
 
 	cmd.Flags().IntVarP(&lines, "lines", "n", 5, "number of recent runs to display")
+	cmd.Flags().BoolVarP(&follow, "follow", "f", false, "stream schedule logs in real time")
+	cmd.Flags().StringVar(&format, "format", "text", "output format (text, json)")
+	cmd.Flags().BoolVar(&clear, "clear", false, "safely remove schedule log files")
+	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "bypass interactive confirmation for clear")
 
 	return cmd
+}
+
+func executeLogsClear(cmd *cobra.Command, logDir string, yes bool) error {
+	if !yes {
+		if !scheduleLogsIsTerminal(int(os.Stdin.Fd())) {
+			return fmt.Errorf("confirmação interativa indisponível sem TTY; use --yes para prosseguir")
+		}
+
+		fmt.Fprint(cmd.OutOrStdout(), "Deseja remover todos os arquivos de log do agendador? [y/N]: ")
+		reader := bufio.NewReader(scheduleLogsStdinReader)
+		ans, err := reader.ReadString('\n')
+		if err != nil && !errors.Is(err, io.EOF) {
+			return fmt.Errorf("lendo confirmação: %w", err)
+		}
+		ans = strings.TrimSpace(strings.ToLower(ans))
+		if ans != "y" && ans != "yes" {
+			fmt.Fprintln(cmd.OutOrStdout(), "Operação cancelada pelo usuário.")
+			return nil
+		}
+	}
+
+	// Strict Whitelist Removal (T-03-07)
+	canonicalFiles := []string{
+		"schedule.log",
+		"schedule.1.log",
+		"schedule.2.log",
+		"schedule.3.log",
+	}
+
+	removedCount := 0
+	for _, fname := range canonicalFiles {
+		target := filepath.Join(logDir, fname)
+		if _, err := os.Stat(target); err == nil {
+			if err := os.Remove(target); err == nil {
+				removedCount++
+			}
+		}
+	}
+
+	fmt.Fprintf(cmd.OutOrStdout(), "Logs do agendador removidos com sucesso (%d arquivo(s)).\n", removedCount)
+	return nil
+}
+
+func executeLogsJSON(w io.Writer, logPath string, lines int) error {
+	fi, err := os.Stat(logPath)
+	if err != nil || fi.Size() == 0 {
+		empty := []scheduler.LogRun{}
+		data, _ := json.MarshalIndent(empty, "", "  ")
+		fmt.Fprintln(w, string(data))
+		return nil
+	}
+
+	file, err := os.Open(logPath)
+	if err != nil {
+		return fmt.Errorf("opening schedule log: %w", err)
+	}
+	defer file.Close()
+
+	runs, err := scheduler.ParseLogRuns(file)
+	if err != nil {
+		return fmt.Errorf("parsing schedule logs: %w", err)
+	}
+
+	if runs == nil {
+		runs = []scheduler.LogRun{}
+	}
+
+	if lines > 0 && len(runs) > lines {
+		runs = runs[len(runs)-lines:]
+	}
+
+	data, err := json.MarshalIndent(runs, "", "  ")
+	if err != nil {
+		return fmt.Errorf("serializing json: %w", err)
+	}
+
+	fmt.Fprintln(w, string(data))
+	return nil
 }
 
 func renderStatusBadge(status string) string {
