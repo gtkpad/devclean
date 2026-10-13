@@ -139,6 +139,7 @@ func newScheduleCmd() *cobra.Command {
 	cmd.Flags().StringVar(&provider, "provider", "", "scheduler provider override: systemd or cron")
 
 	cmd.AddCommand(newScheduleRunCmd())
+	cmd.AddCommand(newScheduleLogsCmd())
 
 	return cmd
 }
