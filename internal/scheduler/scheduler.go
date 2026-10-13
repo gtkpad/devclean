@@ -5,6 +5,16 @@ import (
 	"time"
 )
 
+// Provider constants for scheduler backends.
+const (
+	ProviderSystemd = "systemd"
+	ProviderCron    = "cron"
+	ProviderLaunchd = "launchd"
+	ProviderAuto    = "auto"
+
+	LingerHint = "Dica: Para garantir que o timer execute mesmo quando você não estiver logado, habilite o linger com: loginctl enable-linger $USER"
+)
+
 // ErrAlreadyInstalled is returned when a schedule is already registered.
 var ErrAlreadyInstalled = errors.New("schedule already installed")
 

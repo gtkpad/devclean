@@ -376,3 +376,109 @@ func TestSystemdScheduler_DefaultsAndErrors(t *testing.T) {
 		t.Errorf("expected empty bin, got %s", bin)
 	}
 }
+
+func TestSchedulerLinux_AutoDetectSystemd(t *testing.T) {
+	configDir := t.TempDir()
+	mock := NewMockExecutor()
+	mock.Outputs["systemctl --user is-system-running"] = []byte("running\n")
+
+	if !IsSystemdAvailable(mock) {
+		t.Fatal("expected IsSystemdAvailable to return true for 'running'")
+	}
+
+	sched, err := newLinuxSchedulerWithExecutor(configDir, ProviderAuto, mock)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := sched.(*systemdScheduler); !ok {
+		t.Errorf("expected *systemdScheduler, got %T", sched)
+	}
+
+	// Also verify "degraded" and "starting" states
+	for _, st := range []string{"degraded", "starting"} {
+		mock.Outputs["systemctl --user is-system-running"] = []byte(st)
+		if !IsSystemdAvailable(mock) {
+			t.Errorf("expected IsSystemdAvailable to return true for %q", st)
+		}
+	}
+}
+
+func TestSchedulerLinux_FallbackToCron(t *testing.T) {
+	configDir := t.TempDir()
+	mock := NewMockExecutor()
+
+	// 1. Failure / offline state
+	mock.Outputs["systemctl --user is-system-running"] = []byte("offline")
+	if IsSystemdAvailable(mock) {
+		t.Error("expected IsSystemdAvailable to return false for 'offline'")
+	}
+
+	sched, err := newLinuxSchedulerWithExecutor(configDir, ProviderAuto, mock)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := sched.(*cronScheduler); !ok {
+		t.Errorf("expected fallback to *cronScheduler, got %T", sched)
+	}
+
+	// 2. Command not found / error
+	mock.Errors["systemctl --user is-system-running"] = errors.New("exec: systemctl not found")
+	mock.Outputs["systemctl --user is-system-running"] = nil
+	if IsSystemdAvailable(mock) {
+		t.Error("expected IsSystemdAvailable to return false on error")
+	}
+
+	sched, err = newLinuxSchedulerWithExecutor(configDir, "", mock)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := sched.(*cronScheduler); !ok {
+		t.Errorf("expected fallback to *cronScheduler, got %T", sched)
+	}
+}
+
+func TestSchedulerLinux_OverrideProvider(t *testing.T) {
+	configDir := t.TempDir()
+	mock := NewMockExecutor()
+	// Even if systemd is running:
+	mock.Outputs["systemctl --user is-system-running"] = []byte("running")
+
+	// Explicit provider=cron forces cron
+	sched, err := newLinuxSchedulerWithExecutor(configDir, ProviderCron, mock)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := sched.(*cronScheduler); !ok {
+		t.Errorf("expected forced *cronScheduler, got %T", sched)
+	}
+
+	// Explicit provider=systemd forces systemd
+	sched, err = newLinuxSchedulerWithExecutor(configDir, ProviderSystemd, mock)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := sched.(*systemdScheduler); !ok {
+		t.Errorf("expected forced *systemdScheduler, got %T", sched)
+	}
+
+	// Unsupported provider=launchd on Linux
+	_, err = newLinuxSchedulerWithExecutor(configDir, ProviderLaunchd, mock)
+	if err == nil {
+		t.Fatal("expected error for launchd on Linux, got nil")
+	}
+	wantSub := "unsupported provider \"launchd\" on Linux: use systemd or cron"
+	if !strings.Contains(err.Error(), wantSub) {
+		t.Errorf("expected %q in error, got %v", wantSub, err)
+	}
+
+	// Invalid provider
+	_, err = newLinuxSchedulerWithExecutor(configDir, "windows-tasks", mock)
+	if err == nil {
+		t.Fatal("expected error for invalid provider on Linux, got nil")
+	}
+	wantSubInvalid := "expected systemd, cron or auto"
+	if !strings.Contains(err.Error(), wantSubInvalid) {
+		t.Errorf("expected %q in error, got %v", wantSubInvalid, err)
+	}
+}
+
