@@ -86,13 +86,14 @@ func InspectZip(path string) (bool, string, error) {
 		}
 
 		if !matched {
-			if strings.Contains(f.Name, ".app/Contents/MacOS/") {
+			switch {
+			case strings.Contains(f.Name, ".app/Contents/MacOS/"):
 				matched = true
 				matchedDetail = "contém aplicativo macOS (.app)"
-			} else if executableExtensions[ext] {
+			case executableExtensions[ext]:
 				matched = true
 				matchedDetail = fmt.Sprintf("contém instalador %s", filepath.Base(f.Name))
-			} else if ext == "" && !f.FileInfo().IsDir() && f.UncompressedSize64 > 1024 {
+			case ext == "" && !f.FileInfo().IsDir() && f.UncompressedSize64 > 1024:
 				if matchExecutableZipHeader(f) {
 					matched = true
 					matchedDetail = fmt.Sprintf("contém binário executável %s", filepath.Base(f.Name))
@@ -169,13 +170,14 @@ func InspectTarGz(path string) (bool, string, error) {
 		}
 
 		if !matched {
-			if strings.Contains(hdr.Name, ".app/Contents/MacOS/") {
+			switch {
+			case strings.Contains(hdr.Name, ".app/Contents/MacOS/"):
 				matched = true
 				matchedDetail = "contém aplicativo macOS (.app)"
-			} else if executableExtensions[ext] {
+			case executableExtensions[ext]:
 				matched = true
 				matchedDetail = fmt.Sprintf("contém instalador %s", filepath.Base(hdr.Name))
-			} else if ext == "" && hdr.Typeflag != tar.TypeDir && hdr.Size > 1024 {
+			case ext == "" && hdr.Typeflag != tar.TypeDir && hdr.Size > 1024:
 				buf := make([]byte, 4)
 				n, _ := io.ReadFull(tr, buf)
 				if n >= 2 && isExecutableMagic(buf[:n]) {
