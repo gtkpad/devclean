@@ -558,11 +558,12 @@ func (m PurgeModel) renderDeletingView() string {
 func (m PurgeModel) renderDoneView() string {
 	var b strings.Builder
 	b.WriteString("\n\n")
-	if m.deletionErr != nil && m.freedCount == 0 {
+	switch {
+	case m.deletionErr != nil && m.freedCount == 0:
 		b.WriteString("  " + statusAlertStyle.Render("✗ Falha no expurgo!") + "\n\n")
-	} else if m.deletionErr != nil {
+	case m.deletionErr != nil:
 		b.WriteString("  " + statusAlertStyle.Render("⚠ Expurgo concluído com avisos/erros:") + "\n\n")
-	} else {
+	default:
 		b.WriteString("  " + headerStyle.Render("✓ Expurgo concluído com sucesso!") + "\n\n")
 	}
 	b.WriteString(fmt.Sprintf("  Espaço liberado: %s em %d alvos de build\n", format.HumanSize(m.freedBytes), m.freedCount))

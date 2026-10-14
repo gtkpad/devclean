@@ -1158,11 +1158,12 @@ func (m ConfigModel) View() string {
 	}
 
 	if m.statusMsg != "" {
-		if strings.HasPrefix(m.statusMsg, "⚠️") {
+		switch {
+		case strings.HasPrefix(m.statusMsg, "⚠️"):
 			b.WriteString("  " + statusAlertStyle.Render(m.statusMsg) + "\n")
-		} else if strings.HasPrefix(m.statusMsg, "✓") {
+		case strings.HasPrefix(m.statusMsg, "✓"):
 			b.WriteString("  " + statusSavedStyle.Render(m.statusMsg) + "\n")
-		} else {
+		default:
 			b.WriteString("  " + selectedStyle.Render(m.statusMsg) + "\n")
 		}
 	} else {
