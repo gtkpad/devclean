@@ -1,6 +1,7 @@
 package tui_test
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -8,6 +9,7 @@ import (
 	"github.com/gtkpad/devclean/internal/config"
 	"github.com/gtkpad/devclean/internal/safety"
 	"github.com/gtkpad/devclean/internal/tui"
+	"gopkg.in/yaml.v3"
 )
 
 func TestConfigTUI_TabSwitching(t *testing.T) {
@@ -516,3 +518,344 @@ func TestConfigTUI_HelpOverlay(t *testing.T) {
 		t.Fatalf("expected ConfigStateNormal after second '?', got %v", m.State())
 	}
 }
+
+func updateModel(m tui.ConfigModel, msg tea.Msg) tui.ConfigModel {
+	updated, _ := m.Update(msg)
+	return updated.(tui.ConfigModel)
+}
+
+func TestConfigTUI_ViewAllTabs(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.ScanPaths = []string{"/tmp/test1"}
+	cfg.ExcludePaths = []string{"/tmp/ex1"}
+	m := tui.NewConfigModel(&cfg, nil, "/tmp/cfg.yaml", nil, nil)
+	m = updateModel(m, tea.WindowSizeMsg{Width: 100, Height: 20})
+
+	// TabPaths view
+	v0 := m.View()
+	if !strings.Contains(v0, "/tmp/test1") || !strings.Contains(v0, "/tmp/ex1") {
+		t.Errorf("expected TabPaths to render paths, got: %s", v0)
+	}
+
+	// TabEcosystems view
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
+	v1 := m.View()
+	if !strings.Contains(v1, "Docker") || !strings.Contains(v1, "Node.js") {
+		t.Errorf("expected TabEcosystems view, got: %s", v1)
+	}
+
+	// TabSafety view
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'3'}})
+	v2 := m.View()
+	if !strings.Contains(v2, "retention_days") {
+		t.Errorf("expected TabSafety view, got: %s", v2)
+	}
+
+	// TabWatch view
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'4'}})
+	v3 := m.View()
+	if !strings.Contains(v3, "watch.interval") {
+		t.Errorf("expected TabWatch view, got: %s", v3)
+	}
+
+	// TabScheduler view
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'5'}})
+	v4 := m.View()
+	if !strings.Contains(v4, "Agendador") {
+		t.Errorf("expected TabScheduler view, got: %s", v4)
+	}
+
+	// Status messages formatting check
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyCtrlS})
+	vSaved := m.View()
+	if !strings.Contains(vSaved, "✓") {
+		t.Errorf("expected success status check in view, got: %s", vSaved)
+	}
+}
+
+func TestConfigTUI_EditAllTabsAndFields(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.ScanPaths = []string{"/home/dev/scan1"}
+	cfg.ExcludePaths = []string{"/home/dev/ex1"}
+	bl := safety.NewBlacklist(nil)
+	m := tui.NewConfigModel(&cfg, nil, "/tmp/cfg.yaml", nil, bl)
+
+	// 1. TabPaths: edit scan path
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	for i := 0; i < 20; i++ {
+		m = updateModel(m, tea.KeyMsg{Type: tea.KeyBackspace})
+	}
+	for _, r := range "/home/dev/scan_updated" {
+		m = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if cfg.ScanPaths[0] != "/home/dev/scan_updated" {
+		t.Errorf("expected updated scan path, got: %s", cfg.ScanPaths[0])
+	}
+
+	// Try editing to forbidden path /etc -> must be rejected
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	for i := 0; i < 30; i++ {
+		m = updateModel(m, tea.KeyMsg{Type: tea.KeyBackspace})
+	}
+	for _, r := range "/etc" {
+		m = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if cfg.ScanPaths[0] == "/etc" {
+		t.Errorf("forbidden /etc was improperly accepted")
+	}
+	// Cancel rejected edit to return to ConfigStateNormal
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyEsc})
+
+	// Edit exclude path: move cursor down to index 1
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyDown})
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	for i := 0; i < 20; i++ {
+		m = updateModel(m, tea.KeyMsg{Type: tea.KeyBackspace})
+	}
+	for _, r := range "/home/dev/ex_updated" {
+		m = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if cfg.ExcludePaths[0] != "/home/dev/ex_updated" {
+		t.Errorf("expected updated exclude path, got: %s", cfg.ExcludePaths[0])
+	}
+
+	// Delete exclude path with 'd'
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	if len(cfg.ExcludePaths) != 0 {
+		t.Errorf("expected excludePaths empty after d, got: %v", cfg.ExcludePaths)
+	}
+
+	// 2. TabSafety: edit retention_days, max_size_mb, mass_select, history
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'3'}})
+	// retention_days (cursor 1)
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyDown})
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	for i := 0; i < 5; i++ {
+		m = updateModel(m, tea.KeyMsg{Type: tea.KeyBackspace})
+	}
+	for _, r := range "60" {
+		m = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if cfg.Safety.RetentionDays != 60 {
+		t.Errorf("expected retention_days 60, got: %d", cfg.Safety.RetentionDays)
+	}
+
+	// max_size_mb (cursor 2)
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyDown})
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	for i := 0; i < 10; i++ {
+		m = updateModel(m, tea.KeyMsg{Type: tea.KeyBackspace})
+	}
+	for _, r := range "20480" {
+		m = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if cfg.Safety.MaxSizeMB != 20480 {
+		t.Errorf("expected max_size_mb 20480, got: %d", cfg.Safety.MaxSizeMB)
+	}
+
+	// mass_select (cursor 3)
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyDown})
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	for i := 0; i < 10; i++ {
+		m = updateModel(m, tea.KeyMsg{Type: tea.KeyBackspace})
+	}
+	for _, r := range "4096" {
+		m = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if cfg.TUI.MassSelectThresholdMB != 4096 {
+		t.Errorf("expected mass_select 4096, got: %d", cfg.TUI.MassSelectThresholdMB)
+	}
+
+	// history retention (cursor 4)
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyDown})
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	for i := 0; i < 10; i++ {
+		m = updateModel(m, tea.KeyMsg{Type: tea.KeyBackspace})
+	}
+	for _, r := range "180" {
+		m = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if cfg.History.RetentionDays != 180 {
+		t.Errorf("expected history retention 180, got: %d", cfg.History.RetentionDays)
+	}
+
+	// 3. TabWatch: edit interval and threshold_mb
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'4'}})
+	// interval (cursor 1)
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyDown})
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	for i := 0; i < 5; i++ {
+		m = updateModel(m, tea.KeyMsg{Type: tea.KeyBackspace})
+	}
+	for _, r := range "12h" {
+		m = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if cfg.Watch.Interval != "12h" {
+		t.Errorf("expected watch interval 12h, got: %s", cfg.Watch.Interval)
+	}
+
+	// threshold_mb (cursor 2)
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyDown})
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	for i := 0; i < 10; i++ {
+		m = updateModel(m, tea.KeyMsg{Type: tea.KeyBackspace})
+	}
+	for _, r := range "5120" {
+		m = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if cfg.Watch.ThresholdMB != 5120 {
+		t.Errorf("expected watch threshold 5120, got: %d", cfg.Watch.ThresholdMB)
+	}
+
+	// 4. TabScheduler: toggle & edit freq, at_time, preset, cron
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'5'}})
+	// freq (cursor 1): Space cycles
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyDown})
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeySpace}) // weekly
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeySpace}) // hourly
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeySpace}) // custom
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeySpace}) // daily
+	// edit freq to weekly
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	for i := 0; i < 10; i++ {
+		m = updateModel(m, tea.KeyMsg{Type: tea.KeyBackspace})
+	}
+	for _, r := range "weekly" {
+		m = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	// at_time (cursor 2): edit to 14:30
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyDown})
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	for i := 0; i < 10; i++ {
+		m = updateModel(m, tea.KeyMsg{Type: tea.KeyBackspace})
+	}
+	for _, r := range "14:30" {
+		m = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	// preset (cursor 3): Space cycles
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyDown})
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeySpace})
+	// edit preset to standard
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	for i := 0; i < 15; i++ {
+		m = updateModel(m, tea.KeyMsg{Type: tea.KeyBackspace})
+	}
+	for _, r := range "standard" {
+		m = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	// cron (cursor 4): edit to "0 1 * * *"
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyDown})
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	for i := 0; i < 20; i++ {
+		m = updateModel(m, tea.KeyMsg{Type: tea.KeyBackspace})
+	}
+	for _, r := range "0 1 * * *" {
+		m = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyEnter})
+}
+
+func TestConfigTUI_SaveWithAST(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", "devclean-config-test-*.yaml")
+	if err != nil {
+		t.Fatalf("failed to create temp file: %v", err)
+	}
+	tmpPath := tmpFile.Name()
+	_ = tmpFile.Close()
+	defer os.Remove(tmpPath)
+	defer os.Remove(tmpPath + ".bak")
+
+	var root yaml.Node
+	if err := yaml.Unmarshal([]byte(config.DefaultConfigYAML), &root); err != nil {
+		t.Fatalf("unmarshal default yaml: %v", err)
+	}
+
+	cfg := config.Defaults()
+	m := tui.NewConfigModel(&cfg, &root, tmpPath, nil, nil)
+
+	// Toggle something and save
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeySpace}) // toggle docker
+
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyCtrlS})
+	if m.IsDirty() {
+		t.Errorf("expected isDirty to be false after save")
+	}
+
+	// Verify file exists and is valid yaml
+	data, err := os.ReadFile(tmpPath)
+	if err != nil {
+		t.Fatalf("reading saved config: %v", err)
+	}
+	if !strings.Contains(string(data), "docker:") {
+		t.Errorf("saved config does not contain docker: %s", string(data))
+	}
+}
+
+func TestConfigTUI_EcosystemsCoverage(t *testing.T) {
+	cfg := config.Defaults()
+	m := tui.NewConfigModel(&cfg, nil, "/tmp/cfg.yaml", nil, nil)
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
+
+	// Navigate and toggle all 18 ecosystems
+	for i := 0; i < 18; i++ {
+		m = updateModel(m, tea.KeyMsg{Type: tea.KeySpace})
+		m = updateModel(m, tea.KeyMsg{Type: tea.KeyDown})
+	}
+	if !m.IsDirty() {
+		t.Fatalf("expected dirty after toggling ecosystems")
+	}
+}
+
+func TestConfigTUI_OSErrorModal(t *testing.T) {
+	cfg := config.Defaults()
+	m := tui.NewConfigModel(&cfg, nil, "/tmp/cfg.yaml", nil, nil)
+	m = updateModel(m, tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	// Make dirty
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeySpace})
+
+	// Corrupt config so save fails
+	cfg.Safety.RetentionDays = 0
+
+	// Press 'q' to open exit confirm
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	if m.State() != tui.ConfigStateConfirmExit {
+		t.Fatalf("expected ConfigStateConfirmExit, got %v", m.State())
+	}
+
+	// Press 's' to attempt save -> fails and enters ConfigStateOSError
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	if m.State() != tui.ConfigStateOSError {
+		t.Fatalf("expected ConfigStateOSError, got %v", m.State())
+	}
+
+	// Verify view contains error modal
+	v := m.View()
+	if !strings.Contains(v, "FALHA NA OPERAÇÃO DO SISTEMA") {
+		t.Errorf("expected OS error modal title, got: %s", v)
+	}
+
+	// Press Enter to dismiss OS error modal
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.State() != tui.ConfigStateNormal {
+		t.Fatalf("expected ConfigStateNormal after Enter on OSError, got %v", m.State())
+	}
+}
+
