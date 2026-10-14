@@ -58,7 +58,7 @@ type AnalyzerModel struct {
 }
 
 // NewAnalyzerModel creates and initializes an AnalyzerModel instance.
-func NewAnalyzerModel(root *analyzer.Node, bl *safety.Blacklist, coord *deleter.Coordinator, width, height int) AnalyzerModel {
+func NewAnalyzerModel(root *analyzer.Node, bl *safety.Blacklist, coord *deleter.Coordinator, width, height int, customScanner ...*analyzer.Scanner) AnalyzerModel {
 	if root == nil {
 		root = &analyzer.Node{
 			Path:      ".",
@@ -106,8 +106,20 @@ func NewAnalyzerModel(root *analyzer.Node, bl *safety.Blacklist, coord *deleter.
 	updateCh := make(chan analyzer.ScanUpdateMsg, 200)
 
 	var sc *analyzer.Scanner
-	if bl != nil {
+	if len(customScanner) > 0 && customScanner[0] != nil {
+		sc = customScanner[0]
+	} else if bl != nil {
 		sc = analyzer.NewScanner(bl, true, 0, 0)
+	}
+
+	if sc != nil && sc.MinSize() > 0 && root != nil {
+		var filtered []*analyzer.Node
+		for _, c := range root.Children {
+			if c.IsDir() || c.SizeBytes >= sc.MinSize() {
+				filtered = append(filtered, c)
+			}
+		}
+		root.Children = filtered
 	}
 
 	m := AnalyzerModel{
@@ -325,6 +337,15 @@ func (m AnalyzerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 										c.IsProtected = true
 									}
 								}
+								if m.scanner.MinSize() > 0 {
+									var filtered []*analyzer.Node
+									for _, c := range selected.Children {
+										if c.IsDir() || c.SizeBytes >= m.scanner.MinSize() {
+											filtered = append(filtered, c)
+										}
+									}
+									selected.Children = filtered
+								}
 							}
 						}
 						m.currentDir = selected
@@ -476,6 +497,23 @@ func (m *AnalyzerModel) applyScanUpdate(msg analyzer.ScanUpdateMsg) {
 			}
 			if !found {
 				m.largeFilesList = append(m.largeFilesList, node)
+			}
+		}
+	}
+
+	if m.scanner != nil && m.scanner.MinSize() > 0 && m.currentDir != nil {
+		var filtered []*analyzer.Node
+		for _, c := range m.currentDir.Children {
+			if !c.Scanned || c.SizeBytes >= m.scanner.MinSize() {
+				filtered = append(filtered, c)
+			}
+		}
+		m.currentDir.Children = filtered
+		if m.cursor >= len(m.currentDir.Children) {
+			if len(m.currentDir.Children) > 0 {
+				m.cursor = len(m.currentDir.Children) - 1
+			} else {
+				m.cursor = 0
 			}
 		}
 	}
