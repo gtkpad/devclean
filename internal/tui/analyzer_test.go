@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/gtkpad/devclean/internal/analyzer"
+	"github.com/gtkpad/devclean/internal/safety"
 	"github.com/gtkpad/devclean/internal/tui"
 )
 
@@ -245,3 +246,138 @@ func TestAnalyzer_HelpOverlay(t *testing.T) {
 		t.Fatalf("expected StateHelp via 'i', got %v", am.State())
 	}
 }
+
+func TestAnalyzer_ProtectedBadge(t *testing.T) {
+	bl := safety.NewBlacklist(nil)
+	root := &analyzer.Node{
+		Path:      "/project",
+		Name:      "project",
+		Type:      analyzer.ItemDir,
+		SizeBytes: 1024,
+		Children: []*analyzer.Node{
+			{Path: "/project/.git", Name: ".git", Type: analyzer.ItemDir, IsProtected: true},
+			{Path: "/project/.env", Name: ".env", Type: analyzer.ItemFile, IsProtected: true},
+			{Path: "/project/normal", Name: "normal", Type: analyzer.ItemDir, IsProtected: false},
+		},
+	}
+	for _, c := range root.Children {
+		c.Parent = root
+	}
+
+	m := tui.NewAnalyzerModel(root, bl, nil, 100, 30)
+	view := m.View()
+
+	if !strings.Contains(view, "[🔒 PROTEGIDO]") && !strings.Contains(view, "[PROTEGIDO]") {
+		t.Fatalf("expected view to contain protected badge, got: %s", view)
+	}
+}
+
+func TestAnalyzer_BlacklistBlockDeletion(t *testing.T) {
+	bl := safety.NewBlacklist(nil)
+	root := &analyzer.Node{
+		Path:      "/repo",
+		Name:      "repo",
+		Type:      analyzer.ItemDir,
+		SizeBytes: 2048,
+		Children: []*analyzer.Node{
+			{Path: "/repo/.git", Name: ".git", Type: analyzer.ItemDir, IsProtected: true},
+			{Path: "/repo/target", Name: "target", Type: analyzer.ItemDir, IsProtected: false},
+		},
+	}
+	for _, c := range root.Children {
+		c.Parent = root
+	}
+
+	m := tui.NewAnalyzerModel(root, bl, nil, 100, 30)
+
+	// Cursor is at 0 (.git)
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	am := updated.(tui.AnalyzerModel)
+
+	if am.IsConfirmingDelete() {
+		t.Fatal("expected deletion modal to remain closed for protected item")
+	}
+
+	if !strings.Contains(am.StatusMessage(), "Item protegido pela Blacklist Imutável") {
+		t.Fatalf("expected status message warning, got: %s", am.StatusMessage())
+	}
+
+	view := am.View()
+	if !strings.Contains(view, "Item protegido pela Blacklist Imutável") {
+		t.Fatalf("expected protection warning in view, got: %s", view)
+	}
+}
+
+func TestAnalyzer_DeleteModalFlow(t *testing.T) {
+	root := &analyzer.Node{
+		Path:      "/clean-test",
+		Name:      "clean-test",
+		Type:      analyzer.ItemDir,
+		SizeBytes: 5000,
+		Children: []*analyzer.Node{
+			{Path: "/clean-test/build", Name: "build", Type: analyzer.ItemDir, SizeBytes: 5000, IsProtected: false},
+		},
+	}
+	root.Children[0].Parent = root
+
+	m := tui.NewAnalyzerModel(root, nil, nil, 100, 30)
+
+	// Press 'd' on unprotected item
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	am := updated.(tui.AnalyzerModel)
+
+	if !am.IsConfirmingDelete() {
+		t.Fatal("expected IsConfirmingDelete to be true")
+	}
+
+	view := am.View()
+	if !strings.Contains(view, "CONFIRMAR EXCLUSÃO PARA A LIXEIRA") {
+		t.Fatalf("expected delete modal title in view, got: %s", view)
+	}
+	if !strings.Contains(view, "/clean-test/build") {
+		t.Fatalf("expected target path in delete modal view, got: %s", view)
+	}
+
+	// Press 'n' to cancel
+	updated, _ = am.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	am = updated.(tui.AnalyzerModel)
+
+	if am.IsConfirmingDelete() {
+		t.Fatal("expected IsConfirmingDelete to be false after 'n'")
+	}
+	if am.StatusMessage() != "Exclusão cancelada." {
+		t.Fatalf("expected status 'Exclusão cancelada.', got: %s", am.StatusMessage())
+	}
+
+	// Press 'd' again and confirm with 'y'
+	updated, _ = am.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	am = updated.(tui.AnalyzerModel)
+
+	updated, cmd := am.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	am = updated.(tui.AnalyzerModel)
+
+	if am.IsConfirmingDelete() {
+		t.Fatal("expected modal closed after 'y'")
+	}
+
+	if cmd == nil {
+		t.Fatal("expected delete command to be returned")
+	}
+
+	// Execute delete cmd
+	msg := cmd()
+	if msg == nil {
+		t.Fatal("expected non-nil message from delete command")
+	}
+
+	updated, _ = am.Update(msg)
+	am = updated.(tui.AnalyzerModel)
+
+	if len(am.CurrentDir().Children) != 0 {
+		t.Fatalf("expected 0 children after delete, got %d", len(am.CurrentDir().Children))
+	}
+	if !strings.Contains(am.StatusMessage(), "sucesso") {
+		t.Fatalf("expected success message, got: %s", am.StatusMessage())
+	}
+}
+
