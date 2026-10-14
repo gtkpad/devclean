@@ -2,7 +2,9 @@ package tui
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -456,12 +458,351 @@ func (m *ConfigModel) toggleCurrentItem() {
 }
 
 func (m *ConfigModel) startEditingCurrentItem() {
-	// Hook for Task 2
+	if m.cfg == nil {
+		return
+	}
+	switch m.activeTab {
+	case TabPaths:
+		totalScan := len(m.cfg.ScanPaths)
+		if m.cursor < totalScan {
+			p := m.cfg.ScanPaths[m.cursor]
+			m.editingOriginal = p
+			m.textInput.SetValue(p)
+			m.textInput.Focus()
+			m.textInput.CursorEnd()
+			m.state = ConfigStateEditingField
+			m.statusMsg = "Editando caminho de varredura:"
+		} else {
+			idx := m.cursor - totalScan
+			if idx < len(m.cfg.ExcludePaths) {
+				p := m.cfg.ExcludePaths[idx]
+				m.editingOriginal = p
+				m.textInput.SetValue(p)
+				m.textInput.Focus()
+				m.textInput.CursorEnd()
+				m.state = ConfigStateEditingField
+				m.statusMsg = "Editando caminho de exclusão:"
+			}
+		}
+
+	case TabEcosystems:
+		if m.cursor >= 0 && m.cursor < len(ecosystemMetas) {
+			meta := ecosystemMetas[m.cursor]
+			eco := m.getEcosystem(meta.Key)
+			if eco != nil {
+				val := fmt.Sprintf("%d", eco.MaxAgeDays)
+				m.editingOriginal = val
+				m.textInput.SetValue(val)
+				m.textInput.Focus()
+				m.textInput.CursorEnd()
+				m.state = ConfigStateEditingField
+				m.statusMsg = fmt.Sprintf("Editando TTL de %s (dias > 0):", meta.Name)
+			}
+		}
+
+	case TabSafety:
+		switch m.cursor {
+		case 1:
+			val := fmt.Sprintf("%d", m.cfg.Safety.RetentionDays)
+			m.editingOriginal = val
+			m.textInput.SetValue(val)
+			m.textInput.Focus()
+			m.textInput.CursorEnd()
+			m.state = ConfigStateEditingField
+			m.statusMsg = "Editando retenção da lixeira (dias >= 1):"
+		case 2:
+			val := fmt.Sprintf("%d", m.cfg.Safety.MaxSizeMB)
+			m.editingOriginal = val
+			m.textInput.SetValue(val)
+			m.textInput.Focus()
+			m.textInput.CursorEnd()
+			m.state = ConfigStateEditingField
+			m.statusMsg = "Editando tamanho máximo da lixeira (MB >= 100):"
+		case 3:
+			val := int64(1024)
+			if m.cfg.TUI.MassSelectThresholdMB > 0 {
+				val = m.cfg.TUI.MassSelectThresholdMB
+			}
+			s := fmt.Sprintf("%d", val)
+			m.editingOriginal = s
+			m.textInput.SetValue(s)
+			m.textInput.Focus()
+			m.textInput.CursorEnd()
+			m.state = ConfigStateEditingField
+			m.statusMsg = "Editando limite de seleção em massa (MB > 0):"
+		case 4:
+			val := 90
+			if m.cfg.History.RetentionDays > 0 {
+				val = m.cfg.History.RetentionDays
+			}
+			s := fmt.Sprintf("%d", val)
+			m.editingOriginal = s
+			m.textInput.SetValue(s)
+			m.textInput.Focus()
+			m.textInput.CursorEnd()
+			m.state = ConfigStateEditingField
+			m.statusMsg = "Editando retenção do histórico (dias >= 1):"
+		}
+
+	case TabWatch:
+		switch m.cursor {
+		case 1:
+			m.editingOriginal = m.watchInterval
+			m.textInput.SetValue(m.watchInterval)
+			m.textInput.Focus()
+			m.textInput.CursorEnd()
+			m.state = ConfigStateEditingField
+			m.statusMsg = "Editando intervalo do watch daemon (ex: 30m, 1h, 6h >= 30m):"
+		case 2:
+			s := fmt.Sprintf("%d", m.watchThreshMB)
+			m.editingOriginal = s
+			m.textInput.SetValue(s)
+			m.textInput.Focus()
+			m.textInput.CursorEnd()
+			m.state = ConfigStateEditingField
+			m.statusMsg = "Editando threshold do watch daemon (MB > 0):"
+		}
+
+	case TabScheduler:
+		switch m.cursor {
+		case 1:
+			m.editingOriginal = m.schedFreq
+			m.textInput.SetValue(m.schedFreq)
+			m.textInput.Focus()
+			m.textInput.CursorEnd()
+			m.state = ConfigStateEditingField
+			m.statusMsg = "Editando frequência (daily, weekly, hourly, custom):"
+		case 2:
+			m.editingOriginal = m.schedAtTime
+			m.textInput.SetValue(m.schedAtTime)
+			m.textInput.Focus()
+			m.textInput.CursorEnd()
+			m.state = ConfigStateEditingField
+			m.statusMsg = "Editando horário de agendamento (HH:MM entre 00:00 e 23:59):"
+		case 3:
+			m.editingOriginal = m.schedPreset
+			m.textInput.SetValue(m.schedPreset)
+			m.textInput.Focus()
+			m.textInput.CursorEnd()
+			m.state = ConfigStateEditingField
+			m.statusMsg = "Editando preset do agendador (safe, standard, aggressive, none):"
+		case 4:
+			m.editingOriginal = m.schedCron
+			m.textInput.SetValue(m.schedCron)
+			m.textInput.Focus()
+			m.textInput.CursorEnd()
+			m.state = ConfigStateEditingField
+			m.statusMsg = "Editando expressão cron (5 campos cron):"
+		}
+	}
+}
+
+func (m *ConfigModel) validateCurrentInput(val string) error {
+	trimmed := strings.TrimSpace(val)
+	if m.state == ConfigStateAddingPath || (m.state == ConfigStateEditingField && m.activeTab == TabPaths) {
+		if trimmed == "" {
+			return fmt.Errorf("caminho não pode ser vazio")
+		}
+		if safety.IsCoreBlacklisted(trimmed) || (m.blacklist != nil && m.blacklist.IsBlacklisted(trimmed)) {
+			return fmt.Errorf("caminho proibido pela Blacklist Imutável (.git, .env, .ssh, raízes do SO)")
+		}
+		return nil
+	}
+
+	switch m.activeTab {
+	case TabEcosystems:
+		n, err := strconv.Atoi(trimmed)
+		if err != nil || n <= 0 {
+			return fmt.Errorf("valor inválido: max_age_days deve ser > 0")
+		}
+	case TabSafety:
+		switch m.cursor {
+		case 1:
+			n, err := strconv.Atoi(trimmed)
+			if err != nil || n < 1 {
+				return fmt.Errorf("valor inválido: safety.retention_days deve ser >= 1")
+			}
+		case 2:
+			n, err := strconv.Atoi(trimmed)
+			if err != nil || n < 100 {
+				return fmt.Errorf("valor inválido: safety.max_size_mb deve ser >= 100")
+			}
+		case 3:
+			n, err := strconv.ParseInt(trimmed, 10, 64)
+			if err != nil || n <= 0 {
+				return fmt.Errorf("valor inválido: mass_select_threshold_mb deve ser > 0")
+			}
+		case 4:
+			n, err := strconv.Atoi(trimmed)
+			if err != nil || n < 1 {
+				return fmt.Errorf("valor inválido: history.retention_days deve ser >= 1")
+			}
+		}
+	case TabWatch:
+		switch m.cursor {
+		case 1:
+			d, err := time.ParseDuration(trimmed)
+			if err != nil || d < 30*time.Minute {
+				return fmt.Errorf("valor inválido: watch.interval deve ser >= 30m (ex: 1h, 6h)")
+			}
+		case 2:
+			n, err := strconv.ParseInt(trimmed, 10, 64)
+			if err != nil || n <= 0 {
+				return fmt.Errorf("valor inválido: watch.threshold_mb deve ser > 0")
+			}
+		}
+	case TabScheduler:
+		switch m.cursor {
+		case 1:
+			lower := strings.ToLower(trimmed)
+			if lower != "daily" && lower != "weekly" && lower != "hourly" && lower != "custom" {
+				return fmt.Errorf("frequência inválida: escolha daily, weekly, hourly ou custom")
+			}
+		case 2:
+			parts := strings.Split(trimmed, ":")
+			if len(parts) != 2 {
+				return fmt.Errorf("horário inválido: esperado formato HH:MM (00:00 a 23:59)")
+			}
+			h, errH := strconv.Atoi(parts[0])
+			min, errM := strconv.Atoi(parts[1])
+			if errH != nil || errM != nil || h < 0 || h > 23 || min < 0 || min > 59 {
+				return fmt.Errorf("horário inválido: esperado formato HH:MM (00:00 a 23:59)")
+			}
+		case 3:
+			lower := strings.ToLower(trimmed)
+			if lower != "safe" && lower != "standard" && lower != "aggressive" && lower != "none" {
+				return fmt.Errorf("preset inválido: escolha safe, standard, aggressive ou none")
+			}
+		case 4:
+			if err := scheduler.ValidateCron(trimmed); err != nil {
+				return fmt.Errorf("expressão cron inválida: %w", err)
+			}
+		}
+	}
+	return nil
 }
 
 func (m ConfigModel) handleEditingKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// Hook for Task 2
-	return m, nil
+	switch msg.String() {
+	case "esc":
+		m.state = ConfigStateNormal
+		m.textInput.Blur()
+		m.statusMsg = ""
+		return m, nil
+
+	case "enter":
+		val := m.textInput.Value()
+		if err := m.validateCurrentInput(val); err != nil {
+			m.statusMsg = "⚠️ " + err.Error()
+			return m, nil
+		}
+		m.commitEditing(val)
+		m.state = ConfigStateNormal
+		m.textInput.Blur()
+		return m, nil
+
+	default:
+		var cmd tea.Cmd
+		m.textInput, cmd = m.textInput.Update(msg)
+		if err := m.validateCurrentInput(m.textInput.Value()); err != nil {
+			m.statusMsg = "⚠️ " + err.Error()
+		} else {
+			m.statusMsg = ""
+		}
+		return m, cmd
+	}
+}
+
+func (m *ConfigModel) commitEditing(val string) {
+	trimmed := strings.TrimSpace(val)
+	if m.state == ConfigStateAddingPath {
+		m.commitAddedPath(trimmed)
+		return
+	}
+
+	if m.activeTab == TabPaths {
+		totalScan := len(m.cfg.ScanPaths)
+		if m.cursor < totalScan {
+			m.cfg.ScanPaths[m.cursor] = trimmed
+		} else {
+			idx := m.cursor - totalScan
+			if idx < len(m.cfg.ExcludePaths) {
+				m.cfg.ExcludePaths[idx] = trimmed
+			}
+		}
+		m.isDirty = true
+		m.statusMsg = fmt.Sprintf("Caminho atualizado: %s", trimmed)
+		return
+	}
+
+	switch m.activeTab {
+	case TabEcosystems:
+		if m.cursor >= 0 && m.cursor < len(ecosystemMetas) {
+			eco := m.getEcosystem(ecosystemMetas[m.cursor].Key)
+			if eco != nil {
+				n, _ := strconv.Atoi(trimmed)
+				eco.MaxAgeDays = n
+				m.isDirty = true
+				m.statusMsg = fmt.Sprintf("TTL de %s atualizado para %d dias", ecosystemMetas[m.cursor].Name, n)
+			}
+		}
+	case TabSafety:
+		switch m.cursor {
+		case 1:
+			n, _ := strconv.Atoi(trimmed)
+			m.cfg.Safety.RetentionDays = n
+			m.isDirty = true
+			m.statusMsg = fmt.Sprintf("Retenção da lixeira atualizada para %d dias", n)
+		case 2:
+			n, _ := strconv.Atoi(trimmed)
+			m.cfg.Safety.MaxSizeMB = n
+			m.isDirty = true
+			m.statusMsg = fmt.Sprintf("Tamanho da lixeira atualizado para %d MB", n)
+		case 3:
+			n, _ := strconv.ParseInt(trimmed, 10, 64)
+			m.cfg.TUI.MassSelectThresholdMB = n
+			m.isDirty = true
+			m.statusMsg = fmt.Sprintf("Limite de seleção em massa atualizado para %d MB", n)
+		case 4:
+			n, _ := strconv.Atoi(trimmed)
+			m.cfg.History.RetentionDays = n
+			m.isDirty = true
+			m.statusMsg = fmt.Sprintf("Retenção do histórico atualizada para %d dias", n)
+		}
+	case TabWatch:
+		switch m.cursor {
+		case 1:
+			m.cfg.Watch.Interval = trimmed
+			m.watchInterval = trimmed
+			m.isDirty = true
+			m.statusMsg = fmt.Sprintf("Intervalo do watch daemon atualizado para %s", trimmed)
+		case 2:
+			n, _ := strconv.ParseInt(trimmed, 10, 64)
+			m.cfg.Watch.ThresholdMB = n
+			m.watchThreshMB = n
+			m.isDirty = true
+			m.statusMsg = fmt.Sprintf("Threshold do watch daemon atualizado para %d MB", n)
+		}
+	case TabScheduler:
+		switch m.cursor {
+		case 1:
+			m.schedFreq = strings.ToLower(trimmed)
+			m.isDirty = true
+			m.statusMsg = fmt.Sprintf("Frequência do agendador atualizada para %s", m.schedFreq)
+		case 2:
+			m.schedAtTime = trimmed
+			m.isDirty = true
+			m.statusMsg = fmt.Sprintf("Horário do agendador atualizado para %s", trimmed)
+		case 3:
+			m.schedPreset = strings.ToLower(trimmed)
+			m.isDirty = true
+			m.statusMsg = fmt.Sprintf("Preset do agendador atualizado para %s", m.schedPreset)
+		case 4:
+			m.schedCron = trimmed
+			m.isDirty = true
+			m.statusMsg = fmt.Sprintf("Expressão cron atualizada para %s", trimmed)
+		}
+	}
 }
 
 func (m *ConfigModel) deleteCurrentPath() {
@@ -579,8 +920,16 @@ func (m ConfigModel) View() string {
 		b.WriteString(m.viewScheduler())
 	}
 
-	// 3. Status Bar
+	// 3. Status Bar / Text Input
 	b.WriteString("\n")
+	if m.state == ConfigStateEditingField || m.state == ConfigStateAddingPath {
+		prompt := "  " + searchPromptStyle.Render("Editar valor: ") + m.textInput.View() + "\n"
+		if m.state == ConfigStateAddingPath {
+			prompt = "  " + searchPromptStyle.Render("Adicionar caminho: ") + m.textInput.View() + "\n"
+		}
+		b.WriteString(prompt)
+	}
+
 	if m.statusMsg != "" {
 		if strings.HasPrefix(m.statusMsg, "⚠️") {
 			b.WriteString("  " + statusAlertStyle.Render(m.statusMsg) + "\n")
@@ -595,7 +944,9 @@ func (m ConfigModel) View() string {
 
 	// 4. Footer Shortcuts
 	shortcuts := "  [Tab] Abas  [j/k] Navegar  [Space] Alternar  [e/Enter] Editar  [Ctrl+S] Salvar  [?] Ajuda  [q] Sair"
-	if m.activeTab == TabPaths {
+	if m.state == ConfigStateEditingField || m.state == ConfigStateAddingPath {
+		shortcuts = "  [Enter] Confirmar  [Esc] Cancelar"
+	} else if m.activeTab == TabPaths {
 		shortcuts = "  [Tab] Abas  [j/k] Navegar  [a] Adicionar  [d] Remover  [e] Editar  [Ctrl+S] Salvar  [?] Ajuda  [q] Sair"
 	}
 	b.WriteString(helpStyle.Render(shortcuts) + "\n")
