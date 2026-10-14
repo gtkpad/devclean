@@ -17,6 +17,7 @@ import (
 	"github.com/gtkpad/devclean/internal/analyzer"
 	"github.com/gtkpad/devclean/internal/config"
 	"github.com/gtkpad/devclean/internal/deleter"
+	"github.com/gtkpad/devclean/internal/platform"
 	"github.com/gtkpad/devclean/internal/safety"
 	"github.com/gtkpad/devclean/internal/scheduler"
 	"github.com/gtkpad/devclean/internal/trash"
@@ -365,7 +366,14 @@ func TestE2E_Flow3_SchedulerWeekly_Run_LogsAudit(t *testing.T) {
 	tmpDir := t.TempDir()
 	homeDir := filepath.Join(tmpDir, "home")
 	configDir := filepath.Join(homeDir, ".config", "devclean")
-	logDir := filepath.Join(homeDir, "Library", "Logs", "devclean")
+
+	t.Setenv("HOME", homeDir)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(homeDir, ".config"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(homeDir, ".local", "state"))
+
+	resolver := platform.New()
+	paths := resolver.Resolve()
+	logDir := paths.LogDir
 
 	if err := os.MkdirAll(configDir, 0755); err != nil {
 		t.Fatal(err)
@@ -373,9 +381,6 @@ func TestE2E_Flow3_SchedulerWeekly_Run_LogsAudit(t *testing.T) {
 	if err := os.MkdirAll(logDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-
-	t.Setenv("HOME", homeDir)
-	t.Setenv("XDG_CONFIG_HOME", filepath.Join(homeDir, ".config"))
 
 	cfgPath := filepath.Join(configDir, "config.yaml")
 	cfgContent := `scheduler:
