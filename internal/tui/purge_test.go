@@ -676,3 +676,54 @@ func TestPurge_TrashOptionsPassed(t *testing.T) {
 		t.Fatalf("expected useTrashOpt true, got %v", m2.useTrashOpt)
 	}
 }
+
+func TestPurge_MultiEcosystemTargetMapping(t *testing.T) {
+	nodeTarget := domain.Target{ID: "node_modules", Path: "/repo/node_modules", SizeBytes: 1000}
+	rustTarget := domain.Target{ID: "target", Path: "/repo/target", SizeBytes: 2000}
+
+	rg := &RepoGroup{
+		RepoDir:    "/repo",
+		RepoName:   "monorepo",
+		Ecosystems: []string{"node", "rust"},
+		Targets:    []domain.Target{nodeTarget, rustTarget},
+		TargetsByEco: map[string][]domain.Target{
+			"node": {nodeTarget},
+			"rust": {rustTarget},
+		},
+		Selected: true,
+	}
+
+	m := NewPurgeModel([]*RepoGroup{rg}, nil, nil)
+	cmd := m.startDeletionCmd()
+	msg := cmd()
+	compMsg, ok := msg.(purgeCompleteMsg)
+	if !ok {
+		t.Fatalf("expected purgeCompleteMsg, got %T", msg)
+	}
+	if compMsg.freedBytes != 3000 || compMsg.freedCount != 2 {
+		t.Errorf("expected 3000 bytes and 2 count, got %d, %d", compMsg.freedBytes, compMsg.freedCount)
+	}
+}
+
+func TestPurge_BatchErrorReporting(t *testing.T) {
+	m := NewPurgeModel(nil, nil, nil)
+	m.done = true
+	m.freedBytes = 1024
+	m.freedCount = 1
+	m.deletionErr = errors.New("failed to delete locked file; access denied")
+
+	view := m.renderDoneView()
+	if !strings.Contains(view, "⚠ Expurgo concluído com avisos/erros:") {
+		t.Errorf("expected warning header on partial error, got:\n%s", view)
+	}
+	if !strings.Contains(view, "failed to delete locked file; access denied") {
+		t.Errorf("expected error details in view, got:\n%s", view)
+	}
+
+	// Fatal error with 0 freed
+	m.freedCount = 0
+	viewFatal := m.renderDoneView()
+	if !strings.Contains(viewFatal, "✗ Falha no expurgo!") {
+		t.Errorf("expected failure header on 0 freed count error, got:\n%s", viewFatal)
+	}
+}
