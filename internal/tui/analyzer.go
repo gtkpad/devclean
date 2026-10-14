@@ -189,6 +189,10 @@ func (m AnalyzerModel) Offset() int {
 	return m.offset
 }
 
+func (m AnalyzerModel) LargeFiles() []*analyzer.Node {
+	return m.largeFilesList
+}
+
 // Init sets up initial commands (spinner and scan update listener).
 func (m AnalyzerModel) Init() tea.Cmd {
 	if m.scanner != nil && m.root != nil {
@@ -251,6 +255,28 @@ func (m AnalyzerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 				m.currentDir.Children = remaining
+
+				// Decrement size and count from ancestors
+				for p := m.currentDir; p != nil; p = p.Parent {
+					p.SizeBytes -= msg.target.SizeBytes
+					if p.SizeBytes < 0 {
+						p.SizeBytes = 0
+					}
+					p.ItemCount -= msg.target.ItemCount
+					if p.ItemCount < 0 {
+						p.ItemCount = 0
+					}
+				}
+
+				// Remove from largeFilesList if present
+				var remainingLarge []*analyzer.Node
+				for _, lf := range m.largeFilesList {
+					if lf.Path != msg.target.Path {
+						remainingLarge = append(remainingLarge, lf)
+					}
+				}
+				m.largeFilesList = remainingLarge
+
 				if m.cursor >= len(m.currentDir.Children) {
 					if len(m.currentDir.Children) > 0 {
 						m.cursor = len(m.currentDir.Children) - 1
@@ -451,6 +477,14 @@ func (m *AnalyzerModel) deleteNode(target *analyzer.Node) tea.Cmd {
 			}
 			if res != nil && len(res.Errors) > 0 {
 				return deleteResultMsg{success: false, target: target, currentDir: currentDir, err: res.Errors[0]}
+			}
+			if res == nil || res.TotalCount == 0 || len(res.CleanedPaths) == 0 {
+				return deleteResultMsg{
+					success:    false,
+					target:     target,
+					currentDir: currentDir,
+					err:        fmt.Errorf("nenhum arquivo foi excluído (operação bloqueada por segurança ou alvo inexistente)"),
+				}
 			}
 		}
 

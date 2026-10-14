@@ -389,6 +389,92 @@ func TestAnalyzer_DeleteModalFlow(t *testing.T) {
 	}
 }
 
+func TestAnalyzer_DeleteCoordinatorBlockedOrEmpty(t *testing.T) {
+	root := &analyzer.Node{
+		Path:      "/clean-test",
+		Name:      "clean-test",
+		Type:      analyzer.ItemDir,
+		SizeBytes: 5000,
+		Children: []*analyzer.Node{
+			{Path: "/clean-test/build", Name: "build", Type: analyzer.ItemDir, SizeBytes: 5000, IsProtected: false},
+		},
+	}
+	root.Children[0].Parent = root
+
+	// Mock cleaner and coordinator that filters target in Stage 1
+	mc := &mockCleaner{}
+	cleaners := &mockCleanerProvider{cleaner: mc}
+	cfg := &config.Config{}
+	blCoord := safety.NewBlacklist([]string{"build"})
+	coord := deleter.New(cleaners, cfg, blCoord, nil, nil, "", "")
+
+	// Model itself doesn't have the blacklist rule, so UI confirms 'd'
+	m := tui.NewAnalyzerModel(root, nil, coord, 100, 30)
+
+	// Press 'd' and confirm 'y'
+	u, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	am := u.(tui.AnalyzerModel)
+	u, cmd := am.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	am = u.(tui.AnalyzerModel)
+
+	msg := cmd()
+	u, _ = am.Update(msg)
+	am = u.(tui.AnalyzerModel)
+
+	// Since coordinator cleaned 0 items, it must report error and keep child
+	if len(am.CurrentDir().Children) != 1 {
+		t.Fatalf("expected child to remain when deletion cleaned 0 files, got %d", len(am.CurrentDir().Children))
+	}
+	if !strings.Contains(am.StatusMessage(), "Erro") {
+		t.Fatalf("expected error status message, got: %s", am.StatusMessage())
+	}
+}
+
+func TestAnalyzer_DeleteDecrementsAncestorTotalsAndLargeFiles(t *testing.T) {
+	child := &analyzer.Node{
+		Path:        "/home/user/project/huge.bin",
+		Name:        "huge.bin",
+		Type:        analyzer.ItemFile,
+		SizeBytes:   200 * 1024 * 1024,
+		ItemCount:   1,
+		IsLargeFile: true,
+	}
+	root := &analyzer.Node{
+		Path:      "/home/user/project",
+		Name:      "project",
+		Type:      analyzer.ItemDir,
+		SizeBytes: 200 * 1024 * 1024,
+		ItemCount: 1,
+		Children:  []*analyzer.Node{child},
+	}
+	child.Parent = root
+
+	m := tui.NewAnalyzerModel(root, nil, nil, 100, 30)
+	if len(m.LargeFiles()) != 1 {
+		t.Fatalf("expected 1 large file initially, got %d", len(m.LargeFiles()))
+	}
+
+	// Press 'd' and confirm with 'y'
+	u, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	am := u.(tui.AnalyzerModel)
+	u, cmd := am.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	am = u.(tui.AnalyzerModel)
+
+	msg := cmd()
+	u, _ = am.Update(msg)
+	am = u.(tui.AnalyzerModel)
+
+	if am.CurrentDir().SizeBytes != 0 {
+		t.Errorf("expected currentDir size 0 after deletion, got %d", am.CurrentDir().SizeBytes)
+	}
+	if am.CurrentDir().ItemCount != 0 {
+		t.Errorf("expected currentDir itemCount 0 after deletion, got %d", am.CurrentDir().ItemCount)
+	}
+	if len(am.LargeFiles()) != 0 {
+		t.Errorf("expected 0 large files after deletion, got %d", len(am.LargeFiles()))
+	}
+}
+
 type mockCleanerProvider struct {
 	cleaner domain.Cleaner
 }
