@@ -25,4 +25,12 @@ var (
 	modalTitleStyle     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("9"))
 	statusAlertStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("9"))
 	searchPromptStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("13"))
+
+	// Config TUI Tabs & Indicators
+	tabActiveStyle     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15")).Background(lipgloss.Color("63")).Padding(0, 2)
+	tabInactiveStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Padding(0, 2)
+	statusSavedStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("10"))
+	dirtyIndicator     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("9")).Render("●")
+	enabledBadgeStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("10"))
+	disabledBadgeStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 )
