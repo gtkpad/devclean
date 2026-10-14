@@ -80,14 +80,14 @@ func (m *Manager) UndoEntry(ctx context.Context, entryID string) error {
 
 // restoreBatch validates all entries first, then restores them. Aborts entirely on any validation failure.
 func (m *Manager) restoreBatch(ctx context.Context, batch *Batch) error {
-	// Phase 1: validate all entries before restoring any
+	// Step 1: validate all entries before restoring any
 	for i := range batch.Entries {
 		if err := m.validateRestore(batch.Entries[i].OriginalPath); err != nil {
 			return fmt.Errorf("restore aborted: entry %s: %w", batch.Entries[i].ID, err)
 		}
 	}
 
-	// Phase 2: restore all entries
+	// Step 2: restore all entries
 	for i := range batch.Entries {
 		select {
 		case <-ctx.Done():
