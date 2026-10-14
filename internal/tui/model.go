@@ -2,7 +2,6 @@ package tui
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 
@@ -12,6 +11,7 @@ import (
 	"github.com/gtkpad/devclean/internal/deleter"
 	"github.com/gtkpad/devclean/internal/domain"
 	"github.com/gtkpad/devclean/internal/engine"
+	"github.com/gtkpad/devclean/internal/format"
 	"github.com/gtkpad/devclean/internal/hooks"
 	"github.com/gtkpad/devclean/internal/platform"
 	"github.com/gtkpad/devclean/internal/safety"
@@ -428,17 +428,7 @@ func flattenResults(results []domain.ScanResult) []flatTarget {
 }
 
 func humanSize(bytes int64) string {
-	if bytes < 1024 {
-		return fmt.Sprintf("%d B", bytes)
-	}
-	units := []string{"KB", "MB", "GB", "TB"}
-	size := float64(bytes) / 1024
-	i := 0
-	for size >= 1024 && i < len(units)-1 {
-		size /= 1024
-		i++
-	}
-	return fmt.Sprintf("%.1f %s", size, units[i])
+	return format.HumanSize(bytes)
 }
 
 func deleteCmd(m model) tea.Cmd {
