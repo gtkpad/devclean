@@ -32,4 +32,9 @@ func TestGetDeviceID(t *testing.T) {
 			t.Errorf("expected hasDev to be false on %s", runtime.GOOS)
 		}
 	}
+
+	// Nil fi check
+	if dev, ok := getDeviceID(nil); ok || dev != 0 {
+		t.Errorf("expected (0, false) for nil fi, got (%d, %v)", dev, ok)
+	}
 }

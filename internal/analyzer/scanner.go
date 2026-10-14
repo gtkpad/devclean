@@ -1,6 +1,7 @@
 package analyzer
 
 import (
+	"context"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -70,11 +71,14 @@ func (s *Scanner) ScanImmediate(rootPath string) (*Node, error) {
 		return nil, err
 	}
 
+	rootDev, hasDev := getDeviceID(rootFi)
 	isProtected := safety.IsCoreBlacklisted(abs) || (s.blacklist != nil && s.blacklist.IsBlacklisted(abs))
 	rootNode := &Node{
 		Path:        abs,
 		Name:        filepath.Base(abs),
 		Type:        ItemDir,
+		DeviceID:    rootDev,
+		HasDevID:    hasDev,
 		ModTime:     rootFi.ModTime(),
 		IsProtected: isProtected,
 	}
@@ -118,11 +122,14 @@ func (s *Scanner) ScanImmediate(rootPath string) (*Node, error) {
 			itemType = ItemSymlink
 		}
 
+		childDev, childHasDev := getDeviceID(fi)
 		childProtected := safety.IsCoreBlacklisted(childPath) || (s.blacklist != nil && s.blacklist.IsBlacklisted(childPath))
 		childNode := &Node{
 			Path:        childPath,
 			Name:        name,
 			Type:        itemType,
+			DeviceID:    childDev,
+			HasDevID:    childHasDev,
 			ModTime:     fi.ModTime(),
 			Parent:      rootNode,
 			IsProtected: childProtected,
@@ -145,4 +152,99 @@ func (s *Scanner) ScanImmediate(rootPath string) (*Node, error) {
 	s.mu.Unlock()
 
 	return rootNode, nil
+}
+
+// CalculateDirSize recursively calculates size and item count, skipping symlink traversals and foreign mount points.
+func (s *Scanner) CalculateDirSize(ctx context.Context, dirNode *Node, updates chan<- ScanUpdateMsg) (int64, int, error) {
+	if dirNode == nil {
+		return 0, 0, nil
+	}
+
+	if err := ctx.Err(); err != nil {
+		return 0, 0, err
+	}
+
+	select {
+	case <-ctx.Done():
+		return 0, 0, ctx.Err()
+	case s.sem <- struct{}{}:
+		defer func() { <-s.sem }()
+	}
+
+	var totalBytes int64
+	var itemCount int
+
+	err := filepath.WalkDir(dirNode.Path, func(path string, d fs.DirEntry, err error) error {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+
+		if err != nil {
+			if path == dirNode.Path {
+				return err
+			}
+			return nil
+		}
+
+		if path == dirNode.Path {
+			return nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		info, err := d.Info()
+		if err != nil {
+			return nil
+		}
+
+		// D-02: Prevent following symlinks (T-04-01)
+		if info.Mode()&fs.ModeSymlink != 0 {
+			totalBytes += info.Size()
+			itemCount++
+			return nil
+		}
+
+		// D-02: Prevent crossing mount points (T-04-02)
+		if dirNode.HasDevID && d.IsDir() {
+			devID, hasDev := getDeviceID(info)
+			if hasDev && devID != dirNode.DeviceID {
+				return filepath.SkipDir
+			}
+		}
+
+		if !d.IsDir() {
+			sz := info.Size()
+			totalBytes += sz
+			itemCount++
+		} else {
+			itemCount++
+		}
+		return nil
+	})
+
+	if err == nil {
+		dirNode.SizeBytes = totalBytes
+		dirNode.ItemCount = itemCount
+		dirNode.Scanned = true
+	}
+
+	if updates != nil {
+		select {
+		case updates <- ScanUpdateMsg{
+			Path:      dirNode.Path,
+			SizeBytes: totalBytes,
+			ItemCount: itemCount,
+			Scanned:   err == nil,
+			Err:       err,
+		}:
+		case <-ctx.Done():
+		default:
+		}
+	}
+
+	return totalBytes, itemCount, err
 }
