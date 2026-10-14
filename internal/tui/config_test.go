@@ -1057,3 +1057,138 @@ func TestConfigTUI_OSSyncFailureModal(t *testing.T) {
 	}
 }
 
+func TestConfigTUI_OSSync_EdgeCasesAndBranches(t *testing.T) {
+	// 1. Removal test
+	tmpFile, _ := os.CreateTemp("", "devclean-ossync-remove-*.yaml")
+	tmpPath := tmpFile.Name()
+	_ = tmpFile.Close()
+	defer os.Remove(tmpPath)
+	defer os.Remove(tmpPath + ".bak")
+
+	var root yaml.Node
+	_ = yaml.Unmarshal([]byte(config.DefaultConfigYAML), &root)
+
+	mockSched := &mockScheduler{
+		installed:      true,
+		watchInstalled: true,
+	}
+
+	cfg := config.Defaults()
+	cfg.Scheduler.Args = []string{"--preset", "safe", "--dry-run"}
+	m := tui.NewConfigModel(&cfg, &root, tmpPath, mockSched, nil)
+
+	// Toggle off scheduler
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'5'}})
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeySpace})
+	// Toggle off watch
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'4'}})
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeySpace})
+
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyCtrlS})
+	if !mockSched.removeCalled {
+		t.Errorf("expected scheduler.Remove to be called")
+	}
+	if !mockSched.removeWatchCalled {
+		t.Errorf("expected scheduler.RemoveWatch to be called")
+	}
+
+	// 2. Frequency weekly, hourly, custom
+	freqs := []struct {
+		freq     string
+		atTime   string
+		cron     string
+		expected string
+	}{
+		{"weekly", "03:15", "", "15 3 * * 0"},
+		{"hourly", ":45", "", "45 * * * *"},
+		{"hourly", "", "", "0 * * * *"},
+		{"custom", "", "1 2 3 4 5", "1 2 3 4 5"},
+		{"daily", "", "", "0 12 * * *"},
+	}
+
+	for _, tc := range freqs {
+		mockSched2 := &mockScheduler{}
+		m2 := tui.NewConfigModel(&cfg, &root, tmpPath, mockSched2, nil)
+		// Go to tab scheduler
+		m2 = updateModel(m2, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'5'}})
+		m2 = updateModel(m2, tea.KeyMsg{Type: tea.KeySpace}) // active
+
+		// Set freq
+		m2 = updateModel(m2, tea.KeyMsg{Type: tea.KeyDown})
+		m2 = updateModel(m2, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+		for i := 0; i < 15; i++ {
+			m2 = updateModel(m2, tea.KeyMsg{Type: tea.KeyBackspace})
+		}
+		for _, r := range tc.freq {
+			m2 = updateModel(m2, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		}
+		m2 = updateModel(m2, tea.KeyMsg{Type: tea.KeyEnter})
+
+		// Set atTime if specified
+		if tc.atTime != "" {
+			m2 = updateModel(m2, tea.KeyMsg{Type: tea.KeyDown})
+			m2 = updateModel(m2, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+			for i := 0; i < 15; i++ {
+				m2 = updateModel(m2, tea.KeyMsg{Type: tea.KeyBackspace})
+			}
+			for _, r := range tc.atTime {
+				m2 = updateModel(m2, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+			}
+			m2 = updateModel(m2, tea.KeyMsg{Type: tea.KeyEnter})
+			m2 = updateModel(m2, tea.KeyMsg{Type: tea.KeyUp})
+		}
+
+		// Set custom cron if specified
+		if tc.cron != "" {
+			m2 = updateModel(m2, tea.KeyMsg{Type: tea.KeyDown})
+			m2 = updateModel(m2, tea.KeyMsg{Type: tea.KeyDown})
+			m2 = updateModel(m2, tea.KeyMsg{Type: tea.KeyDown})
+			m2 = updateModel(m2, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+			for i := 0; i < 25; i++ {
+				m2 = updateModel(m2, tea.KeyMsg{Type: tea.KeyBackspace})
+			}
+			for _, r := range tc.cron {
+				m2 = updateModel(m2, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+			}
+			m2 = updateModel(m2, tea.KeyMsg{Type: tea.KeyEnter})
+		}
+
+		m2 = updateModel(m2, tea.KeyMsg{Type: tea.KeyCtrlS})
+		if mockSched2.lastSchedule.CronExpr != tc.expected {
+			t.Errorf("freq %s: expected cron %q, got %q", tc.freq, tc.expected, mockSched2.lastSchedule.CronExpr)
+		}
+	}
+
+	// 3. Arrow navigation in scheduler for cycling freq and preset
+	m3 := tui.NewConfigModel(&cfg, &root, tmpPath, &mockScheduler{}, nil)
+	m3 = updateModel(m3, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'5'}})
+	m3 = updateModel(m3, tea.KeyMsg{Type: tea.KeyDown}) // cursor 1 (freq)
+	m3 = updateModel(m3, tea.KeyMsg{Type: tea.KeyRight}) // cycles freq
+	m3 = updateModel(m3, tea.KeyMsg{Type: tea.KeyDown})
+	m3 = updateModel(m3, tea.KeyMsg{Type: tea.KeyDown}) // cursor 3 (preset)
+	m3 = updateModel(m3, tea.KeyMsg{Type: tea.KeyLeft}) // cycles preset
+
+	// 4. Shell injection in args rejection
+	cfgInjected := config.Defaults()
+	cfgInjected.Scheduler.Args = []string{"--dry-run;rm -rf /"}
+	m4 := tui.NewConfigModel(&cfgInjected, &root, tmpPath, &mockScheduler{}, nil)
+	m4 = updateModel(m4, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'5'}})
+	m4 = updateModel(m4, tea.KeyMsg{Type: tea.KeySpace})
+	m4 = updateModel(m4, tea.KeyMsg{Type: tea.KeyCtrlS})
+	if !strings.Contains(m4.StatusMessage(), "dangerous shell character") && !strings.Contains(m4.StatusMessage(), "proibidos") {
+		t.Errorf("expected shell injection error, got: %s", m4.StatusMessage())
+	}
+
+	// 5. Watch OS error simulation
+	mockSchedWatch := &mockScheduler{
+		installWatchErr: errors.New("systemctl: failed to enable devclean-watch.timer"),
+	}
+	m5 := tui.NewConfigModel(&cfg, &root, tmpPath, mockSchedWatch, nil)
+	m5 = updateModel(m5, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'4'}})
+	m5 = updateModel(m5, tea.KeyMsg{Type: tea.KeySpace}) // active
+	m5 = updateModel(m5, tea.KeyMsg{Type: tea.KeyCtrlS})
+	if m5.State() != tui.ConfigStateOSError {
+		t.Errorf("expected ConfigStateOSError on watch install error, got %v", m5.State())
+	}
+}
+
