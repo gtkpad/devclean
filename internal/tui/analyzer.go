@@ -180,14 +180,19 @@ func (m AnalyzerModel) Offset() int {
 // Init sets up initial commands (spinner and scan update listener).
 func (m AnalyzerModel) Init() tea.Cmd {
 	if m.scanner != nil && m.root != nil {
-		go func() {
-			defer close(m.updateCh)
-			for _, child := range m.root.Children {
-				if child.IsDir() && !child.Scanned {
-					_, _, _ = m.scanner.CalculateDirSize(m.ctx, child, m.updateCh)
-				}
+		var toScan []*analyzer.Node
+		for _, child := range m.root.Children {
+			if child.IsDir() && !child.Scanned {
+				toScan = append(toScan, child)
 			}
-		}()
+		}
+
+		go func(targets []*analyzer.Node) {
+			defer close(m.updateCh)
+			for _, child := range targets {
+				_, _, _ = m.scanner.CalculateDirSize(m.ctx, child, m.updateCh)
+			}
+		}(toScan)
 	}
 
 	return tea.Batch(m.spinner.Tick, waitForScanUpdate(m.updateCh))
@@ -439,30 +444,39 @@ type deleteResultMsg struct {
 	err        error
 }
 
-func (m *AnalyzerModel) applyScanUpdate(msg analyzer.ScanUpdateMsg) {
-	if m.currentDir == nil {
-		return
+func findNodeByPath(root *analyzer.Node, path string) *analyzer.Node {
+	if root == nil {
+		return nil
 	}
+	if root.Path == path {
+		return root
+	}
+	for _, child := range root.Children {
+		if found := findNodeByPath(child, path); found != nil {
+			return found
+		}
+	}
+	return nil
+}
 
-	for _, child := range m.currentDir.Children {
-		if child.Path == msg.Path {
-			child.SizeBytes = msg.SizeBytes
-			child.ItemCount = msg.ItemCount
-			child.Scanned = msg.Scanned
-			if child.SizeBytes >= analyzer.LargeFileThreshold && !child.IsDir() {
-				child.IsLargeFile = true
-				found := false
-				for _, lf := range m.largeFilesList {
-					if lf.Path == child.Path {
-						found = true
-						break
-					}
-				}
-				if !found {
-					m.largeFilesList = append(m.largeFilesList, child)
+func (m *AnalyzerModel) applyScanUpdate(msg analyzer.ScanUpdateMsg) {
+	node := findNodeByPath(m.root, msg.Path)
+	if node != nil {
+		node.SizeBytes = msg.SizeBytes
+		node.ItemCount = msg.ItemCount
+		node.Scanned = msg.Scanned
+		if node.SizeBytes >= analyzer.LargeFileThreshold && !node.IsDir() {
+			node.IsLargeFile = true
+			found := false
+			for _, lf := range m.largeFilesList {
+				if lf.Path == node.Path {
+					found = true
+					break
 				}
 			}
-			break
+			if !found {
+				m.largeFilesList = append(m.largeFilesList, node)
+			}
 		}
 	}
 

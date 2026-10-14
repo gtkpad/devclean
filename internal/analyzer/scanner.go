@@ -226,7 +226,7 @@ func (s *Scanner) CalculateDirSize(ctx context.Context, dirNode *Node, updates c
 		return nil
 	})
 
-	if err == nil {
+	if err == nil && updates == nil {
 		dirNode.SizeBytes = totalBytes
 		dirNode.ItemCount = itemCount
 		dirNode.Scanned = true
@@ -242,7 +242,6 @@ func (s *Scanner) CalculateDirSize(ctx context.Context, dirNode *Node, updates c
 			Err:       err,
 		}:
 		case <-ctx.Done():
-		default:
 		}
 	}
 
