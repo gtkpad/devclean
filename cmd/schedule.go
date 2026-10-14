@@ -15,7 +15,6 @@ import (
 	"github.com/gtkpad/devclean/internal/scheduler"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
-	"gopkg.in/yaml.v3"
 )
 
 var schedulerFactory = func(configDir, provider string) (scheduler.Scheduler, error) {
@@ -366,80 +365,19 @@ func resolveCronExpression(daily, weekly, hourly bool, cron string, atTime strin
 }
 
 func updateSchedulerArgs(configFile string, args []string) error {
-	root, err := loadOrCreateConfigNode(configFile)
+	root, _, err := config.LoadWithAST(configFile)
 	if err != nil {
 		return err
 	}
-	mapNode := getMappingNode(root)
+	mapNode := config.GetMappingNode(root)
 	if mapNode == nil {
 		return fmt.Errorf("invalid config yaml root: expected mapping")
 	}
 
-	schedNode := findOrCreateMapping(mapNode, "scheduler")
-	setSequenceValues(schedNode, "args", args)
+	schedNode := config.FindOrCreateMapping(mapNode, "scheduler")
+	config.SetSequenceValues(schedNode, "args", args)
 
-	return saveConfigNode(configFile, root)
+	return config.SaveConfigNode(configFile, root)
 }
 
-func findOrCreateMapping(mapNode *yaml.Node, key string) *yaml.Node {
-	for i := 0; i < len(mapNode.Content); i += 2 {
-		k := mapNode.Content[i]
-		if k.Value == key {
-			val := mapNode.Content[i+1]
-			if val.Kind != yaml.MappingNode {
-				val.Kind = yaml.MappingNode
-				val.Tag = "!!map"
-				val.Content = nil
-			}
-			return val
-		}
-	}
-	keyNode := &yaml.Node{
-		Kind:  yaml.ScalarNode,
-		Tag:   "!!str",
-		Value: key,
-	}
-	childMap := &yaml.Node{
-		Kind: yaml.MappingNode,
-		Tag:  "!!map",
-	}
-	mapNode.Content = append(mapNode.Content, keyNode, childMap)
-	return childMap
-}
-
-func setSequenceValues(mapNode *yaml.Node, key string, values []string) {
-	var seqNode *yaml.Node
-	for i := 0; i < len(mapNode.Content); i += 2 {
-		if mapNode.Content[i].Value == key {
-			seqNode = mapNode.Content[i+1]
-			break
-		}
-	}
-	if seqNode == nil {
-		keyNode := &yaml.Node{
-			Kind:  yaml.ScalarNode,
-			Tag:   "!!str",
-			Value: key,
-		}
-		seqNode = &yaml.Node{
-			Kind:  yaml.SequenceNode,
-			Tag:   "!!seq",
-			Style: 0,
-		}
-		mapNode.Content = append(mapNode.Content, keyNode, seqNode)
-	} else {
-		seqNode.Kind = yaml.SequenceNode
-		seqNode.Tag = "!!seq"
-		seqNode.Style = 0
-	}
-
-	seqNode.Content = make([]*yaml.Node, 0, len(values))
-	for _, v := range values {
-		seqNode.Content = append(seqNode.Content, &yaml.Node{
-			Kind:  yaml.ScalarNode,
-			Tag:   "!!str",
-			Value: v,
-		})
-	}
-}
 
