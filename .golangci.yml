@@ -34,6 +34,12 @@ linters-settings:
     locale: US
     ignore-words:
       - editores
+      - Argumentos
+      - argumentos
+      - Alternar
+      - alternar
+      - correspondente
+      - operacional
 
 issues:
   exclude-rules:

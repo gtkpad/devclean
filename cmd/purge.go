@@ -2,13 +2,17 @@ package cmd
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/gtkpad/devclean/internal/deleter"
 	"github.com/gtkpad/devclean/internal/domain"
 	"github.com/gtkpad/devclean/internal/engine"
@@ -18,6 +22,7 @@ import (
 	"github.com/gtkpad/devclean/internal/platform"
 	"github.com/gtkpad/devclean/internal/safety"
 	"github.com/gtkpad/devclean/internal/trash"
+	"github.com/gtkpad/devclean/internal/tui"
 	"github.com/gtkpad/devclean/internal/ui"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -26,6 +31,11 @@ import (
 var (
 	purgeStdinReader io.Reader = os.Stdin
 	purgeIsTerminal            = term.IsTerminal
+	purgeRunProgram            = func(m tui.PurgeModel) error {
+		p := tea.NewProgram(m, tea.WithAltScreen())
+		_, err := p.Run()
+		return err
+	}
 )
 
 type repoCheckResult struct {
@@ -41,6 +51,7 @@ func newPurgeCmd() *cobra.Command {
 	var useTrash bool
 	var permanent bool
 	var format string
+	var noTUI bool
 
 	cmd := &cobra.Command{
 		Use:          "purge",
@@ -121,6 +132,42 @@ func newPurgeCmd() *cobra.Command {
 					fmt.Fprintln(cmd.OutOrStdout(), "Nenhum artefato elegível para purge encontrado.")
 				}
 				return nil
+			}
+
+			isTTY := purgeIsTerminal(int(os.Stdin.Fd()))
+			launchTUI := isTTY && !yes && !dryRun && !noTUI && format == "table"
+
+			if launchTUI {
+				dataDir := getDataDir()
+				trashActive := cfg.Safety.TrashEnabled
+				if useTrash {
+					trashActive = true
+				}
+				if permanent {
+					trashActive = false
+				}
+
+				trashMgr := trash.New(cfg.Safety)
+				if trashActive {
+					_ = trashMgr.EnforceRetention(ctx)
+					_ = trashMgr.EnforceMaxSize(ctx)
+				}
+
+				hookRunner := hooks.New(cfg.Hooks)
+				coord := deleter.New(eng, cfg, bl, trashMgr, hookRunner, paths.ConfigDir, dataDir)
+
+				var useTrashOpt *bool
+				if useTrash {
+					t := true
+					useTrashOpt = &t
+				} else if permanent {
+					f := false
+					useTrashOpt = &f
+				}
+
+				repoGroups := groupTargetsByRepo(ctx, eligibleTargets, targetRepoMap, targetsByEco)
+				pModel := tui.NewPurgeModel(repoGroups, coord, bl, useTrashOpt)
+				return purgeRunProgram(pModel)
 			}
 
 			// Interactive Preview & Confirmation
@@ -283,6 +330,7 @@ func newPurgeCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&useTrash, "trash", false, "move purged artifacts to trash")
 	cmd.Flags().BoolVar(&permanent, "permanent", false, "permanently delete purged artifacts")
 	cmd.Flags().StringVar(&format, "format", "table", "output format (table, json)")
+	cmd.Flags().BoolVar(&noTUI, "no-tui", false, "disable interactive TUI and run in text preview mode")
 
 	return cmd
 }
@@ -351,3 +399,103 @@ func renderPurgePreview(w io.Writer, targets []domain.Target, repoPaths map[stri
 	fmt.Fprintf(w, "%s\n", strings.Repeat("-", 97))
 	fmt.Fprintf(w, "Total: %d artefatos elegíveis (%s)\n\n", len(targets), humanSize(totalBytes))
 }
+
+func groupTargetsByRepo(
+	ctx context.Context,
+	targets []domain.Target,
+	targetRepoMap map[string]string,
+	targetsByEco map[string][]domain.Target,
+) []*tui.RepoGroup {
+	targetEcoMap := make(map[string]string)
+	for eco, ecoTargets := range targetsByEco {
+		for _, t := range ecoTargets {
+			targetEcoMap[t.Path] = eco
+		}
+	}
+
+	reposByDir := make(map[string]*tui.RepoGroup)
+	var repoOrder []string
+
+	for _, t := range targets {
+		repoDir := targetRepoMap[t.Path]
+		if repoDir == "" {
+			continue
+		}
+
+		rg, exists := reposByDir[repoDir]
+		if !exists {
+			repoName := filepath.Base(repoDir)
+			branch := getRepoBranch(ctx, repoDir)
+			lastCommit, _ := intelligence.GetRepoLastCommitTime(ctx, repoDir)
+			inactivityStr := ""
+			if !lastCommit.IsZero() {
+				days := int(time.Since(lastCommit).Hours() / 24)
+				inactivityStr = fmt.Sprintf("%dd atrás", days)
+			}
+
+			rg = &tui.RepoGroup{
+				RepoDir:       repoDir,
+				RepoName:      repoName,
+				Branch:        branch,
+				LastCommit:    lastCommit,
+				InactivityStr: inactivityStr,
+				Ecosystems:    make([]string, 0),
+				Targets:       make([]domain.Target, 0),
+				TargetsByEco:  make(map[string][]domain.Target),
+				TotalBytes:    0,
+				Expanded:      false,
+				Selected:      false,
+			}
+			reposByDir[repoDir] = rg
+			repoOrder = append(repoOrder, repoDir)
+		}
+
+		rg.Targets = append(rg.Targets, t)
+		rg.TotalBytes += t.SizeBytes
+
+		eco := targetEcoMap[t.Path]
+		if eco == "" {
+			eco = "generic"
+		}
+		if rg.TargetsByEco == nil {
+			rg.TargetsByEco = make(map[string][]domain.Target)
+		}
+		rg.TargetsByEco[eco] = append(rg.TargetsByEco[eco], t)
+		if eco != "generic" {
+			hasEco := false
+			for _, e := range rg.Ecosystems {
+				if e == eco {
+					hasEco = true
+					break
+				}
+			}
+			if !hasEco {
+				rg.Ecosystems = append(rg.Ecosystems, eco)
+			}
+		}
+	}
+
+	result := make([]*tui.RepoGroup, 0, len(repoOrder))
+	for _, dir := range repoOrder {
+		result = append(result, reposByDir[dir])
+	}
+	return result
+}
+
+func getRepoBranch(ctx context.Context, repoDir string) string {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "git", "-C", repoDir, "rev-parse", "--abbrev-ref", "HEAD")
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		return "detached"
+	}
+	branch := strings.TrimSpace(stdout.String())
+	if branch == "" || branch == "HEAD" {
+		return "detached"
+	}
+	return branch
+}
+

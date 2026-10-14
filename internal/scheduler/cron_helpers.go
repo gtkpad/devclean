@@ -58,7 +58,7 @@ func GenerateCronEntry(cronExpr, binaryPath string) string {
 	buf.WriteString("\n")
 	buf.WriteString(cronMarker)
 	buf.WriteString("\n")
-	buf.WriteString(fmt.Sprintf("%s %s clean --auto\n", cronExpr, binaryPath))
+	buf.WriteString(fmt.Sprintf("%s %s schedule run\n", cronExpr, binaryPath))
 	return buf.String()
 }
 

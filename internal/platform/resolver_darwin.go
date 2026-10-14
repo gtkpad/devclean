@@ -23,6 +23,7 @@ func (r *darwinResolver) Resolve() Paths {
 		DotNetTemp:     filepath.Join(home, ".local/share/NuGet/temp"),
 		PythonUVCache:  filepath.Join(home, "Library/Caches/uv"),
 		ConfigDir:      filepath.Join(home, ".config/devclean"),
+		LogDir:         filepath.Join(home, "Library", "Logs", "devclean"),
 	}
 }
 

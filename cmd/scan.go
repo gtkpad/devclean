@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/gtkpad/devclean/internal/config"
 	"github.com/gtkpad/devclean/internal/domain"
 	"github.com/gtkpad/devclean/internal/engine"
 	"github.com/gtkpad/devclean/internal/intelligence"
@@ -31,19 +32,7 @@ func newScanCmd() *cobra.Command {
 			}
 
 			if all {
-				cfg.Ecosystems.Docker.MaxAgeDays = 0
-				cfg.Ecosystems.Go.MaxAgeDays = 0
-				cfg.Ecosystems.Node.MaxAgeDays = 0
-				cfg.Ecosystems.DotNet.MaxAgeDays = 0
-				cfg.Ecosystems.Python.MaxAgeDays = 0
-				cfg.Ecosystems.Rust.MaxAgeDays = 0
-				cfg.Ecosystems.Java.MaxAgeDays = 0
-				cfg.Ecosystems.AI.MaxAgeDays = 0
-				cfg.Ecosystems.Pnpm.MaxAgeDays = 0
-				cfg.Ecosystems.Bun.MaxAgeDays = 0
-				cfg.Ecosystems.NextJS.MaxAgeDays = 0
-				cfg.Ecosystems.Xcode.MaxAgeDays = 0
-				cfg.Ecosystems.Homebrew.MaxAgeDays = 0
+				zeroAllMaxAgeDays(cfg)
 			}
 
 			resolver := platform.New()
@@ -119,4 +108,25 @@ func validateEcosystem(eco string, valid []string) error {
 		}
 	}
 	return fmt.Errorf("unknown ecosystem %q; valid: %s", eco, strings.Join(valid, ", "))
+}
+
+func zeroAllMaxAgeDays(cfg *config.Config) {
+	cfg.Ecosystems.Docker.MaxAgeDays = 0
+	cfg.Ecosystems.Go.MaxAgeDays = 0
+	cfg.Ecosystems.Node.MaxAgeDays = 0
+	cfg.Ecosystems.DotNet.MaxAgeDays = 0
+	cfg.Ecosystems.Python.MaxAgeDays = 0
+	cfg.Ecosystems.Rust.MaxAgeDays = 0
+	cfg.Ecosystems.Java.MaxAgeDays = 0
+	cfg.Ecosystems.AI.MaxAgeDays = 0
+	cfg.Ecosystems.Pnpm.MaxAgeDays = 0
+	cfg.Ecosystems.Bun.MaxAgeDays = 0
+	cfg.Ecosystems.NextJS.MaxAgeDays = 0
+	cfg.Ecosystems.Xcode.MaxAgeDays = 0
+	cfg.Ecosystems.Homebrew.MaxAgeDays = 0
+	cfg.Ecosystems.CPP.MaxAgeDays = 0
+	cfg.Ecosystems.Flutter.MaxAgeDays = 0
+	cfg.Ecosystems.Terraform.MaxAgeDays = 0
+	cfg.Ecosystems.CocoaPods.MaxAgeDays = 0
+	cfg.Ecosystems.Elixir.MaxAgeDays = 0
 }
