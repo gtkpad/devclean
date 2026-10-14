@@ -77,11 +77,27 @@ func newAnalyzeCmd() *cobra.Command {
 				}
 
 				ctx := context.Background()
-				_, _, _ = scanner.CalculateDirSize(ctx, rootNode, nil)
+				var totalBytes int64
+				var totalItems int
 				for _, child := range rootNode.Children {
 					if child.IsDir() {
 						_, _, _ = scanner.CalculateDirSize(ctx, child, nil)
 					}
+					totalBytes += child.SizeBytes
+					totalItems += child.ItemCount
+				}
+				rootNode.SizeBytes = totalBytes
+				rootNode.ItemCount = totalItems
+				rootNode.Scanned = true
+
+				if minSizeBytes > 0 {
+					var filtered []*analyzer.Node
+					for _, child := range rootNode.Children {
+						if child.SizeBytes >= minSizeBytes {
+							filtered = append(filtered, child)
+						}
+					}
+					rootNode.Children = filtered
 				}
 
 				sort.SliceStable(rootNode.Children, func(i, j int) bool {
@@ -107,7 +123,7 @@ func newAnalyzeCmd() *cobra.Command {
 			hookRunner := hooks.New(cfg.Hooks)
 			coord := deleter.New(nil, cfg, bl, trashMgr, hookRunner, paths.ConfigDir, dataDir)
 
-			m := tui.NewAnalyzerModel(rootNode, bl, coord, 100, 30)
+			m := tui.NewAnalyzerModel(rootNode, bl, coord, 100, 30, scanner)
 			return analyzeRunProgram(m)
 		},
 	}

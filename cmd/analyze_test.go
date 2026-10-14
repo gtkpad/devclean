@@ -169,3 +169,41 @@ func TestAnalyzeCmd_Interactive(t *testing.T) {
 		t.Errorf("expected analyzeRunProgram to be invoked in interactive TTY mode")
 	}
 }
+
+func TestAnalyzeCmd_MinSizeAndDepth(t *testing.T) {
+	tmpDir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(tmpDir, "small.txt"), bytes.Repeat([]byte("a"), 20), 0644)
+	_ = os.WriteFile(filepath.Join(tmpDir, "big.txt"), bytes.Repeat([]byte("b"), 200), 0644)
+
+	oldIsTerm := analyzeIsTerminal
+	analyzeIsTerminal = func(fd int) bool { return false }
+	defer func() { analyzeIsTerminal = oldIsTerm }()
+
+	cmd := newAnalyzeCmd()
+	var outBuf bytes.Buffer
+	cmd.SetOut(&outBuf)
+	cmd.SetArgs([]string{"--min-size", "100B", "--format", "json", tmpDir})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected execution error: %v", err)
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(outBuf.Bytes(), &result); err != nil {
+		t.Fatalf("JSON parse error: %v", err)
+	}
+
+	children, ok := result["children"].([]interface{})
+	if !ok {
+		t.Fatalf("expected children in JSON: %v", result)
+	}
+
+	// small.txt should be filtered out by min-size
+	if len(children) != 1 {
+		t.Fatalf("expected exactly 1 child >= 100B, got %d", len(children))
+	}
+	firstChild := children[0].(map[string]interface{})
+	if firstChild["name"] != "big.txt" {
+		t.Errorf("expected big.txt, got %v", firstChild["name"])
+	}
+}

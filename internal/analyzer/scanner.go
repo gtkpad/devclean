@@ -51,6 +51,16 @@ func NewScanner(bl *safety.Blacklist, includeHidden bool, minSize int64, maxDept
 	}
 }
 
+// MinSize returns the configured minimum size threshold in bytes.
+func (s *Scanner) MinSize() int64 {
+	return s.minSize
+}
+
+// MaxDepth returns the configured maximum recursion depth.
+func (s *Scanner) MaxDepth() int {
+	return s.maxDepth
+}
+
 // ScanImmediate performs instant shallow inspection of root directory entries.
 func (s *Scanner) ScanImmediate(rootPath string) (*Node, error) {
 	abs, err := filepath.Abs(rootPath)
@@ -142,6 +152,9 @@ func (s *Scanner) ScanImmediate(rootPath string) (*Node, error) {
 			if childNode.SizeBytes >= LargeFileThreshold {
 				childNode.IsLargeFile = true
 			}
+			if s.minSize > 0 && childNode.SizeBytes < s.minSize {
+				continue
+			}
 		}
 
 		rootNode.Children = append(rootNode.Children, childNode)
@@ -213,6 +226,23 @@ func (s *Scanner) CalculateDirSize(ctx context.Context, dirNode *Node, updates c
 			devID, hasDev := getDeviceID(info)
 			if hasDev && devID != dirNode.DeviceID {
 				return filepath.SkipDir
+			}
+		}
+
+		// Limit recursion depth if maxDepth > 0
+		if s.maxDepth > 0 {
+			rel, relErr := filepath.Rel(dirNode.Path, path)
+			if relErr == nil {
+				parts := strings.Split(filepath.Clean(rel), string(filepath.Separator))
+				depth := len(parts)
+				if d.IsDir() {
+					if depth >= s.maxDepth {
+						itemCount++
+						return filepath.SkipDir
+					}
+				} else if depth > s.maxDepth {
+					return nil
+				}
 			}
 		}
 

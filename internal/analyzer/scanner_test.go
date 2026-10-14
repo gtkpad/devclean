@@ -1,6 +1,7 @@
 package analyzer_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -462,6 +463,71 @@ func TestScanner_CalculateDirSize_UpdatesChannel(t *testing.T) {
 		}
 	default:
 		t.Error("expected to receive update msg from updates channel")
+	}
+}
+
+func TestScanner_MaxDepth(t *testing.T) {
+	tmpDir := t.TempDir()
+	// Structure:
+	// tmpDir/level1_file.txt (10 bytes)
+	// tmpDir/sub/level2_file.txt (20 bytes)
+	// tmpDir/sub/sub2/level3_file.txt (40 bytes)
+	subDir := filepath.Join(tmpDir, "sub")
+	sub2Dir := filepath.Join(subDir, "sub2")
+	_ = os.MkdirAll(sub2Dir, 0755)
+
+	_ = os.WriteFile(filepath.Join(tmpDir, "level1.txt"), bytes.Repeat([]byte("a"), 10), 0644)
+	_ = os.WriteFile(filepath.Join(subDir, "level2.txt"), bytes.Repeat([]byte("b"), 20), 0644)
+	_ = os.WriteFile(filepath.Join(sub2Dir, "level3.txt"), bytes.Repeat([]byte("c"), 40), 0644)
+
+	// maxDepth = 1: Should count level1.txt and see subDir, but NOT recurse into subDir
+	scanner1 := analyzer.NewScanner(nil, true, 0, 1)
+	node1, err := scanner1.ScanImmediate(tmpDir)
+	if err != nil {
+		t.Fatalf("ScanImmediate failed: %v", err)
+	}
+
+	bytes1, items1, err := scanner1.CalculateDirSize(context.Background(), node1, nil)
+	if err != nil {
+		t.Fatalf("CalculateDirSize depth 1 failed: %v", err)
+	}
+	if bytes1 != 10 {
+		t.Errorf("expected 10 bytes at depth 1, got %d", bytes1)
+	}
+	// Items at depth 1: level1.txt + sub (directory entry) = 2
+	if items1 != 2 {
+		t.Errorf("expected 2 items at depth 1, got %d", items1)
+	}
+
+	// maxDepth = 2: Should count level1.txt + level2.txt + sub2 (directory entry)
+	scanner2 := analyzer.NewScanner(nil, true, 0, 2)
+	node2, _ := scanner2.ScanImmediate(tmpDir)
+	bytes2, items2, _ := scanner2.CalculateDirSize(context.Background(), node2, nil)
+	if bytes2 != 30 {
+		t.Errorf("expected 30 bytes at depth 2, got %d", bytes2)
+	}
+	if items2 != 4 {
+		t.Errorf("expected 4 items at depth 2 (sub, level1, sub2, level2), got %d", items2)
+	}
+}
+
+func TestScanner_MinSize(t *testing.T) {
+	tmpDir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(tmpDir, "small.txt"), bytes.Repeat([]byte("a"), 50), 0644)
+	_ = os.WriteFile(filepath.Join(tmpDir, "big.txt"), bytes.Repeat([]byte("b"), 500), 0644)
+
+	// minSize = 100: small.txt (50 bytes) should be filtered out
+	scanner := analyzer.NewScanner(nil, true, 100, 0)
+	node, err := scanner.ScanImmediate(tmpDir)
+	if err != nil {
+		t.Fatalf("ScanImmediate failed: %v", err)
+	}
+
+	if len(node.Children) != 1 {
+		t.Fatalf("expected 1 child >= 100 bytes, got %d", len(node.Children))
+	}
+	if node.Children[0].Name != "big.txt" {
+		t.Errorf("expected child to be big.txt, got %s", node.Children[0].Name)
 	}
 }
 
