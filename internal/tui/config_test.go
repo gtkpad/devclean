@@ -1,6 +1,7 @@
 package tui_test
 
 import (
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -201,5 +202,110 @@ func TestConfigTUI_WindowSize(t *testing.T) {
 	view := m.View()
 	if view == "" {
 		t.Fatalf("expected non-empty View output")
+	}
+}
+
+func TestConfigTUI_InlineTextInputEditing(t *testing.T) {
+	cfg := config.Defaults()
+	m := tui.NewConfigModel(&cfg, nil, "/tmp/cfg.yaml", nil, nil)
+
+	// Switch to TabEcosystems
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
+	m = updated.(tui.ConfigModel)
+
+	if cfg.Ecosystems.Docker.MaxAgeDays != 30 {
+		t.Fatalf("expected Docker max_age_days 30, got %d", cfg.Ecosystems.Docker.MaxAgeDays)
+	}
+
+	// Press 'e' to start inline editing
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	m = updated.(tui.ConfigModel)
+
+	if m.State() != tui.ConfigStateEditingField {
+		t.Fatalf("expected ConfigStateEditingField, got %v", m.State())
+	}
+
+	// Clear value with backspaces and type "45"
+	for i := 0; i < 5; i++ {
+		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+		m = updated.(tui.ConfigModel)
+	}
+	for _, r := range "45" {
+		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = updated.(tui.ConfigModel)
+	}
+
+	// Confirm with Enter
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(tui.ConfigModel)
+
+	if m.State() != tui.ConfigStateNormal {
+		t.Fatalf("expected return to ConfigStateNormal, got %v", m.State())
+	}
+	if cfg.Ecosystems.Docker.MaxAgeDays != 45 {
+		t.Fatalf("expected Docker max_age_days updated to 45, got %d", cfg.Ecosystems.Docker.MaxAgeDays)
+	}
+	if !m.IsDirty() {
+		t.Fatalf("expected IsDirty to be true after edit")
+	}
+
+	// Test Esc cancellation
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	m = updated.(tui.ConfigModel)
+	for i := 0; i < 5; i++ {
+		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+		m = updated.(tui.ConfigModel)
+	}
+	for _, r := range "999" {
+		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = updated.(tui.ConfigModel)
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = updated.(tui.ConfigModel)
+
+	if m.State() != tui.ConfigStateNormal {
+		t.Fatalf("expected return to ConfigStateNormal after Esc, got %v", m.State())
+	}
+	if cfg.Ecosystems.Docker.MaxAgeDays != 45 {
+		t.Fatalf("expected Docker max_age_days kept at 45 after Esc, got %d", cfg.Ecosystems.Docker.MaxAgeDays)
+	}
+
+	// Test invalid input rejection (e.g. "0" for max_age_days)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	m = updated.(tui.ConfigModel)
+	for i := 0; i < 5; i++ {
+		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+		m = updated.(tui.ConfigModel)
+	}
+	for _, r := range "0" {
+		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = updated.(tui.ConfigModel)
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(tui.ConfigModel)
+
+	if m.State() != tui.ConfigStateEditingField {
+		t.Fatalf("expected state to remain ConfigStateEditingField for invalid 0, got %v", m.State())
+	}
+	if !strings.Contains(m.StatusMessage(), "inválido") && !strings.Contains(m.StatusMessage(), "> 0") {
+		t.Errorf("expected error status message, got: %s", m.StatusMessage())
+	}
+
+	// Cancel invalid edit
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = updated.(tui.ConfigModel)
+}
+
+func TestConfigTUI_SaveValidationBlock(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Safety.RetentionDays = 0 // Invalid: must be >= 1
+	m := tui.NewConfigModel(&cfg, nil, "/tmp/cfg.yaml", nil, nil)
+
+	// Attempt to save with Ctrl+S
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlS})
+	m = updated.(tui.ConfigModel)
+
+	if !strings.Contains(m.StatusMessage(), "safety.retention_days: must be >= 1") {
+		t.Fatalf("expected validation failure message for retention_days, got: %s", m.StatusMessage())
 	}
 }
