@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/gtkpad/devclean/internal/config"
+	"github.com/gtkpad/devclean/internal/safety"
 	"github.com/gtkpad/devclean/internal/tui"
 )
 
@@ -307,5 +308,211 @@ func TestConfigTUI_SaveValidationBlock(t *testing.T) {
 
 	if !strings.Contains(m.StatusMessage(), "safety.retention_days: must be >= 1") {
 		t.Fatalf("expected validation failure message for retention_days, got: %s", m.StatusMessage())
+	}
+}
+
+func TestConfigTUI_PathManagement_BlacklistValidation(t *testing.T) {
+	cfg := config.Defaults()
+	bl := safety.NewBlacklist(nil)
+	m := tui.NewConfigModel(&cfg, nil, "/tmp/cfg.yaml", nil, bl)
+
+	// Injects 'a' to add path
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	m = updated.(tui.ConfigModel)
+	if m.State() != tui.ConfigStateAddingPath {
+		t.Fatalf("expected ConfigStateAddingPath, got %v", m.State())
+	}
+
+	// Attempt to add forbidden path /etc (system root)
+	for _, r := range "/etc" {
+		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = updated.(tui.ConfigModel)
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(tui.ConfigModel)
+
+	// Must be blocked by Blacklist (NFR-03)
+	if m.State() != tui.ConfigStateNormal {
+		t.Fatalf("expected return to ConfigStateNormal, got %v", m.State())
+	}
+	for _, p := range cfg.ScanPaths {
+		if p == "/etc" {
+			t.Errorf("forbidden path /etc was illegally added to ScanPaths")
+		}
+	}
+	if !strings.Contains(m.StatusMessage(), "proibido pela Blacklist Imutável") {
+		t.Errorf("expected blacklist rejection status message, got: %s", m.StatusMessage())
+	}
+
+	// Attempt to add ~/.ssh
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	m = updated.(tui.ConfigModel)
+	for _, r := range "~/.ssh" {
+		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = updated.(tui.ConfigModel)
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(tui.ConfigModel)
+	for _, p := range cfg.ScanPaths {
+		if p == "~/.ssh" {
+			t.Errorf("forbidden path ~/.ssh was illegally added to ScanPaths")
+		}
+	}
+	if !strings.Contains(m.StatusMessage(), "proibido pela Blacklist Imutável") {
+		t.Errorf("expected blacklist rejection for ~/.ssh, got: %s", m.StatusMessage())
+	}
+
+	// Attempt to add .git
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	m = updated.(tui.ConfigModel)
+	for _, r := range ".git" {
+		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = updated.(tui.ConfigModel)
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(tui.ConfigModel)
+	for _, p := range cfg.ScanPaths {
+		if p == ".git" {
+			t.Errorf("forbidden path .git was illegally added to ScanPaths")
+		}
+	}
+	if !strings.Contains(m.StatusMessage(), "proibido pela Blacklist Imutável") {
+		t.Errorf("expected blacklist rejection for .git, got: %s", m.StatusMessage())
+	}
+
+	// Add legitimate path
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	m = updated.(tui.ConfigModel)
+	for _, r := range "/home/developer/workspace" {
+		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = updated.(tui.ConfigModel)
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(tui.ConfigModel)
+
+	found := false
+	for _, p := range cfg.ScanPaths {
+		if p == "/home/developer/workspace" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected /home/developer/workspace to be added to ScanPaths")
+	}
+	if !m.IsDirty() {
+		t.Fatalf("expected IsDirty to be true after adding path")
+	}
+
+	// Delete path with 'd'
+	m = tui.NewConfigModel(&cfg, nil, "/tmp/cfg.yaml", nil, bl)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	m = updated.(tui.ConfigModel)
+	for _, p := range cfg.ScanPaths {
+		if p == "/home/developer/workspace" {
+			t.Fatalf("expected /home/developer/workspace to be removed after 'd'")
+		}
+	}
+	if !m.IsDirty() {
+		t.Fatalf("expected IsDirty to be true after deleting path")
+	}
+}
+
+func TestConfigTUI_DirtyExitConfirmation(t *testing.T) {
+	cfg := config.Defaults()
+	m := tui.NewConfigModel(&cfg, nil, "/tmp/cfg.yaml", nil, nil)
+
+	// Clean model: 'q' exits immediately
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	if cmd == nil {
+		t.Fatalf("expected quit command on clean exit")
+	}
+	if m.State() != tui.ConfigStateNormal {
+		t.Fatalf("expected ConfigStateNormal on clean quit, got %v", m.State())
+	}
+
+	// Toggle a boolean to make dirty
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
+	m = updated.(tui.ConfigModel)
+	// Switch to TabEcosystems to toggle
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
+	m = updated.(tui.ConfigModel)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
+	m = updated.(tui.ConfigModel)
+	if !m.IsDirty() {
+		t.Fatalf("expected isDirty == true after toggle")
+	}
+
+	// 'q' on dirty model enters confirmation state (D-04)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	m = updated.(tui.ConfigModel)
+	if m.State() != tui.ConfigStateConfirmExit {
+		t.Fatalf("expected ConfigStateConfirmExit, got %v", m.State())
+	}
+	if !strings.Contains(m.View(), "MODIFICAÇÕES PENDENTES") {
+		t.Errorf("expected view to contain MODIFICAÇÕES PENDENTES, got: %s", m.View())
+	}
+
+	// 'c' cancels and returns to normal
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	m = updated.(tui.ConfigModel)
+	if m.State() != tui.ConfigStateNormal {
+		t.Fatalf("expected ConfigStateNormal after cancel, got %v", m.State())
+	}
+	if !m.IsDirty() {
+		t.Fatalf("expected isDirty to remain true after cancel")
+	}
+
+	// 'Esc' on dirty enters confirm, 'd' discards and exits
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = updated.(tui.ConfigModel)
+	if m.State() != tui.ConfigStateConfirmExit {
+		t.Fatalf("expected ConfigStateConfirmExit after Esc, got %v", m.State())
+	}
+	_, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	if cmd == nil {
+		t.Fatalf("expected quit command on discard 'd'")
+	}
+
+	// Save and quit with 's'
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	m = updated.(tui.ConfigModel)
+	_, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	if cmd == nil {
+		t.Fatalf("expected quit command on save 's'")
+	}
+}
+
+func TestConfigTUI_HelpOverlay(t *testing.T) {
+	cfg := config.Defaults()
+	m := tui.NewConfigModel(&cfg, nil, "/tmp/cfg.yaml", nil, nil)
+
+	// Press '?' to open help modal
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
+	m = updated.(tui.ConfigModel)
+	if m.State() != tui.ConfigStateHelp {
+		t.Fatalf("expected ConfigStateHelp, got %v", m.State())
+	}
+	if !strings.Contains(m.View(), "AJUDA - ATALHOS DO DEVCLEAN CONFIG") {
+		t.Errorf("expected view to contain help title, got: %s", m.View())
+	}
+
+	// Press 'Esc' to exit help
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = updated.(tui.ConfigModel)
+	if m.State() != tui.ConfigStateNormal {
+		t.Fatalf("expected ConfigStateNormal after Esc, got %v", m.State())
+	}
+
+	// Press '?' then '?' to toggle help off
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
+	m = updated.(tui.ConfigModel)
+	if m.State() != tui.ConfigStateHelp {
+		t.Fatalf("expected ConfigStateHelp, got %v", m.State())
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
+	m = updated.(tui.ConfigModel)
+	if m.State() != tui.ConfigStateNormal {
+		t.Fatalf("expected ConfigStateNormal after second '?', got %v", m.State())
 	}
 }
