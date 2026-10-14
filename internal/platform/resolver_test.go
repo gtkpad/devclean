@@ -2,6 +2,8 @@ package platform
 
 import (
 	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -49,5 +51,43 @@ func TestResolve_DockerSocket_RespectsEnv(t *testing.T) {
 
 	if paths.DockerSocket != "unix:///custom/docker.sock" {
 		t.Errorf("DockerSocket = %q, want unix:///custom/docker.sock", paths.DockerSocket)
+	}
+}
+
+func TestResolver_DarwinLogDir(t *testing.T) {
+	home := "/Users/testuser"
+	got := ResolveDarwinLogDir(home)
+	expected := filepath.Join(home, "Library", "Logs", "devclean")
+	if got != expected {
+		t.Errorf("ResolveDarwinLogDir(%q) = %q, want %q", home, got, expected)
+	}
+
+	if runtime.GOOS == "darwin" {
+		r := New()
+		paths := r.Resolve()
+		userHome, _ := os.UserHomeDir()
+		want := filepath.Join(userHome, "Library", "Logs", "devclean")
+		if paths.LogDir != want {
+			t.Errorf("Resolve().LogDir = %q, want %q", paths.LogDir, want)
+		}
+	}
+}
+
+func TestResolver_LinuxLogDirDefault(t *testing.T) {
+	home := "/home/testuser"
+	got := ResolveLinuxLogDir(home, "")
+	expected := filepath.Join(home, ".local", "state", "devclean", "logs")
+	if got != expected {
+		t.Errorf("ResolveLinuxLogDir(%q, \"\") = %q, want %q", home, got, expected)
+	}
+}
+
+func TestResolver_LinuxLogDirXDGStateHome(t *testing.T) {
+	home := "/home/testuser"
+	custom := "/var/custom/state"
+	got := ResolveLinuxLogDir(home, custom)
+	expected := filepath.Join(custom, "devclean", "logs")
+	if got != expected {
+		t.Errorf("ResolveLinuxLogDir(%q, %q) = %q, want %q", home, custom, got, expected)
 	}
 }

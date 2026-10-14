@@ -5,20 +5,32 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/gtkpad/devclean/internal/config"
 	"github.com/gtkpad/devclean/internal/platform"
 	"github.com/gtkpad/devclean/internal/scheduler"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
 
+var schedulerFactory = scheduler.NewWithProvider
+
 func newScheduleCmd() *cobra.Command {
 	var daily bool
+	var weekly bool
+	var hourly bool
+	var atTime string
 	var cron string
 	var status bool
 	var watchMode bool
+	var preset string
+	var extraArgs []string
+	var skipValidation bool
+	var provider string
 
 	cmd := &cobra.Command{
 		Use:   "schedule",
@@ -28,6 +40,7 @@ func newScheduleCmd() *cobra.Command {
 			resolver := platform.New()
 			paths := resolver.Resolve()
 			configDir := paths.ConfigDir
+			configFile := filepath.Join(configDir, "config.yaml")
 
 			if status {
 				return showStatus(configDir, watchMode)
@@ -37,37 +50,52 @@ func newScheduleCmd() *cobra.Command {
 				return installWatch(configDir)
 			}
 
-			if daily && cron != "" {
-				return fmt.Errorf("cannot use both --daily and --cron flags")
-			}
-			if !daily && cron == "" {
-				return fmt.Errorf("specify --daily or --cron <expression>")
-			}
-
-			cronExpr := cron
-			if daily {
-				cronExpr = "0 12 * * *"
+			// Validate and instantiate scheduler provider before any modifications (D-06)
+			sched, err := schedulerFactory(configDir, provider)
+			if err != nil {
+				return err
 			}
 
-			if err := scheduler.ValidateCron(cronExpr); err != nil {
-				return fmt.Errorf("invalid cron expression %q: %w", cronExpr, err)
+			cronExpr, err := resolveCronExpression(daily, weekly, hourly, cron, atTime)
+			if err != nil {
+				return err
 			}
 
-			// Pre-registration dry-run validation
-			self, err := os.Executable()
-			if err == nil {
-				dryRun := exec.Command(self, "clean", "--auto", "--dry-run")
-				if out, runErr := dryRun.CombinedOutput(); runErr != nil {
-					return fmt.Errorf("config validation failed (dry-run): %s", strings.TrimSpace(string(out)))
+			// Persist / update scheduler.args in config.yaml if --preset or --args were specified
+			var cleanArgs []string
+			if preset != "" || len(extraArgs) > 0 {
+				var newArgs []string
+				if preset != "" {
+					newArgs = append(newArgs, "--preset", preset)
+				}
+				if len(extraArgs) > 0 {
+					newArgs = append(newArgs, extraArgs...)
+				}
+				cleanArgs = newArgs
+
+				cfgTest := config.Defaults()
+				cfgTest.Scheduler.Args = cleanArgs
+				if err := cfgTest.Validate(); err != nil {
+					return fmt.Errorf("invalid scheduler args: %w", err)
+				}
+				if err := updateSchedulerArgs(configFile, cleanArgs); err != nil {
+					return fmt.Errorf("persisting scheduler args: %w", err)
+				}
+			} else {
+				if loadedCfg, err := config.Load(configFile); err == nil {
+					cleanArgs = loadedCfg.Scheduler.Args
 				}
 			}
 
-			sched := scheduler.New(configDir)
+			// Pre-registration dry-run validation
+			if err := validateScheduledRun(cleanArgs, skipValidation); err != nil {
+				return err
+			}
 
 			// Conflict detection
 			if sched.IsInstalled() {
 				if term.IsTerminal(int(os.Stdin.Fd())) {
-					fmt.Fprint(os.Stdout, "Schedule already exists. Overwrite? [y/N] ")
+					fmt.Fprint(cmd.OutOrStdout(), "Schedule already exists. Overwrite? [y/N] ")
 					reader := bufio.NewReader(os.Stdin)
 					answer, _ := reader.ReadString('\n')
 					answer = strings.TrimSpace(strings.ToLower(answer))
@@ -75,7 +103,7 @@ func newScheduleCmd() *cobra.Command {
 						return nil
 					}
 				} else {
-					fmt.Fprintln(os.Stderr, "Warning: overwriting existing schedule (non-interactive mode)")
+					fmt.Fprintln(cmd.ErrOrStderr(), "Warning: overwriting existing schedule (non-interactive mode)")
 				}
 				if err := sched.Remove(); err != nil {
 					return fmt.Errorf("removing existing schedule: %w", err)
@@ -87,21 +115,37 @@ func newScheduleCmd() *cobra.Command {
 				return fmt.Errorf("installing schedule: %w", err)
 			}
 
-			fmt.Fprintf(os.Stdout, "Schedule registered: %s\n", cronExpr)
+			fmt.Fprintf(cmd.OutOrStdout(), "Schedule registered: %s\n", cronExpr)
+			if len(cleanArgs) > 0 {
+				fmt.Fprintf(cmd.OutOrStdout(), "Configured clean args: %s\n", strings.Join(cleanArgs, " "))
+			}
 			return nil
 		},
 	}
 
 	cmd.Flags().BoolVar(&daily, "daily", false, "schedule daily cleanup at noon (alias for --cron '0 12 * * *')")
+	cmd.Flags().BoolVar(&weekly, "weekly", false, "schedule weekly cleanup on Sunday at midnight (alias for --cron '0 0 * * 0')")
+	cmd.Flags().BoolVar(&hourly, "hourly", false, "schedule hourly cleanup at minute 0 (alias for --cron '0 * * * *')")
+	cmd.Flags().StringVar(&atTime, "at", "", "specific time for schedule in HH:MM format (24-hour)")
 	cmd.Flags().StringVar(&cron, "cron", "", "custom cron expression (5-field format)")
 	cmd.Flags().BoolVar(&status, "status", false, "show current schedule status")
 	cmd.Flags().BoolVar(&watchMode, "watch", false, "register watch daemon for disk monitoring")
+	cmd.Flags().StringVar(&preset, "preset", "", "cleanup preset strategy: safe, standard, aggressive")
+	cmd.Flags().StringSliceVar(&extraArgs, "args", nil, "additional clean arguments to persist for scheduled runs")
+	cmd.Flags().BoolVar(&skipValidation, "skip-validation", false, "skip pre-registration dry-run validation")
+	cmd.Flags().StringVar(&provider, "provider", "", "scheduler provider override: systemd or cron")
+
+	cmd.AddCommand(newScheduleRunCmd())
+	cmd.AddCommand(newScheduleLogsCmd())
 
 	return cmd
 }
 
 func showStatus(configDir string, watchMode bool) error {
-	sched := scheduler.New(configDir)
+	sched, err := schedulerFactory(configDir, "")
+	if err != nil {
+		return fmt.Errorf("creating scheduler: %w", err)
+	}
 
 	if watchMode {
 		if sched.IsWatchInstalled() {
@@ -161,7 +205,10 @@ func installWatch(configDir string) error {
 		return fmt.Errorf("cannot determine binary path: %w", err)
 	}
 
-	sched := scheduler.New(configDir)
+	sched, err := schedulerFactory(configDir, "")
+	if err != nil {
+		return fmt.Errorf("creating scheduler: %w", err)
+	}
 
 	if sched.IsWatchInstalled() {
 		fmt.Fprintln(os.Stderr, "Watch daemon already registered. Remove first with `devclean unschedule --watch`.")
@@ -191,7 +238,10 @@ func newUnscheduleCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			resolver := platform.New()
 			paths := resolver.Resolve()
-			sched := scheduler.New(paths.ConfigDir)
+			sched, err := schedulerFactory(paths.ConfigDir, "")
+			if err != nil {
+				return fmt.Errorf("creating scheduler: %w", err)
+			}
 
 			if watchMode {
 				if err := sched.RemoveWatch(); err != nil {
@@ -218,3 +268,124 @@ func newUnscheduleCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&watchMode, "watch", false, "remove watch daemon registration")
 	return cmd
 }
+
+var dryRunExecutor = func(args []string) error {
+	self, err := os.Executable()
+	if err != nil {
+		return nil
+	}
+	dryRun := exec.Command(self, args...)
+	if out, runErr := dryRun.CombinedOutput(); runErr != nil {
+		return fmt.Errorf("config validation failed (dry-run): %s", strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+func validateScheduledRun(cleanArgs []string, skipValidation bool) error {
+	if skipValidation {
+		return nil
+	}
+	args := []string{"clean", "--auto", "--dry-run"}
+	for _, a := range cleanArgs {
+		if a != "--auto" && a != "--dry-run" {
+			args = append(args, a)
+		}
+	}
+	return dryRunExecutor(args)
+}
+
+func applyAtTime(baseCron string, atTime string) (string, error) {
+	parts := strings.Split(atTime, ":")
+	if len(parts) != 2 || len(parts[0]) != 2 || len(parts[1]) != 2 {
+		return "", fmt.Errorf("invalid time format %q for --at, expected HH:MM (24-hour)", atTime)
+	}
+	hour, errH := strconv.Atoi(parts[0])
+	min, errM := strconv.Atoi(parts[1])
+	if errH != nil || errM != nil || hour < 0 || hour > 23 || min < 0 || min > 59 {
+		return "", fmt.Errorf("invalid time %q for --at, hour must be 00-23 and minute 00-59", atTime)
+	}
+
+	fields, err := scheduler.ParseCron(baseCron)
+	if err != nil {
+		return "", fmt.Errorf("invalid base cron expression %q: %w", baseCron, err)
+	}
+
+	fields.Minute = fmt.Sprintf("%d", min)
+	fields.Hour = fmt.Sprintf("%d", hour)
+	return fmt.Sprintf("%s %s %s %s %s", fields.Minute, fields.Hour, fields.DayOfMonth, fields.Month, fields.DayOfWeek), nil
+}
+
+func resolveCronExpression(daily, weekly, hourly bool, cron string, atTime string) (string, error) {
+	count := 0
+	if daily {
+		count++
+	}
+	if weekly {
+		count++
+	}
+	if hourly {
+		count++
+	}
+
+	if count > 1 {
+		return "", fmt.Errorf("cannot specify multiple frequency shortcuts (--daily, --weekly, --hourly)")
+	}
+	if count > 0 && cron != "" {
+		return "", fmt.Errorf("cannot specify both frequency shortcut and --cron")
+	}
+	if count == 0 && cron == "" {
+		return "", fmt.Errorf("specify a schedule frequency: --daily, --weekly, --hourly, or --cron <expression>")
+	}
+
+	var baseCron string
+	switch {
+	case weekly:
+		baseCron = "0 0 * * 0"
+	case hourly:
+		baseCron = "0 * * * *"
+	case daily:
+		baseCron = "0 12 * * *"
+	default:
+		baseCron = cron
+	}
+
+	if atTime != "" {
+		if hourly {
+			atClean := strings.TrimPrefix(atTime, ":")
+			m, err := strconv.Atoi(atClean)
+			if err != nil || m < 0 || m > 59 || (strings.Contains(atTime, ":") && !strings.HasPrefix(atTime, ":")) {
+				return "", fmt.Errorf("invalid --at for --hourly: must specify minute only (e.g. 15 or :15): %q", atTime)
+			}
+			baseCron = fmt.Sprintf("%d * * * *", m)
+		} else {
+			modified, err := applyAtTime(baseCron, atTime)
+			if err != nil {
+				return "", err
+			}
+			baseCron = modified
+		}
+	}
+
+	if err := scheduler.ValidateCron(baseCron); err != nil {
+		return "", fmt.Errorf("invalid cron expression %q: %w", baseCron, err)
+	}
+	return baseCron, nil
+}
+
+func updateSchedulerArgs(configFile string, args []string) error {
+	root, _, err := config.LoadWithAST(configFile)
+	if err != nil {
+		return err
+	}
+	mapNode := config.GetMappingNode(root)
+	if mapNode == nil {
+		return fmt.Errorf("invalid config yaml root: expected mapping")
+	}
+
+	schedNode := config.FindOrCreateMapping(mapNode, "scheduler")
+	config.SetSequenceValues(schedNode, "args", args)
+
+	return config.SaveConfigNode(configFile, root)
+}
+
+

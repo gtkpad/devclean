@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,7 +10,6 @@ import (
 	"github.com/gtkpad/devclean/internal/platform"
 	"github.com/gtkpad/devclean/internal/safety"
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
 )
 
 func newWhitelistCmd() *cobra.Command {
@@ -89,11 +87,11 @@ func newWhitelistAddCmd() *cobra.Command {
 				return err
 			}
 
-			root, err := loadOrCreateConfigNode(configFile)
+			root, _, err := config.LoadWithAST(configFile)
 			if err != nil {
 				return err
 			}
-			mapNode := getMappingNode(root)
+			mapNode := config.GetMappingNode(root)
 			if mapNode == nil {
 				return fmt.Errorf("invalid config root structure")
 			}
@@ -104,8 +102,8 @@ func newWhitelistAddCmd() *cobra.Command {
 				if _, err := filepath.Match(pattern, ""); err != nil {
 					return fmt.Errorf("invalid glob pattern %q: %w", pattern, err)
 				}
-				seq := findOrCreateSequence(mapNode, "protected_patterns")
-				if appendUnique(seq, pattern) {
+				seq := config.FindOrCreateSequence(mapNode, "protected_patterns")
+				if config.AppendUniqueToSequence(seq, pattern) {
 					fmt.Fprintf(w, "Added pattern %q to protected_patterns\n", pattern)
 				} else {
 					fmt.Fprintf(w, "Pattern %q is already in protected_patterns\n", pattern)
@@ -117,15 +115,15 @@ func newWhitelistAddCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				seq := findOrCreateSequence(mapNode, "exclude_paths")
-				if appendUnique(seq, normPath) {
+				seq := config.FindOrCreateSequence(mapNode, "exclude_paths")
+				if config.AppendUniqueToSequence(seq, normPath) {
 					fmt.Fprintf(w, "Added path %q to exclude_paths\n", normPath)
 				} else {
 					fmt.Fprintf(w, "Path %q is already in exclude_paths\n", normPath)
 				}
 			}
 
-			return saveConfigNode(configFile, root)
+			return config.SaveConfigNode(configFile, root)
 		},
 	}
 
@@ -164,11 +162,11 @@ func newWhitelistRemoveCmd() *cobra.Command {
 				return err
 			}
 
-			root, err := loadOrCreateConfigNode(configFile)
+			root, _, err := config.LoadWithAST(configFile)
 			if err != nil {
 				return err
 			}
-			mapNode := getMappingNode(root)
+			mapNode := config.GetMappingNode(root)
 			if mapNode == nil {
 				return fmt.Errorf("invalid config root structure")
 			}
@@ -177,8 +175,8 @@ func newWhitelistRemoveCmd() *cobra.Command {
 			totalRemoved := 0
 
 			if pattern != "" {
-				seq := findSequence(mapNode, "protected_patterns")
-				if removed := removeFromSequence(seq, pattern); removed > 0 {
+				seq := config.FindSequence(mapNode, "protected_patterns")
+				if removed := config.RemoveFromSequence(seq, pattern); removed > 0 {
 					totalRemoved += removed
 					fmt.Fprintf(w, "Removed pattern %q from protected_patterns\n", pattern)
 				}
@@ -188,15 +186,15 @@ func newWhitelistRemoveCmd() *cobra.Command {
 				rawTarget := args[0]
 				normTarget, _ := normalizePath(rawTarget)
 
-				excludeSeq := findSequence(mapNode, "exclude_paths")
-				if removed := removeFromSequence(excludeSeq, normTarget, rawTarget); removed > 0 {
+				excludeSeq := config.FindSequence(mapNode, "exclude_paths")
+				if removed := config.RemoveFromSequence(excludeSeq, normTarget, rawTarget); removed > 0 {
 					totalRemoved += removed
 					fmt.Fprintf(w, "Removed path %q from exclude_paths\n", normTarget)
 				}
 
 				if pattern == "" {
-					protectSeq := findSequence(mapNode, "protected_patterns")
-					if removed := removeFromSequence(protectSeq, rawTarget); removed > 0 {
+					protectSeq := config.FindSequence(mapNode, "protected_patterns")
+					if removed := config.RemoveFromSequence(protectSeq, rawTarget); removed > 0 {
 						totalRemoved += removed
 						fmt.Fprintf(w, "Removed pattern %q from protected_patterns\n", rawTarget)
 					}
@@ -212,7 +210,7 @@ func newWhitelistRemoveCmd() *cobra.Command {
 				return nil
 			}
 
-			return saveConfigNode(configFile, root)
+			return config.SaveConfigNode(configFile, root)
 		},
 	}
 
@@ -279,155 +277,3 @@ func normalizePath(target string) (string, error) {
 	return filepath.Clean(abs), nil
 }
 
-func loadOrCreateConfigNode(configFile string) (*yaml.Node, error) {
-	var root yaml.Node
-	data, err := os.ReadFile(configFile)
-	if err != nil {
-		if os.IsNotExist(err) {
-			defaults := config.Defaults()
-			defaultBytes, err := yaml.Marshal(&defaults)
-			if err != nil {
-				return nil, fmt.Errorf("marshaling defaults: %w", err)
-			}
-			if err := yaml.Unmarshal(defaultBytes, &root); err != nil {
-				return nil, fmt.Errorf("unmarshaling defaults: %w", err)
-			}
-			return &root, nil
-		}
-		return nil, fmt.Errorf("reading config file %s: %w", configFile, err)
-	}
-
-	if err := yaml.Unmarshal(data, &root); err != nil {
-		return nil, fmt.Errorf("parsing config yaml: %w", err)
-	}
-
-	if len(root.Content) == 0 {
-		root = yaml.Node{
-			Kind: yaml.DocumentNode,
-			Content: []*yaml.Node{
-				{
-					Kind: yaml.MappingNode,
-					Tag:  "!!map",
-				},
-			},
-		}
-	}
-	return &root, nil
-}
-
-func getMappingNode(root *yaml.Node) *yaml.Node {
-	if root.Kind == yaml.DocumentNode {
-		if len(root.Content) == 0 {
-			mapNode := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
-			root.Content = []*yaml.Node{mapNode}
-			return mapNode
-		}
-		return root.Content[0]
-	}
-	if root.Kind == yaml.MappingNode {
-		return root
-	}
-	return nil
-}
-
-func findSequence(mapNode *yaml.Node, key string) *yaml.Node {
-	for i := 0; i < len(mapNode.Content); i += 2 {
-		k := mapNode.Content[i]
-		if k.Value == key {
-			val := mapNode.Content[i+1]
-			if val.Kind == yaml.SequenceNode {
-				return val
-			}
-			return nil
-		}
-	}
-	return nil
-}
-
-func findOrCreateSequence(mapNode *yaml.Node, key string) *yaml.Node {
-	for i := 0; i < len(mapNode.Content); i += 2 {
-		k := mapNode.Content[i]
-		if k.Value == key {
-			val := mapNode.Content[i+1]
-			if val.Kind != yaml.SequenceNode {
-				val.Kind = yaml.SequenceNode
-				val.Tag = "!!seq"
-				val.Content = nil
-			}
-			val.Style = 0
-			return val
-		}
-	}
-	keyNode := &yaml.Node{
-		Kind:  yaml.ScalarNode,
-		Tag:   "!!str",
-		Value: key,
-	}
-	seqNode := &yaml.Node{
-		Kind:  yaml.SequenceNode,
-		Tag:   "!!seq",
-		Style: 0,
-	}
-	mapNode.Content = append(mapNode.Content, keyNode, seqNode)
-	return seqNode
-}
-
-func appendUnique(seqNode *yaml.Node, val string) bool {
-	for _, item := range seqNode.Content {
-		if item.Value == val {
-			return false
-		}
-	}
-	seqNode.Content = append(seqNode.Content, &yaml.Node{
-		Kind:  yaml.ScalarNode,
-		Tag:   "!!str",
-		Value: val,
-	})
-	return true
-}
-
-func removeFromSequence(seqNode *yaml.Node, targets ...string) int {
-	if seqNode == nil {
-		return 0
-	}
-	targetSet := make(map[string]struct{}, len(targets))
-	for _, t := range targets {
-		if t != "" {
-			targetSet[t] = struct{}{}
-		}
-	}
-
-	removed := 0
-	newContent := make([]*yaml.Node, 0, len(seqNode.Content))
-	for _, item := range seqNode.Content {
-		if _, match := targetSet[item.Value]; match {
-			removed++
-		} else {
-			newContent = append(newContent, item)
-		}
-	}
-	seqNode.Content = newContent
-	return removed
-}
-
-func saveConfigNode(configFile string, root *yaml.Node) error {
-	dir := filepath.Dir(configFile)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("creating directory %s: %w", dir, err)
-	}
-
-	var buf bytes.Buffer
-	enc := yaml.NewEncoder(&buf)
-	enc.SetIndent(2)
-	if err := enc.Encode(root); err != nil {
-		return fmt.Errorf("encoding yaml: %w", err)
-	}
-	if err := enc.Close(); err != nil {
-		return fmt.Errorf("closing yaml encoder: %w", err)
-	}
-
-	if err := os.WriteFile(configFile, buf.Bytes(), 0644); err != nil {
-		return fmt.Errorf("writing config file: %w", err)
-	}
-	return nil
-}

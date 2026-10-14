@@ -96,8 +96,11 @@ func init() {
 	_ = rootCmd.PersistentFlags().MarkHidden("watch-daemon")
 
 	rootCmd.AddCommand(newScanCmd())
+	rootCmd.AddCommand(newAnalyzeCmd())
 	rootCmd.AddCommand(newCleanCmd())
 	rootCmd.AddCommand(newPurgeCmd())
+	rootCmd.AddCommand(newConfigCmd())
+	rootCmd.AddCommand(newInstallerCmd())
 	rootCmd.AddCommand(newTrashCmd())
 	rootCmd.AddCommand(newWhitelistCmd())
 	rootCmd.AddCommand(newScheduleCmd())

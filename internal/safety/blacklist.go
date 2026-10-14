@@ -1,9 +1,18 @@
 package safety
 
-import "path/filepath"
+import (
+	"path/filepath"
+	"strings"
+)
 
 // coreBlacklist is immutable — cannot be disabled by config or flags.
 var coreBlacklist = []string{".git", ".env", ".ssh", "secrets.json"}
+
+// systemRoots protects OS and filesystem root directories.
+var systemRoots = []string{
+	"/", "/bin", "/boot", "/dev", "/etc", "/lib", "/proc", "/root", "/sys", "/usr", "/var",
+	"/System", "/Library", "/Applications", "/private", "/private/etc", "/private/var",
+}
 
 // CoreBlacklist returns a copy of immutable system blacklist patterns.
 func CoreBlacklist() []string {
@@ -12,13 +21,31 @@ func CoreBlacklist() []string {
 	return cp
 }
 
-// IsCoreBlacklisted checks whether the path or its base name matches an immutable blacklist item.
+// SystemRoots returns a copy of protected system root directories.
+func SystemRoots() []string {
+	cp := make([]string, len(systemRoots))
+	copy(cp, systemRoots)
+	return cp
+}
+
+// IsCoreBlacklisted checks whether the path, any of its path components, or system root matches an immutable blacklist item.
 func IsCoreBlacklisted(path string) bool {
 	clean := filepath.Clean(path)
-	base := filepath.Base(clean)
-	for _, blocked := range coreBlacklist {
-		if clean == blocked || base == blocked {
+
+	for _, root := range systemRoots {
+		if clean == filepath.Clean(root) {
 			return true
+		}
+	}
+
+	parts := strings.FieldsFunc(clean, func(r rune) bool {
+		return r == '/' || r == '\\'
+	})
+	for _, part := range parts {
+		for _, blocked := range coreBlacklist {
+			if part == blocked {
+				return true
+			}
 		}
 	}
 	return false

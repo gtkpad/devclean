@@ -183,6 +183,16 @@ func (e *Engine) ecosystemConfig(name string) config.EcosystemConfig {
 		return e.config.Ecosystems.Xcode
 	case "homebrew":
 		return e.config.Ecosystems.Homebrew
+	case "cpp":
+		return e.config.Ecosystems.CPP
+	case "flutter":
+		return e.config.Ecosystems.Flutter
+	case "terraform":
+		return e.config.Ecosystems.Terraform
+	case "cocoapods":
+		return e.config.Ecosystems.CocoaPods
+	case "elixir":
+		return e.config.Ecosystems.Elixir
 	default:
 		return config.EcosystemConfig{Enabled: true, FailMode: "continue"}
 	}

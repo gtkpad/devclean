@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gtkpad/devclean/internal/history"
+	"github.com/gtkpad/devclean/internal/tui"
 	"github.com/gtkpad/devclean/internal/ui"
 )
 
@@ -192,7 +193,7 @@ func TestPurgeCmd_Filters(t *testing.T) {
 		cmd := newPurgeCmd()
 		var outBuf bytes.Buffer
 		cmd.SetOut(&outBuf)
-		cmd.SetArgs([]string{}) // No --yes, no --dry-run
+		cmd.SetArgs([]string{"--no-tui"}) // No --yes, no --dry-run, disable TUI
 
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -538,3 +539,197 @@ func TestPurgeCmd_Execution(t *testing.T) {
 	})
 }
 
+func TestPurgeCmd_AutoTTYSwitch(t *testing.T) {
+	origConfigPath := configPath
+	origQuiet := quiet
+	origIsTerminal := purgeIsTerminal
+	origRunProgram := purgeRunProgram
+	defer func() {
+		configPath = origConfigPath
+		quiet = origQuiet
+		purgeIsTerminal = origIsTerminal
+		purgeRunProgram = origRunProgram
+	}()
+
+	tmpDir := t.TempDir()
+	repoDir := filepath.Join(tmpDir, "repo-tty")
+	if err := os.MkdirAll(repoDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	setupTestRepo(t, repoDir, "main", 70, false)
+
+	configPath = createPurgeConfig(t, tmpDir, repoDir)
+	quiet = false
+	purgeIsTerminal = func(fd int) bool { return true }
+
+	tuiLaunched := false
+	purgeRunProgram = func(m tui.PurgeModel) error {
+		tuiLaunched = true
+		if len(m.Repos()) == 0 {
+			t.Errorf("expected non-empty repos in PurgeModel")
+		}
+		return nil
+	}
+
+	cmd := newPurgeCmd()
+	var outBuf bytes.Buffer
+	cmd.SetOut(&outBuf)
+	cmd.SetArgs([]string{}) // default interactive invocation in TTY
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !tuiLaunched {
+		t.Errorf("expected TUI to be launched in interactive TTY mode without --yes or --no-tui")
+	}
+}
+
+func TestPurgeCmd_FallbackNoTUI(t *testing.T) {
+	origConfigPath := configPath
+	origQuiet := quiet
+	origStdinReader := purgeStdinReader
+	origIsTerminal := purgeIsTerminal
+	origRunProgram := purgeRunProgram
+	defer func() {
+		configPath = origConfigPath
+		quiet = origQuiet
+		purgeStdinReader = origStdinReader
+		purgeIsTerminal = origIsTerminal
+		purgeRunProgram = origRunProgram
+	}()
+
+	tmpDir := t.TempDir()
+	repoDir := filepath.Join(tmpDir, "repo-notui")
+	if err := os.MkdirAll(repoDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	setupTestRepo(t, repoDir, "main", 70, false)
+
+	configPath = createPurgeConfig(t, tmpDir, repoDir)
+	quiet = false
+	purgeIsTerminal = func(fd int) bool { return true }
+	purgeStdinReader = strings.NewReader("n\n")
+
+	tuiLaunched := false
+	purgeRunProgram = func(m tui.PurgeModel) error {
+		tuiLaunched = true
+		return nil
+	}
+
+	cmd := newPurgeCmd()
+	var outBuf bytes.Buffer
+	cmd.SetOut(&outBuf)
+	cmd.SetArgs([]string{"--no-tui"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if tuiLaunched {
+		t.Errorf("expected TUI NOT to be launched when --no-tui is passed")
+	}
+
+	out := outBuf.String()
+	if !strings.Contains(out, "REPOSITORY") || !strings.Contains(out, "node_modules") {
+		t.Errorf("expected preview table containing REPOSITORY, got: %s", out)
+	}
+	if !strings.Contains(out, "Expurgo cancelado pelo usuário.") {
+		t.Errorf("expected cancellation message in text fallback, got: %s", out)
+	}
+}
+
+func TestPurgeCmd_FallbackYesFlag(t *testing.T) {
+	origConfigPath := configPath
+	origQuiet := quiet
+	origIsTerminal := purgeIsTerminal
+	origRunProgram := purgeRunProgram
+	defer func() {
+		configPath = origConfigPath
+		quiet = origQuiet
+		purgeIsTerminal = origIsTerminal
+		purgeRunProgram = origRunProgram
+	}()
+
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	repoDir := filepath.Join(tmpDir, "repo-yes")
+	if err := os.MkdirAll(repoDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	setupTestRepo(t, repoDir, "main", 70, false)
+
+	configPath = createPurgeConfig(t, tmpDir, repoDir)
+	quiet = false
+	purgeIsTerminal = func(fd int) bool { return true }
+
+	tuiLaunched := false
+	purgeRunProgram = func(m tui.PurgeModel) error {
+		tuiLaunched = true
+		return nil
+	}
+
+	cmd := newPurgeCmd()
+	var outBuf bytes.Buffer
+	cmd.SetOut(&outBuf)
+	cmd.SetArgs([]string{"--yes"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if tuiLaunched {
+		t.Errorf("expected TUI NOT to be launched when --yes is passed")
+	}
+
+	// Artifact must be removed
+	if _, err := os.Stat(filepath.Join(repoDir, "node_modules")); !os.IsNotExist(err) {
+		t.Errorf("expected node_modules to be deleted with --yes")
+	}
+}
+
+func TestPurgeCmd_FallbackNonTTY(t *testing.T) {
+	origConfigPath := configPath
+	origQuiet := quiet
+	origIsTerminal := purgeIsTerminal
+	origRunProgram := purgeRunProgram
+	defer func() {
+		configPath = origConfigPath
+		quiet = origQuiet
+		purgeIsTerminal = origIsTerminal
+		purgeRunProgram = origRunProgram
+	}()
+
+	tmpDir := t.TempDir()
+	repoDir := filepath.Join(tmpDir, "repo-nontty")
+	if err := os.MkdirAll(repoDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	setupTestRepo(t, repoDir, "main", 70, false)
+
+	configPath = createPurgeConfig(t, tmpDir, repoDir)
+	quiet = false
+	purgeIsTerminal = func(fd int) bool { return false }
+
+	tuiLaunched := false
+	purgeRunProgram = func(m tui.PurgeModel) error {
+		tuiLaunched = true
+		return nil
+	}
+
+	cmd := newPurgeCmd()
+	var outBuf bytes.Buffer
+	cmd.SetOut(&outBuf)
+	cmd.SetArgs([]string{}) // No --yes, non-TTY
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error in non-TTY mode without --yes, got nil")
+	}
+	if tuiLaunched {
+		t.Errorf("expected TUI NOT to be launched in non-TTY environment")
+	}
+	if !strings.Contains(err.Error(), "TTY") || !strings.Contains(err.Error(), "--yes") {
+		t.Errorf("expected error mentioning TTY and --yes, got: %v", err)
+	}
+}

@@ -62,14 +62,47 @@ func TestLoad_NoFile_ReturnsDefaults(t *testing.T) {
 	if cfg.Ecosystems.Homebrew.MaxAgeDays != 30 {
 		t.Errorf("Homebrew.MaxAgeDays = %d, want 30", cfg.Ecosystems.Homebrew.MaxAgeDays)
 	}
+	if cfg.Ecosystems.CPP.MaxAgeDays != 14 {
+		t.Errorf("CPP.MaxAgeDays = %d, want 14", cfg.Ecosystems.CPP.MaxAgeDays)
+	}
+	if cfg.Ecosystems.Flutter.MaxAgeDays != 14 {
+		t.Errorf("Flutter.MaxAgeDays = %d, want 14", cfg.Ecosystems.Flutter.MaxAgeDays)
+	}
+	if cfg.Ecosystems.Terraform.MaxAgeDays != 30 {
+		t.Errorf("Terraform.MaxAgeDays = %d, want 30", cfg.Ecosystems.Terraform.MaxAgeDays)
+	}
+	if cfg.Ecosystems.CocoaPods.MaxAgeDays != 14 {
+		t.Errorf("CocoaPods.MaxAgeDays = %d, want 14", cfg.Ecosystems.CocoaPods.MaxAgeDays)
+	}
+	if cfg.Ecosystems.Elixir.MaxAgeDays != 14 {
+		t.Errorf("Elixir.MaxAgeDays = %d, want 14", cfg.Ecosystems.Elixir.MaxAgeDays)
+	}
 	if cfg.Hooks.NextJS.Timeout != "30s" {
 		t.Errorf("Hooks.NextJS.Timeout = %q, want 30s", cfg.Hooks.NextJS.Timeout)
 	}
 	if cfg.Hooks.AI.Timeout != "30s" {
 		t.Errorf("Hooks.AI.Timeout = %q, want 30s", cfg.Hooks.AI.Timeout)
 	}
+	if cfg.Hooks.CPP.Timeout != "30s" {
+		t.Errorf("Hooks.CPP.Timeout = %q, want 30s", cfg.Hooks.CPP.Timeout)
+	}
+	if cfg.Hooks.Flutter.Timeout != "30s" {
+		t.Errorf("Hooks.Flutter.Timeout = %q, want 30s", cfg.Hooks.Flutter.Timeout)
+	}
+	if cfg.Hooks.Terraform.Timeout != "30s" {
+		t.Errorf("Hooks.Terraform.Timeout = %q, want 30s", cfg.Hooks.Terraform.Timeout)
+	}
+	if cfg.Hooks.CocoaPods.Timeout != "30s" {
+		t.Errorf("Hooks.CocoaPods.Timeout = %q, want 30s", cfg.Hooks.CocoaPods.Timeout)
+	}
+	if cfg.Hooks.Elixir.Timeout != "30s" {
+		t.Errorf("Hooks.Elixir.Timeout = %q, want 30s", cfg.Hooks.Elixir.Timeout)
+	}
 	if !cfg.Ecosystems.Docker.Enabled {
 		t.Error("Docker.Enabled should be true by default")
+	}
+	if !cfg.Ecosystems.CPP.Enabled || !cfg.Ecosystems.Flutter.Enabled || !cfg.Ecosystems.Terraform.Enabled || !cfg.Ecosystems.CocoaPods.Enabled || !cfg.Ecosystems.Elixir.Enabled {
+		t.Error("New ecosystems should be enabled by default")
 	}
 	if len(cfg.ScanPaths) != 0 {
 		t.Errorf("ScanPaths should be empty, got %v", cfg.ScanPaths)
@@ -177,6 +210,11 @@ func TestDefaults_AllEcosystemsEnabled(t *testing.T) {
 		{"NextJS", d.Ecosystems.NextJS, 7},
 		{"Xcode", d.Ecosystems.Xcode, 14},
 		{"Homebrew", d.Ecosystems.Homebrew, 30},
+		{"CPP", d.Ecosystems.CPP, 14},
+		{"Flutter", d.Ecosystems.Flutter, 14},
+		{"Terraform", d.Ecosystems.Terraform, 30},
+		{"CocoaPods", d.Ecosystems.CocoaPods, 14},
+		{"Elixir", d.Ecosystems.Elixir, 14},
 	}
 
 	for _, ec := range ecosystems {
@@ -222,3 +260,152 @@ func TestEcosystemConfig_ToRules(t *testing.T) {
 		t.Errorf("ToRules().ExcludePaths = %v, want [/skip/this]", rules.ExcludePaths)
 	}
 }
+
+func TestLoad_InstallerDefaults(t *testing.T) {
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	if cfg.Installer.MaxDepth != 2 {
+		t.Errorf("Installer.MaxDepth = %d, want 2", cfg.Installer.MaxDepth)
+	}
+	if len(cfg.Installer.Paths) != 2 || cfg.Installer.Paths[0] != "~/Downloads" || cfg.Installer.Paths[1] != "~/Desktop" {
+		t.Errorf("Installer.Paths = %v, want [~/Downloads ~/Desktop]", cfg.Installer.Paths)
+	}
+}
+
+func TestLoad_InstallerCustomConfig(t *testing.T) {
+	yaml := `
+installer:
+  paths:
+    - /custom/installers
+  max_depth: 3
+`
+	path := writeTestConfig(t, yaml)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	if cfg.Installer.MaxDepth != 3 {
+		t.Errorf("Installer.MaxDepth = %d, want 3", cfg.Installer.MaxDepth)
+	}
+	if len(cfg.Installer.Paths) != 1 || cfg.Installer.Paths[0] != "/custom/installers" {
+		t.Errorf("Installer.Paths = %v, want [/custom/installers]", cfg.Installer.Paths)
+	}
+}
+
+func TestValidate_InstallerMaxDepth(t *testing.T) {
+	cfg := Defaults()
+	cfg.Installer.MaxDepth = 6
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected error for MaxDepth > 5, got nil")
+	}
+
+	cfg.Installer.MaxDepth = -1
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected error for MaxDepth < 0, got nil")
+	}
+
+	cfg.Installer.MaxDepth = 2
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("expected nil error for valid MaxDepth, got %v", err)
+	}
+}
+
+func TestConfig_DefaultsV22(t *testing.T) {
+	d := Defaults()
+	if !d.Safety.TrashEnabled {
+		t.Errorf("Safety.TrashEnabled = false, want true for v2.2")
+	}
+	if d.Safety.RetentionDays != 30 {
+		t.Errorf("Safety.RetentionDays = %d, want 30", d.Safety.RetentionDays)
+	}
+	if d.Safety.MaxSizeMB != 10240 {
+		t.Errorf("Safety.MaxSizeMB = %d, want 10240", d.Safety.MaxSizeMB)
+	}
+}
+
+func TestValidate_SafetyRules(t *testing.T) {
+	cfg := Defaults()
+	cfg.Safety.RetentionDays = 0
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected error for RetentionDays < 1, got nil")
+	}
+
+	cfg = Defaults()
+	cfg.Safety.MaxSizeMB = 50
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected error for MaxSizeMB < 100, got nil")
+	}
+
+	cfg = Defaults()
+	cfg.Safety.RetentionDays = 30
+	cfg.Safety.MaxSizeMB = 10240
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("expected nil error for valid SafetyConfig, got %v", err)
+	}
+}
+
+func TestSchedulerConfig_Defaults(t *testing.T) {
+	d := Defaults()
+	if d.Scheduler.Args == nil {
+		t.Fatal("expected Scheduler.Args to be non-nil empty slice, got nil")
+	}
+	if len(d.Scheduler.Args) != 0 {
+		t.Errorf("expected empty slice, got %v", d.Scheduler.Args)
+	}
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatalf("Load(\"\") error: %v", err)
+	}
+	if cfg.Scheduler.Args == nil {
+		t.Fatal("expected loaded default Scheduler.Args to be non-nil slice")
+	}
+	if len(cfg.Scheduler.Args) != 0 {
+		t.Errorf("expected empty slice from Load(\"\"), got %v", cfg.Scheduler.Args)
+	}
+}
+
+func TestSchedulerConfig_ValidationValid(t *testing.T) {
+	cfg := Defaults()
+	cfg.Scheduler.Args = []string{"--preset", "safe", "--dry-run"}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("expected valid scheduler args, got error: %v", err)
+	}
+
+	cfg.Scheduler.Args = []string{"--preset=standard", "--smart", "--trash"}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("expected valid scheduler args, got error: %v", err)
+	}
+}
+
+func TestSchedulerConfig_ValidationInvalid(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+	}{
+		{"semicolon injection", []string{"--preset", "safe; rm -rf /"}},
+		{"pipe injection", []string{"--preset", "safe | cat"}},
+		{"ampersand injection", []string{"--preset", "safe & echo pwn"}},
+		{"variable expansion", []string{"--preset", "$SECRET"}},
+		{"backtick injection", []string{"--preset", "`id`"}},
+		{"redirection", []string{"--preset", "safe > /dev/null"}},
+		{"newline injection", []string{"--preset", "safe\nrm -rf /"}},
+		{"unknown flag", []string{"--malicious-flag"}},
+		{"arbitrary command", []string{"curl", "http://attacker.com"}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := Defaults()
+			cfg.Scheduler.Args = tc.args
+			if err := cfg.Validate(); err == nil {
+				t.Errorf("expected validation error for args %v, got nil", tc.args)
+			}
+		})
+	}
+}
+

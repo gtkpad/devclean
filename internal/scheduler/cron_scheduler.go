@@ -57,7 +57,7 @@ func (s *cronScheduler) Install(sched Schedule) error {
 		return ErrAlreadyInstalled
 	}
 
-	entry := fmt.Sprintf("\n%s\n%s %s clean --auto\n", cronMarker, sched.CronExpr, binaryPath)
+	entry := fmt.Sprintf("\n%s\n%s %s schedule run\n", cronMarker, sched.CronExpr, binaryPath)
 	return s.writeCrontab(existing + entry)
 }
 

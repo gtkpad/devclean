@@ -123,43 +123,137 @@ func (m *Manager) Move(ctx context.Context, targets []domain.Target, ecosystem s
 	return nil
 }
 
-// EnforceRetention removes entries older than the configured retention period.
-func (m *Manager) EnforceRetention(ctx context.Context) error {
+// CleanStats holds metrics about a purge or retention operation.
+type CleanStats struct {
+	BatchesPurged int   `json:"batches_purged"`
+	EntriesPurged int   `json:"entries_purged"`
+	BytesFreed    int64 `json:"bytes_freed"`
+}
+
+// CleanExpired removes entries older than the configured retention period and returns structured stats (D-09, D-11).
+func (m *Manager) CleanExpired(ctx context.Context) (CleanStats, error) {
+	select {
+	case <-ctx.Done():
+		return CleanStats{}, ctx.Err()
+	default:
+	}
+	if m.retention <= 0 {
+		return CleanStats{}, nil
+	}
 	manifest, err := LoadManifest(m.ManifestPath())
 	if err != nil {
-		return err
+		return CleanStats{}, fmt.Errorf("loading manifest: %w", err)
 	}
 
+	var stats CleanStats
 	now := time.Now()
-	var toRemove []string
+
+	type expiredItem struct {
+		batchID   string
+		entryID   string
+		sizeBytes int64
+	}
+	var expired []expiredItem
 
 	for i := range manifest.Batches {
-		for j := range manifest.Batches[i].Entries {
-			if now.Sub(manifest.Batches[i].Entries[j].MovedAt) > m.retention {
-				toRemove = append(toRemove, manifest.Batches[i].Entries[j].ID)
+		b := &manifest.Batches[i]
+		for j := range b.Entries {
+			e := &b.Entries[j]
+			if now.Sub(e.MovedAt) > m.retention {
+				expired = append(expired, expiredItem{
+					batchID:   b.ID,
+					entryID:   e.ID,
+					sizeBytes: e.SizeBytes,
+				})
 			}
 		}
 	}
 
-	for _, id := range toRemove {
+	if len(expired) == 0 {
+		return stats, nil
+	}
+
+	batchesTouched := make(map[string]bool)
+	for _, item := range expired {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return stats, ctx.Err()
 		default:
 		}
-		m.removeEntryData(manifest, id)
+
+		entryDir := filepath.Join(m.baseDir, "batches", item.batchID, item.entryID)
+		_ = os.RemoveAll(entryDir)
+		manifest.RemoveEntry(item.entryID)
+
+		stats.EntriesPurged++
+		stats.BytesFreed += item.sizeBytes
+		batchesTouched[item.batchID] = true
 	}
 
-	return SaveManifest(m.ManifestPath(), manifest)
+	// Remove physical directory for any batch whose entries were all purged
+	for bID := range batchesTouched {
+		if manifest.FindBatch(bID) == nil {
+			batchDir := filepath.Join(m.baseDir, "batches", bID)
+			_ = os.RemoveAll(batchDir)
+			stats.BatchesPurged++
+		}
+	}
+
+	if err := SaveManifest(m.ManifestPath(), manifest); err != nil {
+		return stats, fmt.Errorf("saving manifest: %w", err)
+	}
+
+	return stats, nil
 }
 
-// EnforceMaxSize purges oldest entries until total size is within limits.
-func (m *Manager) EnforceMaxSize(ctx context.Context) error {
+// EnforceRetention removes entries older than the configured retention period.
+func (m *Manager) EnforceRetention(ctx context.Context) error {
+	_, err := m.CleanExpired(ctx)
+	return err
+}
+
+// QuotaInfo represents disk usage metrics and capacity limits for the trash.
+type QuotaInfo struct {
+	CurrentBytes int64   `json:"current_bytes"`
+	MaxBytes     int64   `json:"max_bytes"`
+	Percent      float64 `json:"percent"`
+	Exceeded     bool    `json:"exceeded"`
+}
+
+// QuotaStatus returns current usage metrics and exceeded status against m.maxSize (D-10, D-15).
+func (m *Manager) QuotaStatus() QuotaInfo {
+	info := QuotaInfo{
+		MaxBytes: m.maxSize,
+	}
 	manifest, err := LoadManifest(m.ManifestPath())
 	if err != nil {
-		return err
+		return info
 	}
 
+	info.CurrentBytes = manifest.TotalSize()
+	if m.maxSize > 0 {
+		info.Percent = (float64(info.CurrentBytes) / float64(m.maxSize)) * 100.0
+		info.Exceeded = info.CurrentBytes > m.maxSize
+	}
+	return info
+}
+
+// EnforceMaxSize purges oldest entries strictly FIFO/LRU until total size is within limits (D-10).
+func (m *Manager) EnforceMaxSize(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	if m.maxSize <= 0 {
+		return nil
+	}
+	manifest, err := LoadManifest(m.ManifestPath())
+	if err != nil {
+		return fmt.Errorf("loading manifest: %w", err)
+	}
+
+	changed := false
 	for manifest.TotalSize() > m.maxSize {
 		select {
 		case <-ctx.Done():
@@ -172,9 +266,13 @@ func (m *Manager) EnforceMaxSize(ctx context.Context) error {
 			break
 		}
 		m.removeEntryData(manifest, oldest.ID)
+		changed = true
 	}
 
-	return SaveManifest(m.ManifestPath(), manifest)
+	if changed {
+		return SaveManifest(m.ManifestPath(), manifest)
+	}
+	return nil
 }
 
 // List returns all batches in the manifest, newest first.
@@ -209,6 +307,40 @@ func (m *Manager) Purge(ctx context.Context, all bool) error {
 	return m.EnforceRetention(ctx)
 }
 
+// SanitizeOrphans removes unlisted physical batch directories from batches/ (D-11).
+func (m *Manager) SanitizeOrphans(ctx context.Context) error {
+	manifest, err := LoadManifest(m.ManifestPath())
+	if err != nil {
+		return fmt.Errorf("loading manifest: %w", err)
+	}
+
+	knownBatches := make(map[string]bool, len(manifest.Batches))
+	for _, b := range manifest.Batches {
+		knownBatches[b.ID] = true
+	}
+
+	batchesDir := filepath.Join(m.baseDir, "batches")
+	entries, err := os.ReadDir(batchesDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("reading batches directory: %w", err)
+	}
+
+	for _, e := range entries {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+		if e.IsDir() && !knownBatches[e.Name()] {
+			_ = os.RemoveAll(filepath.Join(batchesDir, e.Name()))
+		}
+	}
+	return nil
+}
+
 func (m *Manager) findOldestEntry(manifest *Manifest) *Entry {
 	var oldest *Entry
 	for i := range manifest.Batches {
@@ -227,9 +359,14 @@ func (m *Manager) removeEntryData(manifest *Manifest, entryID string) {
 	if entry == nil {
 		return
 	}
-	entryDir := filepath.Join(m.baseDir, "batches", batch.ID, entryID)
-	os.RemoveAll(entryDir)
+	batchID := batch.ID
+	entryDir := filepath.Join(m.baseDir, "batches", batchID, entryID)
+	_ = os.RemoveAll(entryDir)
 	manifest.RemoveEntry(entryID)
+	if manifest.FindBatch(batchID) == nil {
+		batchDir := filepath.Join(m.baseDir, "batches", batchID)
+		_ = os.RemoveAll(batchDir)
+	}
 }
 
 // moveItem moves src to dest, falling back to copy+remove on cross-device errors.

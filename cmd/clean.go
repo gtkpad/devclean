@@ -32,6 +32,7 @@ func newCleanCmd() *cobra.Command {
 	var smart bool
 	var all bool
 	var format string
+	var preset string
 
 	cmd := &cobra.Command{
 		Use:          "clean",
@@ -41,6 +42,16 @@ func newCleanCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "table" && format != "json" {
 				return fmt.Errorf("unknown format: %q (supported: table, json)", format)
+			}
+
+			if preset != "" {
+				if preset != "safe" && preset != "standard" && preset != "aggressive" {
+					return fmt.Errorf("unknown preset: %q (supported: safe, standard, aggressive)", preset)
+				}
+				if force {
+					return fmt.Errorf("--preset and --force are mutually exclusive")
+				}
+				auto = true
 			}
 
 			if !auto && !force {
@@ -73,20 +84,13 @@ Run 'devclean scan' to preview what would be cleaned.`)
 				return fmt.Errorf("loading config: %w", err)
 			}
 
-			if all {
-				cfg.Ecosystems.Docker.MaxAgeDays = 0
-				cfg.Ecosystems.Go.MaxAgeDays = 0
-				cfg.Ecosystems.Node.MaxAgeDays = 0
-				cfg.Ecosystems.DotNet.MaxAgeDays = 0
-				cfg.Ecosystems.Python.MaxAgeDays = 0
-				cfg.Ecosystems.Rust.MaxAgeDays = 0
-				cfg.Ecosystems.Java.MaxAgeDays = 0
-				cfg.Ecosystems.AI.MaxAgeDays = 0
-				cfg.Ecosystems.Pnpm.MaxAgeDays = 0
-				cfg.Ecosystems.Bun.MaxAgeDays = 0
-				cfg.Ecosystems.NextJS.MaxAgeDays = 0
-				cfg.Ecosystems.Xcode.MaxAgeDays = 0
-				cfg.Ecosystems.Homebrew.MaxAgeDays = 0
+			if preset == "aggressive" {
+				zeroAllMaxAgeDays(cfg)
+				if !permanent {
+					useTrash = true
+				}
+			} else if all {
+				zeroAllMaxAgeDays(cfg)
 			}
 
 			resolver := platform.New()
@@ -130,6 +134,10 @@ Run 'devclean scan' to preview what would be cleaned.`)
 					targets = filterByTTL(r.Targets, maxAge)
 				} else {
 					targets = r.Targets
+				}
+
+				if preset == "safe" {
+					targets = filterSafePreset(targets)
 				}
 
 				if smart && scorer != nil {
@@ -317,6 +325,7 @@ Run 'devclean scan' to preview what would be cleaned.`)
 	cmd.Flags().BoolVar(&permanent, "permanent", false, "force permanent deletion even when trash is enabled")
 	cmd.Flags().BoolVar(&smart, "smart", false, "only delete targets above score threshold (use with --auto)")
 	cmd.Flags().BoolVar(&all, "all", false, "apply zero TTL across all ecosystems")
+	cmd.Flags().StringVar(&preset, "preset", "", "cleanup preset strategy: safe (global caches only), standard (config TTLs), aggressive (TTL=0)")
 	cmd.Flags().StringVar(&format, "format", "table", "output format (table, json)")
 
 	return cmd
@@ -335,6 +344,31 @@ func filterByTTL(targets []domain.Target, maxAgeDays int) []domain.Target {
 		}
 	}
 	return filtered
+}
+
+func filterSafePreset(targets []domain.Target) []domain.Target {
+	var safe []domain.Target
+	for _, t := range targets {
+		if t.Risk != domain.RiskLow {
+			continue
+		}
+		// Exclui artefatos de compilação ou dependências locais de projetos
+		switch t.Category {
+		case "cmake-build", "vcpkg-installed",
+			"flutter-build", "flutter-dart-tool",
+			"terraform-local",
+			"cocoapods-pods",
+			"elixir-build", "elixir-deps",
+			"cargo-target", "node", "node-modules", "node-dist", "nuxt-cache",
+			"dotnet-build", "maven-target", "gradle-build", "nextjs-build", "nextjs-cache",
+			"python-venv-orphan", "python-pycache",
+			"derived-data", "xcode-derived-data", "archives":
+			continue
+		default:
+			safe = append(safe, t)
+		}
+	}
+	return safe
 }
 
 func rejectBlacklisted(targets []domain.Target, bl *safety.Blacklist) []domain.Target {
@@ -375,6 +409,16 @@ func getMaxAgeDays(cfg *config.Config, ecosystem string) int {
 		return cfg.Ecosystems.Xcode.MaxAgeDays
 	case "homebrew":
 		return cfg.Ecosystems.Homebrew.MaxAgeDays
+	case "cpp":
+		return cfg.Ecosystems.CPP.MaxAgeDays
+	case "flutter":
+		return cfg.Ecosystems.Flutter.MaxAgeDays
+	case "terraform":
+		return cfg.Ecosystems.Terraform.MaxAgeDays
+	case "cocoapods":
+		return cfg.Ecosystems.CocoaPods.MaxAgeDays
+	case "elixir":
+		return cfg.Ecosystems.Elixir.MaxAgeDays
 	default:
 		return 0
 	}

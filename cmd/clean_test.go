@@ -115,6 +115,11 @@ func TestGetMaxAgeDays(t *testing.T) {
 		{"nextjs", 7},
 		{"xcode", 14},
 		{"homebrew", 30},
+		{"cpp", 14},
+		{"flutter", 14},
+		{"terraform", 30},
+		{"cocoapods", 14},
+		{"elixir", 14},
 		{"unknown", 0},
 	}
 
@@ -128,22 +133,31 @@ func TestGetMaxAgeDays(t *testing.T) {
 	}
 }
 
+func TestGetMaxAgeDays_All18Ecosystems(t *testing.T) {
+	TestGetMaxAgeDays(t)
+}
+
 func testConfig() *config.Config {
 	return &config.Config{
 		Ecosystems: config.EcosystemsConfig{
-			Docker:   config.EcosystemConfig{MaxAgeDays: 30},
-			Node:     config.EcosystemConfig{MaxAgeDays: 14},
-			Go:       config.EcosystemConfig{MaxAgeDays: 60},
-			DotNet:   config.EcosystemConfig{MaxAgeDays: 45},
-			Python:   config.EcosystemConfig{MaxAgeDays: 30},
-			Rust:     config.EcosystemConfig{MaxAgeDays: 30},
-			Java:     config.EcosystemConfig{MaxAgeDays: 30},
-			AI:       config.EcosystemConfig{MaxAgeDays: 30},
-			Pnpm:     config.EcosystemConfig{MaxAgeDays: 30},
-			Bun:      config.EcosystemConfig{MaxAgeDays: 14},
-			NextJS:   config.EcosystemConfig{MaxAgeDays: 7},
-			Xcode:    config.EcosystemConfig{MaxAgeDays: 14},
-			Homebrew: config.EcosystemConfig{MaxAgeDays: 30},
+			Docker:    config.EcosystemConfig{MaxAgeDays: 30},
+			Node:      config.EcosystemConfig{MaxAgeDays: 14},
+			Go:        config.EcosystemConfig{MaxAgeDays: 60},
+			DotNet:    config.EcosystemConfig{MaxAgeDays: 45},
+			Python:    config.EcosystemConfig{MaxAgeDays: 30},
+			Rust:      config.EcosystemConfig{MaxAgeDays: 30},
+			Java:      config.EcosystemConfig{MaxAgeDays: 30},
+			AI:        config.EcosystemConfig{MaxAgeDays: 30},
+			Pnpm:      config.EcosystemConfig{MaxAgeDays: 30},
+			Bun:       config.EcosystemConfig{MaxAgeDays: 14},
+			NextJS:    config.EcosystemConfig{MaxAgeDays: 7},
+			Xcode:     config.EcosystemConfig{MaxAgeDays: 14},
+			Homebrew:  config.EcosystemConfig{MaxAgeDays: 30},
+			CPP:       config.EcosystemConfig{MaxAgeDays: 14},
+			Flutter:   config.EcosystemConfig{MaxAgeDays: 14},
+			Terraform: config.EcosystemConfig{MaxAgeDays: 30},
+			CocoaPods: config.EcosystemConfig{MaxAgeDays: 14},
+			Elixir:    config.EcosystemConfig{MaxAgeDays: 14},
 		},
 	}
 }
@@ -980,6 +994,186 @@ func TestCleanCmd_MutualExclusiveFlags(t *testing.T) {
 				t.Fatalf("expected error for %v, got nil", tc.args)
 			}
 		})
+	}
+}
+
+func TestCleanCmd_PresetValidation(t *testing.T) {
+	tests := []struct {
+		name    string
+		preset  string
+		wantErr bool
+	}{
+		{"valid safe", "safe", false},
+		{"valid standard", "standard", false},
+		{"valid aggressive", "aggressive", false},
+		{"invalid preset nuclear", "nuclear", true},
+		{"invalid preset unknown", "unknown", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfgFile := createEmptyConfig(t)
+			origConfigPath := configPath
+			configPath = cfgFile
+			defer func() { configPath = origConfigPath }()
+
+			cmd := newCleanCmd()
+			cmd.SetArgs([]string{"--preset", tt.preset, "--dry-run"})
+			err := cmd.Execute()
+			if tt.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "unknown preset") {
+					t.Fatalf("expected unknown preset error, got %v", err)
+				}
+			} else {
+				if err == nil || err.Error() != "nothing to clean" {
+					t.Fatalf("expected 'nothing to clean' indicating preset was accepted, got %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestCleanCmd_PresetMutuallyExclusiveWithForce(t *testing.T) {
+	cmd := newCleanCmd()
+	cmd.SetArgs([]string{"--preset", "safe", "--force"})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "--preset and --force are mutually exclusive") {
+		t.Fatalf("expected mutually exclusive error, got %v", err)
+	}
+}
+
+func TestCleanCmd_PresetImpliesAuto(t *testing.T) {
+	cfgFile := createEmptyConfig(t)
+	origConfigPath := configPath
+	configPath = cfgFile
+	defer func() { configPath = origConfigPath }()
+
+	cmd := newCleanCmd()
+	cmd.SetArgs([]string{"--preset", "safe", "--dry-run"})
+	err := cmd.Execute()
+	if err == nil || err.Error() != "nothing to clean" {
+		t.Fatalf("expected 'nothing to clean', got %v", err)
+	}
+}
+
+func TestCleanCmd_PresetAggressive_ZerosTTL(t *testing.T) {
+	tmpDir := t.TempDir()
+	appDir := filepath.Join(tmpDir, "node-app")
+	nodeModules := filepath.Join(appDir, "node_modules")
+	_ = os.MkdirAll(nodeModules, 0755)
+	_ = os.WriteFile(filepath.Join(appDir, "package.json"), []byte("{}"), 0644)
+	_ = os.WriteFile(filepath.Join(nodeModules, "temp.log"), []byte("log-data"), 0644)
+	recent := time.Now().Add(-10 * time.Minute)
+	_ = os.Chtimes(nodeModules, recent, recent)
+
+	content := fmt.Sprintf(`scan_paths:
+  - %q
+safety:
+  trash_enabled: false
+ecosystems:
+  node:
+    enabled: true
+    max_age_days: 14
+`, tmpDir)
+	cfgPath := filepath.Join(tmpDir, "config.yaml")
+	_ = os.WriteFile(cfgPath, []byte(content), 0644)
+
+	origConfigPath := configPath
+	configPath = cfgPath
+	defer func() { configPath = origConfigPath }()
+
+	cmdStandard := newCleanCmd()
+	cmdStandard.SetArgs([]string{"--preset", "standard", "-e", "node", "--dry-run"})
+	if err := cmdStandard.Execute(); err == nil || err.Error() != "nothing to clean" {
+		t.Fatalf("expected standard preset to skip recent target, got: %v", err)
+	}
+
+	cmdAggressive := newCleanCmd()
+	var outBuf bytes.Buffer
+	cmdAggressive.SetOut(&outBuf)
+	cmdAggressive.SetArgs([]string{"--preset", "aggressive", "-e", "node", "--dry-run"})
+	if err := cmdAggressive.Execute(); err != nil {
+		t.Fatalf("aggressive preset should succeed and target recent item: %v", err)
+	}
+	if !strings.Contains(outBuf.String(), "Clean Dry-Run Summary") {
+		t.Errorf("expected clean summary in output, got %s", outBuf.String())
+	}
+	if !strings.Contains(outBuf.String(), "node") {
+		t.Errorf("expected node in breakdown, got %s", outBuf.String())
+	}
+}
+
+func TestCleanCmd_PresetSafe_FiltersLocalBuilds(t *testing.T) {
+	targets := []domain.Target{
+		{ID: "cmake", Category: "cmake-build", Risk: domain.RiskLow},
+		{ID: "vcpkg", Category: "vcpkg-installed", Risk: domain.RiskLow},
+		{ID: "flutter-b", Category: "flutter-build", Risk: domain.RiskLow},
+		{ID: "flutter-dt", Category: "flutter-dart-tool", Risk: domain.RiskLow},
+		{ID: "tf-local", Category: "terraform-local", Risk: domain.RiskLow},
+		{ID: "pods", Category: "cocoapods-pods", Risk: domain.RiskLow},
+		{ID: "elixir-b", Category: "elixir-build", Risk: domain.RiskLow},
+		{ID: "elixir-d", Category: "elixir-deps", Risk: domain.RiskLow},
+		{ID: "cargo-t", Category: "cargo-target", Risk: domain.RiskLow},
+		{ID: "node-m", Category: "node-modules", Risk: domain.RiskLow},
+		{ID: "node", Category: "node", Risk: domain.RiskLow},
+		{ID: "node-d", Category: "node-dist", Risk: domain.RiskLow},
+		{ID: "nuxt-c", Category: "nuxt-cache", Risk: domain.RiskLow},
+		{ID: "dotnet-b", Category: "dotnet-build", Risk: domain.RiskLow},
+		{ID: "mvn-t", Category: "maven-target", Risk: domain.RiskLow},
+		{ID: "grad-b", Category: "gradle-build", Risk: domain.RiskLow},
+		{ID: "next-b", Category: "nextjs-build", Risk: domain.RiskLow},
+		{ID: "py-venv", Category: "python-venv-orphan", Risk: domain.RiskLow},
+		{ID: "py-cache", Category: "python-pycache", Risk: domain.RiskLow},
+		{ID: "dd", Category: "derived-data", Risk: domain.RiskLow},
+		{ID: "arch", Category: "archives", Risk: domain.RiskLow},
+		{ID: "global-med", Category: "conan-cache", Risk: domain.RiskMedium},
+		{ID: "conan-c", Category: "conan-cache", Risk: domain.RiskLow},
+		{ID: "pub-c", Category: "pub-cache", Risk: domain.RiskLow},
+		{ID: "hex-pkg", Category: "hex-packages", Risk: domain.RiskLow},
+		{ID: "tf-cache", Category: "terraform-plugin-cache", Risk: domain.RiskLow},
+		{ID: "pod-cache", Category: "cocoapods-cache", Risk: domain.RiskLow},
+	}
+
+	filtered := filterSafePreset(targets)
+	if len(filtered) != 5 {
+		t.Fatalf("expected exactly 5 global cache targets, got %d: %+v", len(filtered), filtered)
+	}
+	expectedIDs := map[string]bool{
+		"conan-c": true, "pub-c": true, "hex-pkg": true, "tf-cache": true, "pod-cache": true,
+	}
+	for _, f := range filtered {
+		if !expectedIDs[f.ID] {
+			t.Errorf("unexpected target survived safe preset: %s (%s)", f.ID, f.Category)
+		}
+	}
+}
+
+func TestCleanCmd_PresetWithSmart(t *testing.T) {
+	cfgFile := createEmptyConfig(t)
+	origConfigPath := configPath
+	configPath = cfgFile
+	defer func() { configPath = origConfigPath }()
+
+	cmd := newCleanCmd()
+	cmd.SetArgs([]string{"--preset", "safe", "--smart", "--dry-run"})
+	err := cmd.Execute()
+	if err == nil || err.Error() != "nothing to clean" {
+		t.Fatalf("expected 'nothing to clean', got %v", err)
+	}
+}
+
+func TestCleanCmd_PresetRespectsBlacklist(t *testing.T) {
+	bl := safety.NewBlacklist(nil)
+	targets := []domain.Target{
+		{Path: "/home/user/project/.git", Risk: domain.RiskLow},
+		{Path: "/home/user/project/.env", Risk: domain.RiskLow},
+		{Path: "/home/user/project/.ssh", Risk: domain.RiskLow},
+		{Path: "/home/user/.cache/conan", Risk: domain.RiskLow},
+	}
+
+	safe := rejectBlacklisted(targets, bl)
+	if len(safe) != 1 || safe[0].Path != "/home/user/.cache/conan" {
+		t.Fatalf("expected only /home/user/.cache/conan to survive blacklist, got: %+v", safe)
 	}
 }
 

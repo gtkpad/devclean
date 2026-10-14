@@ -41,10 +41,10 @@ func (m *mockVirtualCleaner) Clean(ctx context.Context, targets []domain.Target)
 	return nil
 }
 
-// TestIntegration_CrossPhase_VirtualCleanersWithDeleter verifies that virtual cleaners
-// (Phase 3 pnpm://, brew://, xcode://) route through deleter.Coordinator (Phase 1)
+// TestIntegration_VirtualCleanersWithDeleter verifies that virtual cleaners
+// (pnpm://, brew://, xcode://) route through deleter.Coordinator
 // with trash bypass (BUG-01, CLEAN-02, CLEAN-03).
-func TestIntegration_CrossPhase_VirtualCleanersWithDeleter(t *testing.T) {
+func TestIntegration_VirtualCleanersWithDeleter(t *testing.T) {
 	tmpDir := t.TempDir()
 	configDir := filepath.Join(tmpDir, "config")
 	dataDir := filepath.Join(tmpDir, "data")
@@ -123,10 +123,10 @@ func TestIntegration_CrossPhase_VirtualCleanersWithDeleter(t *testing.T) {
 	}
 }
 
-// TestIntegration_CrossPhase_E2E_ScanCleanPurgeWhitelist tests the cohesive flow
-// connecting Phase 1 (Deleter, Safety), Phase 2 (E2E lifecycle), Phase 3 (Modern Cleaners),
-// and Phase 4 (Whitelist, Purge, Report Card).
-func TestIntegration_CrossPhase_E2E_ScanCleanPurgeWhitelist(t *testing.T) {
+// TestIntegration_E2E_ScanCleanPurgeWhitelist tests the cohesive flow
+// connecting Deleter, Safety, E2E lifecycle, Modern Cleaners,
+// Whitelist, Purge, and Report Card.
+func TestIntegration_E2E_ScanCleanPurgeWhitelist(t *testing.T) {
 	tmpDir := t.TempDir()
 	homeDir := filepath.Join(tmpDir, "home")
 	configDir := filepath.Join(homeDir, ".config", "devclean")

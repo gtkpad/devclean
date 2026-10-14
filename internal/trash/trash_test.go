@@ -509,4 +509,487 @@ func TestTrash_UndoBranches(t *testing.T) {
 	}
 }
 
+func TestSaveManifest_AtomicWrite(t *testing.T) {
+	dir := t.TempDir()
+	manifestPath := filepath.Join(dir, "manifest.json")
+
+	manifest := &Manifest{
+		Batches: []Batch{
+			{
+				ID:        "b-1",
+				CreatedAt: time.Now().Truncate(time.Second),
+				TotalSize: 100,
+				Entries: []Entry{
+					{
+						ID:           "e-1",
+						BatchID:      "b-1",
+						OriginalPath: "/path/to/file",
+						SizeBytes:    100,
+						Ecosystem:    "node",
+					},
+				},
+			},
+		},
+	}
+
+	if err := SaveManifest(manifestPath, manifest); err != nil {
+		t.Fatalf("SaveManifest failed: %v", err)
+	}
+
+	// Verify file exists
+	loaded, err := LoadManifest(manifestPath)
+	if err != nil {
+		t.Fatalf("LoadManifest failed: %v", err)
+	}
+	if len(loaded.Batches) != 1 || loaded.Batches[0].ID != "b-1" {
+		t.Fatalf("loaded manifest mismatch: %+v", loaded)
+	}
+	if loaded.Batches[0].TotalSize != 100 {
+		t.Errorf("TotalSize = %d, want 100", loaded.Batches[0].TotalSize)
+	}
+
+	// Verify no temporary files remain in dir
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if filepath.Ext(e.Name()) == ".tmp" || len(e.Name()) > len("manifest.json") && e.Name()[:8] == "manifest" && e.Name() != "manifest.json" {
+			t.Errorf("unexpected temporary file found: %s", e.Name())
+		}
+	}
+}
+
+func TestSaveManifest_CleansTempOnError(t *testing.T) {
+	// Create a read-only directory so CreateTemp or Rename might fail, or test invalid directory path
+	dir := t.TempDir()
+	readOnlyDir := filepath.Join(dir, "readonly")
+	if err := os.MkdirAll(readOnlyDir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	// Restore permissions on test cleanup so TempDir can be removed
+	t.Cleanup(func() {
+		_ = os.Chmod(readOnlyDir, 0o755)
+	})
+
+	manifestPath := filepath.Join(readOnlyDir, "subdir", "manifest.json")
+	manifest := &Manifest{}
+
+	// If parent cannot be created, should return error and not leak tmp files
+	err := SaveManifest(manifestPath, manifest)
+	if err == nil {
+		t.Error("expected error when saving to read-only path, got nil")
+	}
+
+	// Also check that no tmp files were left in dir
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if filepath.Ext(e.Name()) == ".tmp" {
+			t.Errorf("found leftover tmp file: %s", e.Name())
+		}
+	}
+}
+
+func TestSanitizeOrphans_RemovesUnlistedBatches(t *testing.T) {
+	mgr := newTestManager(t)
+	target := createTempTarget(t, "legit_target", 100)
+	ctx := context.Background()
+
+	if err := mgr.Move(ctx, []domain.Target{target}, "node"); err != nil {
+		t.Fatalf("Move failed: %v", err)
+	}
+
+	manifest, err := LoadManifest(mgr.ManifestPath())
+	if err != nil || len(manifest.Batches) != 1 {
+		t.Fatalf("unexpected manifest: %v", err)
+	}
+	legitBatchID := manifest.Batches[0].ID
+	legitBatchDir := filepath.Join(mgr.BaseDir(), "batches", legitBatchID)
+
+	// Inject an orphan batch directory
+	orphanBatchDir := filepath.Join(mgr.BaseDir(), "batches", "orphan-batch-456")
+	if err := os.MkdirAll(filepath.Join(orphanBatchDir, "entry-1"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(orphanBatchDir, "entry-1", "data.bin"), []byte("orphan"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := mgr.SanitizeOrphans(ctx); err != nil {
+		t.Fatalf("SanitizeOrphans failed: %v", err)
+	}
+
+	// Orphan should be deleted
+	if _, err := os.Stat(orphanBatchDir); !os.IsNotExist(err) {
+		t.Errorf("expected orphan batch %s to be removed", orphanBatchDir)
+	}
+
+	// Legitimate batch should still exist
+	if _, err := os.Stat(legitBatchDir); os.IsNotExist(err) {
+		t.Errorf("expected legitimate batch %s to remain intact", legitBatchDir)
+	}
+}
+
+func TestSanitizeOrphans_NoBatchesDir(t *testing.T) {
+	mgr := newTestManager(t)
+	ctx := context.Background()
+
+	// Batches dir does not exist yet
+	if err := mgr.SanitizeOrphans(ctx); err != nil {
+		t.Fatalf("expected nil error when batches dir missing, got %v", err)
+	}
+}
+
+func TestSanitizeOrphans_ContextCanceled(t *testing.T) {
+	mgr := newTestManager(t)
+	// Create batches dir with multiple orphan entries
+	batchesDir := filepath.Join(mgr.BaseDir(), "batches")
+	_ = os.MkdirAll(filepath.Join(batchesDir, "orphan-1"), 0o755)
+	_ = os.MkdirAll(filepath.Join(batchesDir, "orphan-2"), 0o755)
+
+	cancelCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := mgr.SanitizeOrphans(cancelCtx)
+	if err == nil {
+		t.Error("expected error on canceled context, got nil")
+	}
+}
+
+func TestSanitizeOrphans_CorruptedManifestPreservesDirectories(t *testing.T) {
+	mgr := newTestManager(t)
+	// Write corrupted manifest
+	manifestPath := mgr.ManifestPath()
+	if err := os.MkdirAll(filepath.Dir(manifestPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manifestPath, []byte("invalid-json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a batch dir
+	batchDir := filepath.Join(mgr.BaseDir(), "batches", "batch-1")
+	if err := os.MkdirAll(batchDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	err := mgr.SanitizeOrphans(context.Background())
+	if err == nil {
+		t.Error("expected error when manifest is corrupted, got nil")
+	}
+
+	// Batch directory must NOT be deleted if manifest fails to load
+	if _, err := os.Stat(batchDir); os.IsNotExist(err) {
+		t.Errorf("batch directory %s was deleted unexpectedly on manifest load error", batchDir)
+	}
+}
+
+func TestEnforceRetention_RemovesPhysicalFilesAndEmptyBatches(t *testing.T) {
+	mgr := newTestManager(t)
+	target := createTempTarget(t, "physical_target", 256)
+	ctx := context.Background()
+
+	if err := mgr.Move(ctx, []domain.Target{target}, "node"); err != nil {
+		t.Fatalf("Move failed: %v", err)
+	}
+
+	manifest, err := LoadManifest(mgr.ManifestPath())
+	if err != nil || len(manifest.Batches) != 1 {
+		t.Fatalf("unexpected manifest: %v", err)
+	}
+	batchID := manifest.Batches[0].ID
+	entryID := manifest.Batches[0].Entries[0].ID
+	batchDir := filepath.Join(mgr.BaseDir(), "batches", batchID)
+	entryDir := filepath.Join(batchDir, entryID)
+
+	// Ensure physical dirs exist
+	if _, err := os.Stat(entryDir); os.IsNotExist(err) {
+		t.Fatalf("entryDir %s should exist before retention", entryDir)
+	}
+
+	// Backdate the batch and entry to 10 days ago (past 7 day retention)
+	past := time.Now().Add(-10 * 24 * time.Hour)
+	manifest.Batches[0].CreatedAt = past
+	manifest.Batches[0].Entries[0].MovedAt = past
+	if err := SaveManifest(mgr.ManifestPath(), manifest); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := mgr.EnforceRetention(ctx); err != nil {
+		t.Fatalf("EnforceRetention failed: %v", err)
+	}
+
+	// Both entryDir and batchDir should be removed physically
+	if _, err := os.Stat(entryDir); !os.IsNotExist(err) {
+		t.Errorf("expected entryDir %s to be physically removed", entryDir)
+	}
+	if _, err := os.Stat(batchDir); !os.IsNotExist(err) {
+		t.Errorf("expected empty batchDir %s to be physically removed", batchDir)
+	}
+}
+
+func TestCleanExpired_StatsAccuracy(t *testing.T) {
+	mgr := newTestManager(t)
+	ctx := context.Background()
+
+	// Create 2 targets in separate moves (batches)
+	tOld1 := createTempTarget(t, "old_target_1", 300)
+	tOld2 := createTempTarget(t, "old_target_2", 200)
+	tFresh := createTempTarget(t, "fresh_target", 400)
+
+	// Move batch 1 (2 entries that will expire)
+	if err := mgr.Move(ctx, []domain.Target{tOld1, tOld2}, "node"); err != nil {
+		t.Fatal(err)
+	}
+	// Move batch 2 (1 fresh entry)
+	if err := mgr.Move(ctx, []domain.Target{tFresh}, "rust"); err != nil {
+		t.Fatal(err)
+	}
+
+	manifest, err := LoadManifest(mgr.ManifestPath())
+	if err != nil || len(manifest.Batches) != 2 {
+		t.Fatalf("expected 2 batches, got %v", manifest)
+	}
+
+	// Expire batch 1
+	past := time.Now().Add(-14 * 24 * time.Hour)
+	manifest.Batches[0].CreatedAt = past
+	manifest.Batches[0].Entries[0].MovedAt = past
+	manifest.Batches[0].Entries[1].MovedAt = past
+	if err := SaveManifest(mgr.ManifestPath(), manifest); err != nil {
+		t.Fatal(err)
+	}
+
+	stats, err := mgr.CleanExpired(ctx)
+	if err != nil {
+		t.Fatalf("CleanExpired failed: %v", err)
+	}
+
+	if stats.BatchesPurged != 1 {
+		t.Errorf("BatchesPurged = %d, want 1", stats.BatchesPurged)
+	}
+	if stats.EntriesPurged != 2 {
+		t.Errorf("EntriesPurged = %d, want 2", stats.EntriesPurged)
+	}
+	if stats.BytesFreed != 500 {
+		t.Errorf("BytesFreed = %d, want 500", stats.BytesFreed)
+	}
+
+	// Verify only fresh batch remains in manifest
+	afterManifest, err := LoadManifest(mgr.ManifestPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(afterManifest.Batches) != 1 {
+		t.Fatalf("expected 1 remaining batch, got %d", len(afterManifest.Batches))
+	}
+	if afterManifest.Batches[0].Entries[0].ID != manifest.Batches[1].Entries[0].ID {
+		t.Errorf("expected fresh batch to remain intact")
+	}
+}
+
+func TestEnforceRetention_FreshBatchesPreserved(t *testing.T) {
+	mgr := newTestManager(t)
+	ctx := context.Background()
+
+	tFresh := createTempTarget(t, "fresh_target_only", 150)
+	if err := mgr.Move(ctx, []domain.Target{tFresh}, "node"); err != nil {
+		t.Fatal(err)
+	}
+
+	stats, err := mgr.CleanExpired(ctx)
+	if err != nil {
+		t.Fatalf("CleanExpired failed: %v", err)
+	}
+	if stats.BatchesPurged != 0 || stats.EntriesPurged != 0 || stats.BytesFreed != 0 {
+		t.Errorf("expected zero stats on fresh batches, got %+v", stats)
+	}
+
+	manifest, err := LoadManifest(mgr.ManifestPath())
+	if err != nil || len(manifest.Batches) != 1 {
+		t.Fatalf("expected 1 batch kept, got %v", manifest)
+	}
+}
+
+func TestCleanExpired_EmptyTrash(t *testing.T) {
+	mgr := newTestManager(t)
+	ctx := context.Background()
+
+	stats, err := mgr.CleanExpired(ctx)
+	if err != nil {
+		t.Fatalf("CleanExpired on empty trash failed: %v", err)
+	}
+	if stats != (CleanStats{}) {
+		t.Errorf("expected empty stats on empty trash, got %+v", stats)
+	}
+}
+
+func TestCleanExpired_ContextCanceled(t *testing.T) {
+	mgr := newTestManager(t)
+	tOld := createTempTarget(t, "old_canceled", 100)
+	_ = mgr.Move(context.Background(), []domain.Target{tOld}, "node")
+
+	manifest, _ := LoadManifest(mgr.ManifestPath())
+	manifest.Batches[0].Entries[0].MovedAt = time.Now().Add(-10 * 24 * time.Hour)
+	_ = SaveManifest(mgr.ManifestPath(), manifest)
+
+	cancelCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := mgr.CleanExpired(cancelCtx)
+	if err == nil {
+		t.Error("expected error on canceled context, got nil")
+	}
+}
+
+func TestQuotaStatus_Calculations(t *testing.T) {
+	mgr := newTestManager(t)
+	// Base manager has maxSize = 100 * 1024 * 1024 = 104857600 bytes
+	status := mgr.QuotaStatus()
+	if status.CurrentBytes != 0 {
+		t.Errorf("CurrentBytes = %d, want 0", status.CurrentBytes)
+	}
+	if status.Percent != 0.0 {
+		t.Errorf("Percent = %f, want 0.0", status.Percent)
+	}
+	if status.Exceeded {
+		t.Errorf("Exceeded = true, want false")
+	}
+	if status.MaxBytes != 100*1024*1024 {
+		t.Errorf("MaxBytes = %d, want %d", status.MaxBytes, 100*1024*1024)
+	}
+
+	// Add a target with 50 MB
+	mgr.maxSize = 1000 // Override to 1000 bytes for easy testing
+	target := createTempTarget(t, "quota_target", 500)
+	ctx := context.Background()
+	if err := mgr.Move(ctx, []domain.Target{target}, "node"); err != nil {
+		t.Fatal(err)
+	}
+
+	status = mgr.QuotaStatus()
+	if status.CurrentBytes != 500 {
+		t.Errorf("CurrentBytes = %d, want 500", status.CurrentBytes)
+	}
+	if status.Percent != 50.0 {
+		t.Errorf("Percent = %f, want 50.0", status.Percent)
+	}
+	if status.Exceeded {
+		t.Errorf("Exceeded = true, want false at 50%%")
+	}
+
+	// Add another target pushing it to 1200 bytes (over 1000)
+	target2 := createTempTarget(t, "quota_target_2", 700)
+	if err := mgr.Move(ctx, []domain.Target{target2}, "rust"); err != nil {
+		t.Fatal(err)
+	}
+
+	status = mgr.QuotaStatus()
+	if status.CurrentBytes != 1200 {
+		t.Errorf("CurrentBytes = %d, want 1200", status.CurrentBytes)
+	}
+	if status.Percent != 120.0 {
+		t.Errorf("Percent = %f, want 120.0", status.Percent)
+	}
+	if !status.Exceeded {
+		t.Errorf("Exceeded = false, want true at 120%%")
+	}
+}
+
+func TestEnforceMaxSize_StrictFIFOOrder(t *testing.T) {
+	mgr := newTestManager(t)
+	ctx := context.Background()
+
+	// Create 3 batches with known distinct sizes
+	tOldest := createTempTarget(t, "batch_oldest_5days", 400)
+	tMiddle := createTempTarget(t, "batch_middle_3days", 300)
+	tNewest := createTempTarget(t, "batch_newest_1day", 200)
+
+	if err := mgr.Move(ctx, []domain.Target{tOldest}, "node"); err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.Move(ctx, []domain.Target{tMiddle}, "rust"); err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.Move(ctx, []domain.Target{tNewest}, "go"); err != nil {
+		t.Fatal(err)
+	}
+
+	manifest, err := LoadManifest(mgr.ManifestPath())
+	if err != nil || len(manifest.Batches) != 3 {
+		t.Fatalf("expected 3 batches, got %v", manifest)
+	}
+
+	now := time.Now()
+	// Batch 0: 5 days ago
+	manifest.Batches[0].CreatedAt = now.Add(-5 * 24 * time.Hour)
+	manifest.Batches[0].Entries[0].MovedAt = now.Add(-5 * 24 * time.Hour)
+	// Batch 1: 3 days ago
+	manifest.Batches[1].CreatedAt = now.Add(-3 * 24 * time.Hour)
+	manifest.Batches[1].Entries[0].MovedAt = now.Add(-3 * 24 * time.Hour)
+	// Batch 2: 1 day ago
+	manifest.Batches[2].CreatedAt = now.Add(-1 * 24 * time.Hour)
+	manifest.Batches[2].Entries[0].MovedAt = now.Add(-1 * 24 * time.Hour)
+
+	if err := SaveManifest(mgr.ManifestPath(), manifest); err != nil {
+		t.Fatal(err)
+	}
+
+	// Total size is 400 + 300 + 200 = 900.
+	// Set maxSize to 550.
+	// FIFO eviction must remove the 5-day-old batch (400 bytes).
+	// Remaining: 3-day (300) + 1-day (200) = 500 <= 550.
+	mgr.maxSize = 550
+
+	if err := mgr.EnforceMaxSize(ctx); err != nil {
+		t.Fatalf("EnforceMaxSize failed: %v", err)
+	}
+
+	manifestAfter, err := LoadManifest(mgr.ManifestPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if manifestAfter.TotalSize() != 500 {
+		t.Errorf("TotalSize = %d, want 500", manifestAfter.TotalSize())
+	}
+	if len(manifestAfter.Batches) != 2 {
+		t.Fatalf("expected 2 batches remaining, got %d", len(manifestAfter.Batches))
+	}
+
+	// Verify the remaining batches are the 3-day and 1-day batches
+	if manifestAfter.Batches[0].Entries[0].SizeBytes != 300 {
+		t.Errorf("first remaining batch should be 300 bytes, got %d", manifestAfter.Batches[0].Entries[0].SizeBytes)
+	}
+	if manifestAfter.Batches[1].Entries[0].SizeBytes != 200 {
+		t.Errorf("second remaining batch should be 200 bytes, got %d", manifestAfter.Batches[1].Entries[0].SizeBytes)
+	}
+
+	// Physical check: oldest batch dir should be gone
+	oldestBatchDir := filepath.Join(mgr.BaseDir(), "batches", manifest.Batches[0].ID)
+	if _, err := os.Stat(oldestBatchDir); !os.IsNotExist(err) {
+		t.Errorf("expected oldest batch dir %s to be removed from disk", oldestBatchDir)
+	}
+}
+
+func TestEnforceMaxSize_NoOpWhenMaxSizeZeroOrNegative(t *testing.T) {
+	mgr := newTestManager(t)
+	mgr.maxSize = 0 // Disabled or zero
+	target := createTempTarget(t, "noop_target", 500)
+	ctx := context.Background()
+
+	if err := mgr.Move(ctx, []domain.Target{target}, "node"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := mgr.EnforceMaxSize(ctx); err != nil {
+		t.Fatalf("EnforceMaxSize failed: %v", err)
+	}
+
+	manifest, _ := LoadManifest(mgr.ManifestPath())
+	if len(manifest.Batches) != 1 {
+		t.Errorf("expected batch to be preserved when maxSize <= 0, got %d batches", len(manifest.Batches))
+	}
+}
+
 
