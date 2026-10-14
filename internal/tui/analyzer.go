@@ -157,6 +157,10 @@ func (m AnalyzerModel) StatusMessage() string {
 	return m.statusMessage
 }
 
+func (m AnalyzerModel) Offset() int {
+	return m.offset
+}
+
 // Init sets up initial commands (spinner and scan update listener).
 func (m AnalyzerModel) Init() tea.Cmd {
 	if m.scanner != nil && m.root != nil {
@@ -372,8 +376,11 @@ func (m *AnalyzerModel) deleteNode(target *analyzer.Node) tea.Cmd {
 				Mode: "tui",
 			}
 			res, err := coordinator.Delete(context.Background(), byEco, opts)
-			if err != nil || (res != nil && len(res.Errors) > 0) {
+			if err != nil {
 				return deleteResultMsg{success: false, target: target, currentDir: currentDir, err: err}
+			}
+			if res != nil && len(res.Errors) > 0 {
+				return deleteResultMsg{success: false, target: target, currentDir: currentDir, err: res.Errors[0]}
 			}
 		}
 
