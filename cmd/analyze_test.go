@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/gtkpad/devclean/internal/tui"
 )
 
 func TestAnalyzeCmd_FlagsParsing(t *testing.T) {
@@ -105,6 +107,8 @@ func TestAnalyzeCmd_NonInteractiveJSON(t *testing.T) {
 	if err := os.WriteFile(testFile, []byte("some binary content here"), 0644); err != nil {
 		t.Fatal(err)
 	}
+	// Also create a symlink to test symlink JSON representation
+	_ = os.Symlink(testFile, filepath.Join(tmpDir, "link.bin"))
 
 	cmd := newAnalyzeCmd()
 	var outBuf bytes.Buffer
@@ -129,5 +133,39 @@ func TestAnalyzeCmd_NonInteractiveJSON(t *testing.T) {
 	}
 	if children, ok := result["children"].([]interface{}); !ok || len(children) == 0 {
 		t.Errorf("expected JSON to have non-empty 'children' array: %v", result)
+	}
+}
+
+func TestAnalyzeCmd_Interactive(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test.txt")
+	if err := os.WriteFile(testFile, []byte("data"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	oldIsTerm := analyzeIsTerminal
+	analyzeIsTerminal = func(fd int) bool { return true }
+	defer func() { analyzeIsTerminal = oldIsTerm }()
+
+	called := false
+	oldRunProgram := analyzeRunProgram
+	analyzeRunProgram = func(m tui.AnalyzerModel) error {
+		called = true
+		if m.CurrentDir() == nil {
+			t.Errorf("expected non-nil CurrentDir")
+		}
+		return nil
+	}
+	defer func() { analyzeRunProgram = oldRunProgram }()
+
+	cmd := newAnalyzeCmd()
+	cmd.SetArgs([]string{tmpDir})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected execution error: %v", err)
+	}
+
+	if !called {
+		t.Errorf("expected analyzeRunProgram to be invoked in interactive TTY mode")
 	}
 }
