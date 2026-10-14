@@ -2,6 +2,7 @@ package format
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 )
@@ -71,5 +72,9 @@ func ParseBytes(s string) (int64, error) {
 	if val < 0 {
 		return 0, fmt.Errorf("invalid byte size %q: cannot be negative", s)
 	}
-	return int64(val * float64(mult)), nil
+	res := val * float64(mult)
+	if res > float64(math.MaxInt64) {
+		return 0, fmt.Errorf("byte size %q exceeds maximum representable size (overflow)", s)
+	}
+	return int64(res), nil
 }

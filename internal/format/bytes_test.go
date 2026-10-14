@@ -60,6 +60,8 @@ func TestParseBytes(t *testing.T) {
 		{name: "invalid suffix", input: "100XYZ", want: 0, wantErr: true},
 		{name: "non-numeric prefix", input: "abcGB", want: 0, wantErr: true},
 		{name: "just suffix", input: "GB", want: 0, wantErr: true},
+		{name: "negative value", input: "-10MB", want: 0, wantErr: true},
+		{name: "overflow value", input: "999999999999999999PB", want: 0, wantErr: true},
 	}
 
 	for _, tt := range tests {
