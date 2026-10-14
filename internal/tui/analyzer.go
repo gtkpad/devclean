@@ -204,6 +204,31 @@ func (m AnalyzerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.applyScanUpdate(msg)
 		return m, waitForScanUpdate(m.updateCh)
 
+	case deleteResultMsg:
+		if msg.success && msg.target != nil {
+			if m.currentDir != nil {
+				var remaining []*analyzer.Node
+				for _, c := range m.currentDir.Children {
+					if c.Path != msg.target.Path {
+						remaining = append(remaining, c)
+					}
+				}
+				m.currentDir.Children = remaining
+				if m.cursor >= len(m.currentDir.Children) {
+					if len(m.currentDir.Children) > 0 {
+						m.cursor = len(m.currentDir.Children) - 1
+					} else {
+						m.cursor = 0
+					}
+				}
+				m.statusMessage = "Item movido para a lixeira com sucesso."
+				m.adjustScroll()
+			}
+		} else if msg.err != nil {
+			m.statusMessage = fmt.Sprintf("Erro ao mover para a lixeira: %v", msg.err)
+		}
+		return m, nil
+
 	case tea.KeyMsg:
 		switch m.state {
 		case StateConfirmingDelete:
