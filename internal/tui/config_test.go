@@ -297,8 +297,7 @@ func TestConfigTUI_InlineTextInputEditing(t *testing.T) {
 	}
 
 	// Cancel invalid edit
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
-	m = updated.(tui.ConfigModel)
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 }
 
 func TestConfigTUI_SaveValidationBlock(t *testing.T) {
@@ -769,7 +768,7 @@ func TestConfigTUI_EditAllTabsAndFields(t *testing.T) {
 	for _, r := range "0 1 * * *" {
 		m = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
-	m = updateModel(m, tea.KeyMsg{Type: tea.KeyEnter})
+	_ = updateModel(m, tea.KeyMsg{Type: tea.KeyEnter})
 }
 
 func TestConfigTUI_SaveWithAST(t *testing.T) {
@@ -1084,7 +1083,7 @@ func TestConfigTUI_OSSync_EdgeCasesAndBranches(t *testing.T) {
 	m = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'4'}})
 	m = updateModel(m, tea.KeyMsg{Type: tea.KeySpace})
 
-	m = updateModel(m, tea.KeyMsg{Type: tea.KeyCtrlS})
+	_ = updateModel(m, tea.KeyMsg{Type: tea.KeyCtrlS})
 	if !mockSched.removeCalled {
 		t.Errorf("expected scheduler.Remove to be called")
 	}
@@ -1153,7 +1152,7 @@ func TestConfigTUI_OSSync_EdgeCasesAndBranches(t *testing.T) {
 			m2 = updateModel(m2, tea.KeyMsg{Type: tea.KeyEnter})
 		}
 
-		m2 = updateModel(m2, tea.KeyMsg{Type: tea.KeyCtrlS})
+		_ = updateModel(m2, tea.KeyMsg{Type: tea.KeyCtrlS})
 		if mockSched2.lastSchedule.CronExpr != tc.expected {
 			t.Errorf("freq %s: expected cron %q, got %q", tc.freq, tc.expected, mockSched2.lastSchedule.CronExpr)
 		}
@@ -1166,7 +1165,7 @@ func TestConfigTUI_OSSync_EdgeCasesAndBranches(t *testing.T) {
 	m3 = updateModel(m3, tea.KeyMsg{Type: tea.KeyRight}) // cycles freq
 	m3 = updateModel(m3, tea.KeyMsg{Type: tea.KeyDown})
 	m3 = updateModel(m3, tea.KeyMsg{Type: tea.KeyDown}) // cursor 3 (preset)
-	m3 = updateModel(m3, tea.KeyMsg{Type: tea.KeyLeft}) // cycles preset
+	_ = updateModel(m3, tea.KeyMsg{Type: tea.KeyLeft}) // cycles preset
 
 	// 4. Shell injection in args rejection
 	cfgInjected := config.Defaults()

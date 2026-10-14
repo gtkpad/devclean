@@ -54,13 +54,14 @@ func parseCleanOutput(output string, exitCode int, runErr error) cleanExecutionR
 	}
 
 	lower := strings.ToLower(output)
-	if exitCode != 0 || runErr != nil {
+	switch {
+	case exitCode != 0 || runErr != nil:
 		res.Status = "FAIL"
-	} else if strings.Contains(lower, "permission denied") ||
+	case strings.Contains(lower, "permission denied") ||
 		strings.Contains(lower, "error:") ||
-		strings.Contains(output, "[ERROR]") {
+		strings.Contains(output, "[ERROR]"):
 		res.Status = "PARTIAL"
-	} else {
+	default:
 		res.Status = "OK"
 	}
 

@@ -300,7 +300,8 @@ func (m AnalyzerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.state = StateNormal
 				target := m.targetToDelete
 				m.targetToDelete = nil
-				return m, m.deleteNode(target)
+				cmd := m.deleteNode(target)
+				return m, cmd
 			case "n", "esc", "q":
 				m.state = StateNormal
 				m.targetToDelete = nil

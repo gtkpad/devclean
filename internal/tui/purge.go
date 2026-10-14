@@ -438,7 +438,7 @@ func (m PurgeModel) View() string {
 				ecoBadges.WriteString(fmt.Sprintf("[%s] ", eco))
 			}
 
-			repoNameFormatted := rg.RepoName
+			var repoNameFormatted string
 			if isFocused {
 				repoNameFormatted = selectedStyle.Render(rg.RepoName)
 			} else {

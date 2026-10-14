@@ -98,7 +98,6 @@ type ConfigModel struct {
 	initialWatchActive bool
 	watchInterval      string
 	watchThreshMB      int64
-	editingField       string
 	editingOriginal    string
 }
 
@@ -929,13 +928,11 @@ func (m *ConfigModel) save() error {
 				return m.failOSError(err)
 			}
 			m.initialSchedActive = true
-		} else {
-			if m.initialSchedActive || m.sched.IsInstalled() {
-				if err := m.sched.Remove(); err != nil && err != scheduler.ErrNotInstalled {
-					return m.failOSError(err)
-				}
-				m.initialSchedActive = false
+		} else if m.initialSchedActive || m.sched.IsInstalled() {
+			if err := m.sched.Remove(); err != nil && err != scheduler.ErrNotInstalled {
+				return m.failOSError(err)
 			}
+			m.initialSchedActive = false
 		}
 
 		// 2. Watch Daemon
@@ -948,13 +945,11 @@ func (m *ConfigModel) save() error {
 				return m.failOSError(err)
 			}
 			m.initialWatchActive = true
-		} else {
-			if m.initialWatchActive || m.sched.IsWatchInstalled() {
-				if err := m.sched.RemoveWatch(); err != nil {
-					return m.failOSError(err)
-				}
-				m.initialWatchActive = false
+		} else if m.initialWatchActive || m.sched.IsWatchInstalled() {
+			if err := m.sched.RemoveWatch(); err != nil {
+				return m.failOSError(err)
 			}
+			m.initialWatchActive = false
 		}
 	}
 
@@ -1395,7 +1390,7 @@ func (m ConfigModel) viewScheduler() string {
 		"Provedor do SO  : %s\nStatus no SO    : %s\nPróxima execução: %s\nÚltima execução : %s",
 		provider, statusText, nextRun, lastRun,
 	)
-	cardBox := modalBoxStyle.Copy().BorderForeground(lipgloss.Color("63")).Render(cardContent)
+	cardBox := modalBoxStyle.BorderForeground(lipgloss.Color("63")).Render(cardContent)
 	b.WriteString("  " + cardBox + "\n\n")
 
 	schedBadge := disabledBadgeStyle.Render("[ ] Inativo")

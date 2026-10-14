@@ -17,9 +17,7 @@ import (
 	"golang.org/x/term"
 )
 
-var schedulerFactory = func(configDir, provider string) (scheduler.Scheduler, error) {
-	return scheduler.NewWithProvider(configDir, provider)
-}
+var schedulerFactory = scheduler.NewWithProvider
 
 func newScheduleCmd() *cobra.Command {
 	var daily bool
@@ -340,13 +338,14 @@ func resolveCronExpression(daily, weekly, hourly bool, cron string, atTime strin
 	}
 
 	var baseCron string
-	if weekly {
+	switch {
+	case weekly:
 		baseCron = "0 0 * * 0"
-	} else if hourly {
+	case hourly:
 		baseCron = "0 * * * *"
-	} else if daily {
+	case daily:
 		baseCron = "0 12 * * *"
-	} else {
+	default:
 		baseCron = cron
 	}
 
