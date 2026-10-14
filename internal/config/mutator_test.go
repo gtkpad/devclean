@@ -2,6 +2,8 @@ package config
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -330,3 +332,172 @@ func TestMutator_SequenceHelpers_NilAndEmpty(t *testing.T) {
 		t.Errorf("expected 0 removed, got %d", removed)
 	}
 }
+
+func TestMutator_AtomicWriteAndBackup(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgFile := filepath.Join(tmpDir, "config.yaml")
+	bakFile := cfgFile + ".bak"
+	tmpFile := cfgFile + ".tmp"
+
+	initialContent := `# Initial config
+scan_paths:
+  - "/initial/project"
+`
+	if err := os.WriteFile(cfgFile, []byte(initialContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	root, _, err := LoadWithAST(cfgFile)
+	if err != nil {
+		t.Fatalf("LoadWithAST failed: %v", err)
+	}
+	mapNode := GetMappingNode(root)
+	SetScalarValue(mapNode, "retention_days", "60", "!!int")
+
+	if err := SaveConfigNode(cfgFile, root); err != nil {
+		t.Fatalf("SaveConfigNode failed: %v", err)
+	}
+
+	// 1. Verify cfgFile exists and has new value
+	savedData, err := os.ReadFile(cfgFile)
+	if err != nil {
+		t.Fatalf("reading saved cfgFile: %v", err)
+	}
+	if !strings.Contains(string(savedData), "retention_days: 60") {
+		t.Errorf("expected retention_days: 60 in saved file, got:\n%s", string(savedData))
+	}
+	if !strings.Contains(string(savedData), "# Initial config") {
+		t.Errorf("lost initial header comment")
+	}
+
+	// 2. Verify bakFile exists and has initial content
+	bakData, err := os.ReadFile(bakFile)
+	if err != nil {
+		t.Fatalf("reading backup file: %v", err)
+	}
+	if string(bakData) != initialContent {
+		t.Errorf("expected backup to match initial content, got:\n%s", string(bakData))
+	}
+
+	// 3. Verify tmpFile does not exist
+	if _, err := os.Stat(tmpFile); !os.IsNotExist(err) {
+		t.Errorf("tmp file should not exist after atomic rename")
+	}
+
+	// 4. Second save updates the backup to the previous version
+	SetScalarValue(mapNode, "retention_days", "90", "!!int")
+	if err := SaveConfigNode(cfgFile, root); err != nil {
+		t.Fatalf("second SaveConfigNode failed: %v", err)
+	}
+	bakData2, err := os.ReadFile(bakFile)
+	if err != nil {
+		t.Fatalf("reading updated backup file: %v", err)
+	}
+	if !strings.Contains(string(bakData2), "retention_days: 60") {
+		t.Errorf("expected updated backup to contain intermediate retention_days: 60, got:\n%s", string(bakData2))
+	}
+}
+
+func TestMutator_FirstRunDefaults(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgFile := filepath.Join(tmpDir, "sub", "config.yaml")
+	bakFile := cfgFile + ".bak"
+
+	// File does not exist yet
+	root, cfg, err := LoadWithAST(cfgFile)
+	if err != nil {
+		t.Fatalf("LoadWithAST failed on missing file: %v", err)
+	}
+	if root == nil {
+		t.Fatal("expected non-nil root AST for first run")
+	}
+	if cfg == nil {
+		t.Fatal("expected non-nil Config struct for first run")
+	}
+	if !cfg.Safety.TrashEnabled {
+		t.Error("expected default TrashEnabled to be true")
+	}
+	if !cfg.Ecosystems.Docker.Enabled {
+		t.Error("expected default Docker to be enabled")
+	}
+
+	// Save default AST
+	if err := SaveConfigNode(cfgFile, root); err != nil {
+		t.Fatalf("SaveConfigNode failed for first run: %v", err)
+	}
+
+	savedData, err := os.ReadFile(cfgFile)
+	if err != nil {
+		t.Fatalf("reading created first-run config: %v", err)
+	}
+	savedStr := string(savedData)
+	if !strings.Contains(savedStr, "scan_paths:") {
+		t.Errorf("expected scan_paths in default config, got:\n%s", savedStr)
+	}
+	if !strings.Contains(savedStr, "ecosystems:") {
+		t.Errorf("expected ecosystems in default config, got:\n%s", savedStr)
+	}
+
+	// Ensure no .bak was created since there was no previous file
+	if _, err := os.Stat(bakFile); !os.IsNotExist(err) {
+		t.Errorf("expected no backup file created on first run")
+	}
+}
+
+func TestMutator_CorruptedYAMLSyntax(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgFile := filepath.Join(tmpDir, "config.yaml")
+	bakFile := cfgFile + ".bak"
+
+	corruptedYAML := `ecosystems:
+  node:
+    enabled: [invalid syntax { unbalanced
+`
+	if err := os.WriteFile(cfgFile, []byte(corruptedYAML), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Without backup file
+	_, _, err := LoadWithAST(cfgFile)
+	if err == nil {
+		t.Fatal("expected error on corrupted YAML syntax, got nil")
+	}
+
+	syntaxErr, ok := err.(*ConfigSyntaxError)
+	if !ok {
+		t.Fatalf("expected *ConfigSyntaxError, got %T: %v", err, err)
+	}
+	if syntaxErr.Path != cfgFile {
+		t.Errorf("expected path %s, got %s", cfgFile, syntaxErr.Path)
+	}
+	if syntaxErr.HasBackup {
+		t.Error("expected HasBackup to be false")
+	}
+	if strings.Contains(syntaxErr.Error(), "Dica: Foi detectado um arquivo de backup") {
+		t.Errorf("unexpected backup hint in error message: %s", syntaxErr.Error())
+	}
+
+	// With backup file present
+	if err := os.WriteFile(bakFile, []byte("scan_paths: []\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err = LoadWithAST(cfgFile)
+	if err == nil {
+		t.Fatal("expected error on corrupted YAML syntax with backup")
+	}
+	syntaxErr, ok = err.(*ConfigSyntaxError)
+	if !ok {
+		t.Fatalf("expected *ConfigSyntaxError, got %T: %v", err, err)
+	}
+	if !syntaxErr.HasBackup {
+		t.Error("expected HasBackup to be true")
+	}
+	if !strings.Contains(syntaxErr.Error(), "Dica: Foi detectado um arquivo de backup em") {
+		t.Errorf("expected backup hint in error message, got:\n%s", syntaxErr.Error())
+	}
+	if !strings.Contains(syntaxErr.Error(), "Para restaurá-lo, execute: cp") {
+		t.Errorf("expected restore instruction in error message, got:\n%s", syntaxErr.Error())
+	}
+}
+
