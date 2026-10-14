@@ -156,13 +156,14 @@ func newTrashListCmd() *cobra.Command {
 			for _, b := range batches {
 				age := now.Sub(b.CreatedAt)
 				isExpired := retention > 0 && age > retention
-				if isExpired {
+				switch {
+				case isExpired:
 					fmt.Fprintf(out, "Batch %s [EXPIRADO] (%s ago, %s total, %d items)\n",
 						b.ID[:8], formatAge(age.Round(time.Minute)), humanSize(b.TotalSize), len(b.Entries))
-				} else if retention > 0 {
+				case retention > 0:
 					fmt.Fprintf(out, "Batch %s (%s ago, tempo restante: %s, %s total, %d items)\n",
 						b.ID[:8], formatAge(age.Round(time.Minute)), formatAge(retention-age), humanSize(b.TotalSize), len(b.Entries))
-				} else {
+				default:
 					fmt.Fprintf(out, "Batch %s (%s ago, %s total, %d items)\n",
 						b.ID[:8], formatAge(age.Round(time.Minute)), humanSize(b.TotalSize), len(b.Entries))
 				}

@@ -159,8 +159,7 @@ func TestE2E_Flow1_ConfigTUI_To_CleanPresets(t *testing.T) {
 
 	// User saves configuration in TUI
 	saveMsg := tea.KeyMsg{Type: tea.KeyCtrlS}
-	newM, _ = m.Update(saveMsg)
-	m = newM.(tui.ConfigModel)
+	_, _ = m.Update(saveMsg)
 
 	// Verify config.yaml was written with workspace in scan_paths
 	savedContent, err := os.ReadFile(cfgPath)
@@ -618,8 +617,7 @@ func TestE2E_Flow4_AnalyzeTUI_BlacklistProtection_Vs_Trash(t *testing.T) {
 	m2 = newM2.(tui.AnalyzerModel)
 	if cmd != nil {
 		msg := cmd()
-		newM2, _ = m2.Update(msg)
-		m2 = newM2.(tui.AnalyzerModel)
+		_, _ = m2.Update(msg)
 	}
 
 	// Verify normal file was moved to trash
