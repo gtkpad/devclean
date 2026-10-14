@@ -130,12 +130,50 @@ func TestIsCoreBlacklisted(t *testing.T) {
 		{"/home/user/.cache", false},
 		{"git", false},
 		{"my-secrets.json", false},
+		// Subtree nested inside protected folders
+		{"/repo/.git/config", true},
+		{"/repo/.git/objects/pack/pack-1.pack", true},
+		{"/home/user/.ssh/id_rsa", true},
+		{"/home/user/.ssh/authorized_keys", true},
+		{"/app/.env/nested.txt", true},
+		{"/app/subdir/secrets.json", true},
+		// System roots
+		{"/", true},
+		{"/bin", true},
+		{"/boot", true},
+		{"/dev", true},
+		{"/etc", true},
+		{"/lib", true},
+		{"/proc", true},
+		{"/root", true},
+		{"/sys", true},
+		{"/usr", true},
+		{"/var", true},
+		{"/System", true},
+		{"/Library", true},
+		{"/Applications", true},
+		{"/private", true},
+		// Safe non-blacklisted subpaths
+		{"/var/tmp/build", false},
+		{"/var/folders/xyz/temp", false},
 	}
 
 	for _, tt := range tests {
 		if got := IsCoreBlacklisted(tt.path); got != tt.want {
 			t.Errorf("IsCoreBlacklisted(%q) = %v, want %v", tt.path, got, tt.want)
 		}
+	}
+}
+
+func TestSystemRoots(t *testing.T) {
+	roots := SystemRoots()
+	if len(roots) == 0 {
+		t.Fatal("expected non-empty SystemRoots")
+	}
+	roots[0] = "mutated"
+	roots2 := SystemRoots()
+	if roots2[0] == "mutated" {
+		t.Error("SystemRoots returned slice should be a copy, not mutated")
 	}
 }
 

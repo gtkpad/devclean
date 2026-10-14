@@ -426,7 +426,9 @@ func TestAnalyzer_InviolableBlacklistAudit(t *testing.T) {
 		isDir bool
 	}{
 		{"/repo/.git", ".git", true},
+		{"/repo/.git/config", "config", false},
 		{"/repo/.ssh", ".ssh", true},
+		{"/repo/.ssh/id_rsa", "id_rsa", false},
 		{"/repo/.env", ".env", false},
 		{"/repo/secrets.json", "secrets.json", false},
 		{"/repo/secrets.custom", "secrets.custom", false},
@@ -507,6 +509,18 @@ func TestAnalyzer_InviolableBlacklistAudit(t *testing.T) {
 		}
 		if !strings.Contains(am.StatusMessage(), "Item protegido pela Blacklist Imutável") {
 			t.Fatalf("expected blacklist warning message for %s, got: %s", child.Path, am.StatusMessage())
+		}
+
+		// Also verify navigation into protected directory is blocked
+		if child.IsDir() {
+			uNav, _ := am.Update(tea.KeyMsg{Type: tea.KeyEnter})
+			amNav := uNav.(tui.AnalyzerModel)
+			if amNav.CurrentDir().Path != m.CurrentDir().Path {
+				t.Fatalf("expected navigation to protected directory %s to be blocked", child.Path)
+			}
+			if !strings.Contains(amNav.StatusMessage(), "navegação bloqueada") {
+				t.Fatalf("expected navigation blocked warning for %s, got: %s", child.Path, amNav.StatusMessage())
+			}
 		}
 	}
 

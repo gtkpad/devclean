@@ -75,12 +75,28 @@ func NewAnalyzerModel(root *analyzer.Node, bl *safety.Blacklist, coord *deleter.
 		height = 24
 	}
 
-	// Ensure parent pointers are connected
-	for _, child := range root.Children {
-		if child.Parent == nil {
-			child.Parent = root
+	// Ensure parent pointers are connected and propagate protection
+	var propagateProtection func(n *analyzer.Node)
+	propagateProtection = func(n *analyzer.Node) {
+		if n == nil {
+			return
+		}
+		if (n.Parent != nil && n.Parent.IsProtected) ||
+			safety.IsCoreBlacklisted(n.Path) ||
+			(bl != nil && bl.IsBlacklisted(n.Path)) {
+			n.IsProtected = true
+		}
+		for _, child := range n.Children {
+			if child.Parent == nil {
+				child.Parent = n
+			}
+			if n.IsProtected {
+				child.IsProtected = true
+			}
+			propagateProtection(child)
 		}
 	}
+	propagateProtection(root)
 
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
@@ -290,12 +306,19 @@ func (m AnalyzerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "l", "enter", "right":
 				if m.currentDir != nil && len(m.currentDir.Children) > 0 && m.cursor < len(m.currentDir.Children) {
 					selected := m.currentDir.Children[m.cursor]
+					if selected.IsProtected || safety.IsCoreBlacklisted(selected.Path) || (m.blacklist != nil && m.blacklist.IsBlacklisted(selected.Path)) {
+						m.statusMessage = "⚠️ Diretório protegido pela Blacklist Imutável (navegação bloqueada)"
+						return m, nil
+					}
 					if selected.IsDir() {
 						if len(selected.Children) == 0 && m.scanner != nil {
 							if scanned, err := m.scanner.ScanImmediate(selected.Path); err == nil && scanned != nil {
 								selected.Children = scanned.Children
 								for _, c := range selected.Children {
 									c.Parent = selected
+									if selected.IsProtected || safety.IsCoreBlacklisted(c.Path) || (m.blacklist != nil && m.blacklist.IsBlacklisted(c.Path)) {
+										c.IsProtected = true
+									}
 								}
 							}
 						}
@@ -336,7 +359,17 @@ func (m AnalyzerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				target := m.currentDir.Children[m.cursor]
-				if target.IsProtected || safety.IsCoreBlacklisted(target.Path) || (m.blacklist != nil && m.blacklist.IsBlacklisted(target.Path)) {
+				isProt := target.IsProtected || safety.IsCoreBlacklisted(target.Path) || (m.blacklist != nil && m.blacklist.IsBlacklisted(target.Path))
+				if !isProt {
+					for p := target.Parent; p != nil; p = p.Parent {
+						if p.IsProtected || safety.IsCoreBlacklisted(p.Path) || (m.blacklist != nil && m.blacklist.IsBlacklisted(p.Path)) {
+							isProt = true
+							break
+						}
+					}
+				}
+				if isProt {
+					target.IsProtected = true
 					m.statusMessage = "⚠️ Item protegido pela Blacklist Imutável (exclusão bloqueada)"
 					return m, nil
 				}
@@ -353,6 +386,17 @@ func (m AnalyzerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *AnalyzerModel) deleteNode(target *analyzer.Node) tea.Cmd {
 	if target == nil {
 		return nil
+	}
+
+	if target.IsProtected || safety.IsCoreBlacklisted(target.Path) || (m.blacklist != nil && m.blacklist.IsBlacklisted(target.Path)) {
+		return func() tea.Msg {
+			return deleteResultMsg{
+				success:    false,
+				target:     target,
+				currentDir: m.currentDir,
+				err:        fmt.Errorf("item protegido pela Blacklist Imutável: exclusão bloqueada"),
+			}
+		}
 	}
 
 	coordinator := m.coordinator
