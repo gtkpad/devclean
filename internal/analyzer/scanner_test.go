@@ -220,3 +220,90 @@ func TestScanner_ProtectedStatus(t *testing.T) {
 		}
 	}
 }
+
+func TestScanImmediate_FileTarget(t *testing.T) {
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "single.txt")
+	if err := os.WriteFile(filePath, []byte("single file content"), 0o644); err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+
+	scanner := analyzer.NewScanner(nil, true, 0, 10)
+	node, err := scanner.ScanImmediate(filePath)
+	if err != nil {
+		t.Fatalf("ScanImmediate on file failed: %v", err)
+	}
+	if node.IsDir() {
+		t.Error("expected node to not be dir")
+	}
+	if node.Type != analyzer.ItemFile {
+		t.Errorf("expected ItemFile, got %v", node.Type)
+	}
+	if node.SizeBytes != int64(len("single file content")) {
+		t.Errorf("expected size %d, got %d", len("single file content"), node.SizeBytes)
+	}
+}
+
+func TestScanImmediate_HiddenFilesFilter(t *testing.T) {
+	tmpDir := t.TempDir()
+	hiddenFile := filepath.Join(tmpDir, ".hidden")
+	if err := os.WriteFile(hiddenFile, []byte("hidden"), 0o644); err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+	visibleFile := filepath.Join(tmpDir, "visible.txt")
+	if err := os.WriteFile(visibleFile, []byte("visible"), 0o644); err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+
+	scanner := analyzer.NewScanner(nil, false, 0, 10) // includeHidden = false
+	node, err := scanner.ScanImmediate(tmpDir)
+	if err != nil {
+		t.Fatalf("ScanImmediate failed: %v", err)
+	}
+
+	for _, child := range node.Children {
+		if child.Name == ".hidden" {
+			t.Errorf("expected .hidden to be excluded when includeHidden is false")
+		}
+	}
+}
+
+func TestScanImmediate_NonExistentPath(t *testing.T) {
+	scanner := analyzer.NewScanner(nil, true, 0, 10)
+	_, err := scanner.ScanImmediate("/path/that/does/not/exist/99999")
+	if err == nil {
+		t.Fatal("expected error for non-existent path, got nil")
+	}
+}
+
+func TestScanImmediate_WithSymlinkChild(t *testing.T) {
+	tmpDir := t.TempDir()
+	targetFile := filepath.Join(tmpDir, "target.txt")
+	if err := os.WriteFile(targetFile, []byte("target"), 0o644); err != nil {
+		t.Fatalf("write target failed: %v", err)
+	}
+	symlinkPath := filepath.Join(tmpDir, "symlink.txt")
+	if err := os.Symlink(targetFile, symlinkPath); err != nil {
+		t.Fatalf("symlink failed: %v", err)
+	}
+
+	scanner := analyzer.NewScanner(nil, true, 0, 10)
+	node, err := scanner.ScanImmediate(tmpDir)
+	if err != nil {
+		t.Fatalf("ScanImmediate failed: %v", err)
+	}
+
+	var foundSymlink bool
+	for _, child := range node.Children {
+		if child.Name == "symlink.txt" {
+			foundSymlink = true
+			if !child.IsSymlink() {
+				t.Errorf("expected child to be ItemSymlink, got %v", child.Type)
+			}
+		}
+	}
+	if !foundSymlink {
+		t.Errorf("expected to find symlink.txt child")
+	}
+}
+
