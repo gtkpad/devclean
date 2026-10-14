@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -10,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/gtkpad/devclean/internal/config"
+	"github.com/gtkpad/devclean/internal/format"
 	"github.com/gtkpad/devclean/internal/safety"
 	"github.com/gtkpad/devclean/internal/scheduler"
 	"gopkg.in/yaml.v3"
@@ -86,16 +88,18 @@ type ConfigModel struct {
 	schedStatus *scheduler.Status
 
 	// Sched & Watch states
-	schedActive     bool
-	schedFreq       string // "daily", "weekly", "hourly", "custom"
-	schedAtTime     string
-	schedPreset     string // "none", "safe", "standard", "aggressive"
-	schedCron       string
-	watchActive     bool
-	watchInterval   string
-	watchThreshMB   int64
-	editingField    string
-	editingOriginal string
+	schedActive        bool
+	initialSchedActive bool
+	schedFreq          string // "daily", "weekly", "hourly", "custom"
+	schedAtTime        string
+	schedPreset        string // "none", "safe", "standard", "aggressive"
+	schedCron          string
+	watchActive        bool
+	initialWatchActive bool
+	watchInterval      string
+	watchThreshMB      int64
+	editingField       string
+	editingOriginal    string
 }
 
 // NewConfigModel constructs and initializes a ConfigModel instance.
@@ -105,14 +109,19 @@ func NewConfigModel(cfg *config.Config, node *yaml.Node, path string, sched sche
 
 	var st *scheduler.Status
 	var schedActive, watchActive bool
+	schedCron := "0 12 * * *"
 	if sched != nil {
 		st, _ = sched.Status()
 		schedActive = sched.IsInstalled()
 		watchActive = sched.IsWatchInstalled()
+		if st != nil && st.CronExpr != "" {
+			schedCron = st.CronExpr
+		}
 	}
 
 	watchInterval := "6h"
 	var watchThresh int64 = 2048
+	preset := "safe"
 	if cfg != nil {
 		if cfg.Watch.Interval != "" {
 			watchInterval = cfg.Watch.Interval
@@ -120,31 +129,39 @@ func NewConfigModel(cfg *config.Config, node *yaml.Node, path string, sched sche
 		if cfg.Watch.ThresholdMB > 0 {
 			watchThresh = cfg.Watch.ThresholdMB
 		}
+		for i, arg := range cfg.Scheduler.Args {
+			if arg == "--preset" && i+1 < len(cfg.Scheduler.Args) {
+				preset = cfg.Scheduler.Args[i+1]
+				break
+			}
+		}
 	}
 
 	return ConfigModel{
-		cfg:           cfg,
-		astRoot:       node,
-		configFile:    path,
-		sched:         sched,
-		blacklist:     bl,
-		activeTab:     TabPaths,
-		state:         ConfigStateNormal,
-		cursor:        0,
-		offset:        0,
-		width:         80,
-		height:        24,
-		textInput:     ti,
-		isDirty:       false,
-		schedStatus:   st,
-		schedActive:   schedActive,
-		schedFreq:     "daily",
-		schedAtTime:   "12:00",
-		schedPreset:   "safe",
-		schedCron:     "0 12 * * *",
-		watchActive:   watchActive,
-		watchInterval: watchInterval,
-		watchThreshMB: watchThresh,
+		cfg:                cfg,
+		astRoot:            node,
+		configFile:         path,
+		sched:              sched,
+		blacklist:          bl,
+		activeTab:          TabPaths,
+		state:              ConfigStateNormal,
+		cursor:             0,
+		offset:             0,
+		width:              80,
+		height:             24,
+		textInput:          ti,
+		isDirty:            false,
+		schedStatus:        st,
+		schedActive:        schedActive,
+		initialSchedActive: schedActive,
+		schedFreq:          "daily",
+		schedAtTime:        "12:00",
+		schedPreset:        preset,
+		schedCron:          schedCron,
+		watchActive:        watchActive,
+		initialWatchActive: watchActive,
+		watchInterval:      watchInterval,
+		watchThreshMB:      watchThresh,
 	}
 }
 
@@ -269,6 +286,12 @@ func (m ConfigModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.toggleCurrentItem()
 				return m, nil
 
+			case "left", "right":
+				if m.activeTab == TabScheduler && (m.cursor == 1 || m.cursor == 3) {
+					m.toggleCurrentItem()
+					return m, nil
+				}
+
 			// Inline edit (D-06)
 			case "e", "enter":
 				m.startEditingCurrentItem()
@@ -294,9 +317,11 @@ func (m ConfigModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Save (D-08, D-14)
 			case "ctrl+s":
 				if err := m.save(); err != nil {
-					m.statusMsg = fmt.Sprintf("⚠️ %v", err)
+					if m.state != ConfigStateOSError {
+						m.statusMsg = fmt.Sprintf("⚠️ %v", err)
+					}
 				} else {
-					m.statusMsg = "✓ Configuração salva com sucesso!"
+					m.statusMsg = "✓ Configuração e agendamento sincronizados com sucesso"
 				}
 				return m, nil
 
@@ -660,6 +685,13 @@ func (m *ConfigModel) validateCurrentInput(val string) error {
 			}
 		case 2:
 			parts := strings.Split(trimmed, ":")
+			if len(parts) == 2 && parts[0] == "" {
+				min, errM := strconv.Atoi(parts[1])
+				if errM != nil || min < 0 || min > 59 {
+					return fmt.Errorf("horário inválido: esperado formato HH:MM ou :MM")
+				}
+				return nil
+			}
 			if len(parts) != 2 {
 				return fmt.Errorf("horário inválido: esperado formato HH:MM (00:00 a 23:59)")
 			}
@@ -877,7 +909,56 @@ func (m *ConfigModel) save() error {
 	if err := m.cfg.Validate(); err != nil {
 		return err
 	}
-	// Persist AST if root exists
+
+	// Sanitize scheduler args & preset (T-05-04)
+	cleanArgs, err := sanitizeSchedulerArgs(m.schedPreset, m.cfg.Scheduler.Args)
+	if err != nil {
+		return err
+	}
+	m.cfg.Scheduler.Args = cleanArgs
+
+	// Sincronização com o OS Scheduler (D-14, D-15, D-16)
+	if m.sched != nil {
+		// 1. Scheduler
+		if m.schedActive {
+			cronExpr, err := m.resolveSchedulerCron()
+			if err != nil {
+				return m.failOSError(err)
+			}
+			if err := m.sched.Install(scheduler.Schedule{CronExpr: cronExpr}); err != nil {
+				return m.failOSError(err)
+			}
+			m.initialSchedActive = true
+		} else {
+			if m.initialSchedActive || m.sched.IsInstalled() {
+				if err := m.sched.Remove(); err != nil && err != scheduler.ErrNotInstalled {
+					return m.failOSError(err)
+				}
+				m.initialSchedActive = false
+			}
+		}
+
+		// 2. Watch Daemon
+		if m.watchActive {
+			dur, err := time.ParseDuration(m.watchInterval)
+			if err != nil {
+				return m.failOSError(fmt.Errorf("intervalo de watch inválido: %w", err))
+			}
+			if err := m.sched.InstallWatch(scheduler.WatchSchedule{Interval: dur}); err != nil {
+				return m.failOSError(err)
+			}
+			m.initialWatchActive = true
+		} else {
+			if m.initialWatchActive || m.sched.IsWatchInstalled() {
+				if err := m.sched.RemoveWatch(); err != nil {
+					return m.failOSError(err)
+				}
+				m.initialWatchActive = false
+			}
+		}
+	}
+
+	// Persist AST if root exists (D-10, T-05-01)
 	if m.astRoot != nil && m.configFile != "" {
 		m.syncAST()
 		if err := config.SaveConfigNode(m.configFile, m.astRoot); err != nil {
@@ -886,6 +967,89 @@ func (m *ConfigModel) save() error {
 	}
 	m.isDirty = false
 	return nil
+}
+
+func (m *ConfigModel) failOSError(err error) error {
+	m.state = ConfigStateOSError
+	m.osErrorMsg = err.Error()
+	return err
+}
+
+func (m ConfigModel) resolveSchedulerCron() (string, error) {
+	switch m.schedFreq {
+	case "daily":
+		return applyAtTimeToCron("0 12 * * *", m.schedAtTime)
+	case "weekly":
+		return applyAtTimeToCron("0 0 * * 0", m.schedAtTime)
+	case "hourly":
+		if m.schedAtTime != "" {
+			parts := strings.Split(strings.TrimPrefix(m.schedAtTime, ":"), ":")
+			minStr := parts[len(parts)-1]
+			min, err := strconv.Atoi(minStr)
+			if err != nil || min < 0 || min > 59 {
+				return "", fmt.Errorf("horário inválido para hourly (esperado minuto 00-59): %s", m.schedAtTime)
+			}
+			return fmt.Sprintf("%d * * * *", min), nil
+		}
+		return "0 * * * *", nil
+	case "custom":
+		if err := scheduler.ValidateCron(m.schedCron); err != nil {
+			return "", fmt.Errorf("expressão cron customizada inválida: %w", err)
+		}
+		return m.schedCron, nil
+	default:
+		return "0 12 * * *", nil
+	}
+}
+
+func applyAtTimeToCron(baseCron, atTime string) (string, error) {
+	if atTime == "" {
+		return baseCron, nil
+	}
+	parts := strings.Split(atTime, ":")
+	if len(parts) != 2 {
+		return "", fmt.Errorf("formato inválido de horário (esperado HH:MM): %s", atTime)
+	}
+	h, errH := strconv.Atoi(parts[0])
+	min, errM := strconv.Atoi(parts[1])
+	if errH != nil || errM != nil || h < 0 || h > 23 || min < 0 || min > 59 {
+		return "", fmt.Errorf("horário fora dos limites (HH: 00-23, MM: 00-59): %s", atTime)
+	}
+	fields, err := scheduler.ParseCron(baseCron)
+	if err != nil {
+		return "", err
+	}
+	fields.Minute = fmt.Sprintf("%d", min)
+	fields.Hour = fmt.Sprintf("%d", h)
+	return fmt.Sprintf("%s %s %s %s %s", fields.Minute, fields.Hour, fields.DayOfMonth, fields.Month, fields.DayOfWeek), nil
+}
+
+func sanitizeSchedulerArgs(preset string, existingArgs []string) ([]string, error) {
+	validPresets := map[string]bool{
+		"none": true, "safe": true, "standard": true, "aggressive": true, "": true,
+	}
+	lowerPreset := strings.ToLower(strings.TrimSpace(preset))
+	if !validPresets[lowerPreset] {
+		return nil, fmt.Errorf("preset inválido: %s (permitidos: none, safe, standard, aggressive)", preset)
+	}
+
+	var cleaned []string
+	if lowerPreset != "" && lowerPreset != "none" {
+		cleaned = append(cleaned, "--preset", lowerPreset)
+	}
+
+	for i := 0; i < len(existingArgs); i++ {
+		arg := existingArgs[i]
+		if arg == "--preset" && i+1 < len(existingArgs) {
+			i++ // skip existing preset value
+			continue
+		}
+		if strings.ContainsAny(arg, ";`&$|><!*?()[]{}") {
+			return nil, fmt.Errorf("argumento contém caracteres de shell proibidos: %s", arg)
+		}
+		cleaned = append(cleaned, arg)
+	}
+	return cleaned, nil
 }
 
 func (m *ConfigModel) syncAST() {
@@ -922,6 +1086,17 @@ func (m *ConfigModel) syncAST() {
 	watchMap := config.FindOrCreateMapping(rootMap, "watch")
 	config.SetScalarValue(watchMap, "interval", m.cfg.Watch.Interval, "!!str")
 	config.SetScalarValue(watchMap, "threshold_mb", fmt.Sprintf("%d", m.cfg.Watch.ThresholdMB), "!!int")
+
+	// Scheduler
+	schedMap := config.FindOrCreateMapping(rootMap, "scheduler")
+	config.SetSequenceValues(schedMap, "args", m.cfg.Scheduler.Args)
+
+	// TUI & History
+	tuiMap := config.FindOrCreateMapping(rootMap, "tui")
+	config.SetScalarValue(tuiMap, "mass_select_threshold_mb", fmt.Sprintf("%d", m.cfg.TUI.MassSelectThresholdMB), "!!int")
+
+	histMap := config.FindOrCreateMapping(rootMap, "history")
+	config.SetScalarValue(histMap, "retention_days", fmt.Sprintf("%d", m.cfg.History.RetentionDays), "!!int")
 }
 
 // View renders the TUI screen.
@@ -1190,6 +1365,38 @@ func (m ConfigModel) viewWatch() string {
 func (m ConfigModel) viewScheduler() string {
 	var b strings.Builder
 	b.WriteString("  " + groupHeaderStyle.Render("Agendamento de Limpeza Automática (Scheduler):") + "\n\n")
+
+	// Cartão superior com status em tempo real do agendador nativo (D-13)
+	provider := "Systemd / Cron (Linux)"
+	if runtime.GOOS == "darwin" {
+		provider = "Launchd (macOS)"
+	}
+
+	statusText := disabledBadgeStyle.Render("[INATIVO]")
+	if m.schedActive {
+		statusText = enabledBadgeStyle.Render("[● ATIVO]")
+	}
+
+	nextRun := "Não agendada"
+	if m.schedStatus != nil && m.schedStatus.NextEstimate != nil {
+		nextRun = m.schedStatus.NextEstimate.Format("2006-01-02 15:04")
+	}
+
+	lastRun := "Nenhuma execução registrada"
+	if m.schedStatus != nil && m.schedStatus.LastResult != nil {
+		lastRun = fmt.Sprintf("%s (%d alvos, %s liberados)",
+			m.schedStatus.LastResult.Timestamp.Format("2006-01-02 15:04:05"),
+			m.schedStatus.LastResult.TargetsCount,
+			format.HumanSize(m.schedStatus.LastResult.BytesFreed),
+		)
+	}
+
+	cardContent := fmt.Sprintf(
+		"Provedor do SO  : %s\nStatus no SO    : %s\nPróxima execução: %s\nÚltima execução : %s",
+		provider, statusText, nextRun, lastRun,
+	)
+	cardBox := modalBoxStyle.Copy().BorderForeground(lipgloss.Color("63")).Render(cardContent)
+	b.WriteString("  " + cardBox + "\n\n")
 
 	schedBadge := disabledBadgeStyle.Render("[ ] Inativo")
 	if m.schedActive {
