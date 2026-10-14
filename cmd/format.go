@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/gtkpad/devclean/internal/domain"
+	"github.com/gtkpad/devclean/internal/format"
 )
 
 func formatOutput(w io.Writer, results []domain.ScanResult, format string, verbose bool, smart bool) error {
@@ -90,16 +91,5 @@ func formatJSON(w io.Writer, results []domain.ScanResult) error {
 }
 
 func humanSize(bytes int64) string {
-	if bytes < 1024 {
-		return fmt.Sprintf("%d B", bytes)
-	}
-
-	units := []string{"KB", "MB", "GB", "TB"}
-	size := float64(bytes) / 1024
-	i := 0
-	for size >= 1024 && i < len(units)-1 {
-		size /= 1024
-		i++
-	}
-	return fmt.Sprintf("%.1f %s", size, units[i])
+	return format.HumanSize(bytes)
 }
