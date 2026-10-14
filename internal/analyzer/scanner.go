@@ -123,7 +123,7 @@ func (s *Scanner) ScanImmediate(rootPath string) (*Node, error) {
 		}
 
 		childDev, childHasDev := getDeviceID(fi)
-		childProtected := safety.IsCoreBlacklisted(childPath) || (s.blacklist != nil && s.blacklist.IsBlacklisted(childPath))
+		childProtected := rootNode.IsProtected || safety.IsCoreBlacklisted(childPath) || (s.blacklist != nil && s.blacklist.IsBlacklisted(childPath))
 		childNode := &Node{
 			Path:        childPath,
 			Name:        name,
