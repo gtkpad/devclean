@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -215,5 +216,360 @@ func TestPurge_ExpandCollapse(t *testing.T) {
 	pm4 := updated4.(PurgeModel)
 	if pm4.Cursor() != 0 {
 		t.Errorf("expected cursor to be 0 after 'k', got %d", pm4.Cursor())
+	}
+}
+func TestPurge_BatchSelection(t *testing.T) {
+	repos := []*RepoGroup{
+		{
+			RepoDir:    "/home/user/repo-a",
+			RepoName:   "repo-a",
+			TotalBytes: 100 * 1024 * 1024,
+			Targets: []domain.Target{
+				{ID: "t-a", SizeBytes: 100 * 1024 * 1024},
+			},
+		},
+		{
+			RepoDir:    "/home/user/repo-b",
+			RepoName:   "repo-b",
+			TotalBytes: 200 * 1024 * 1024,
+			Targets: []domain.Target{
+				{ID: "t-b", SizeBytes: 200 * 1024 * 1024},
+			},
+		},
+		{
+			RepoDir:    "/home/user/repo-c",
+			RepoName:   "repo-c",
+			TotalBytes: 300 * 1024 * 1024,
+			Targets: []domain.Target{
+				{ID: "t-c", SizeBytes: 300 * 1024 * 1024},
+			},
+		},
+	}
+
+	m := NewPurgeModel(repos, nil, nil)
+
+	if m.SelectedCount() != 0 || m.SelectedBytes() != 0 {
+		t.Fatalf("expected initial 0 selections, got count=%d bytes=%d", m.SelectedCount(), m.SelectedBytes())
+	}
+
+	// 1. Space: toggle cursor repo (repo-a)
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	pm := updated.(PurgeModel)
+	if pm.SelectedCount() != 1 || pm.SelectedBytes() != 100*1024*1024 {
+		t.Errorf("expected 1 repo selected (100MB), got count=%d bytes=%d", pm.SelectedCount(), pm.SelectedBytes())
+	}
+
+	// Space again: deselect repo-a
+	updated, _ = pm.Update(tea.KeyMsg{Type: tea.KeySpace})
+	pm = updated.(PurgeModel)
+	if pm.SelectedCount() != 0 || pm.SelectedBytes() != 0 {
+		t.Errorf("expected 0 repos selected after second Space, got count=%d bytes=%d", pm.SelectedCount(), pm.SelectedBytes())
+	}
+
+	// 2. 'a': select all
+	updated, _ = pm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	pm = updated.(PurgeModel)
+	if pm.SelectedCount() != 3 || pm.SelectedBytes() != 600*1024*1024 {
+		t.Errorf("expected 3 repos selected (600MB) with 'a', got count=%d bytes=%d", pm.SelectedCount(), pm.SelectedBytes())
+	}
+
+	// 3. 'n': deselect all
+	updated, _ = pm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	pm = updated.(PurgeModel)
+	if pm.SelectedCount() != 0 || pm.SelectedBytes() != 0 {
+		t.Errorf("expected 0 repos selected with 'n', got count=%d bytes=%d", pm.SelectedCount(), pm.SelectedBytes())
+	}
+
+	// 4. 'i': invert selection (all were false, now all true)
+	updated, _ = pm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("i")})
+	pm = updated.(PurgeModel)
+	if pm.SelectedCount() != 3 || pm.SelectedBytes() != 600*1024*1024 {
+		t.Errorf("expected 3 repos selected with 'i', got count=%d bytes=%d", pm.SelectedCount(), pm.SelectedBytes())
+	}
+
+	// Deselect repo-a with Space
+	updated, _ = pm.Update(tea.KeyMsg{Type: tea.KeySpace})
+	pm = updated.(PurgeModel)
+	if pm.SelectedCount() != 2 || pm.SelectedBytes() != 500*1024*1024 {
+		t.Errorf("expected 2 repos selected (500MB), got count=%d bytes=%d", pm.SelectedCount(), pm.SelectedBytes())
+	}
+
+	// Invert again: repo-a becomes selected, repo-b and repo-c become unselected
+	updated, _ = pm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("i")})
+	pm = updated.(PurgeModel)
+	if pm.SelectedCount() != 1 || pm.SelectedBytes() != 100*1024*1024 {
+		t.Errorf("expected 1 repo selected (100MB) after 'i', got count=%d bytes=%d", pm.SelectedCount(), pm.SelectedBytes())
+	}
+}
+
+func TestPurge_FuzzySearch(t *testing.T) {
+	repos := []*RepoGroup{
+		{
+			RepoDir:    "/home/user/web-app",
+			RepoName:   "web-app",
+			Branch:     "main",
+			Ecosystems: []string{"node"},
+			TotalBytes: 50 * 1024 * 1024,
+			Targets:    []domain.Target{{ID: "t1", SizeBytes: 50 * 1024 * 1024}},
+		},
+		{
+			RepoDir:    "/home/user/backend-api",
+			RepoName:   "backend-api",
+			Branch:     "staging",
+			Ecosystems: []string{"go"},
+			TotalBytes: 70 * 1024 * 1024,
+			Targets:    []domain.Target{{ID: "t2", SizeBytes: 70 * 1024 * 1024}},
+		},
+		{
+			RepoDir:    "/home/user/rust-tools",
+			RepoName:   "rust-tools",
+			Branch:     "dev",
+			Ecosystems: []string{"rust"},
+			TotalBytes: 90 * 1024 * 1024,
+			Targets:    []domain.Target{{ID: "t3", SizeBytes: 90 * 1024 * 1024}},
+		},
+	}
+
+	m := NewPurgeModel(repos, nil, nil)
+
+	// Press '/' to enter search mode
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	pm := updated.(PurgeModel)
+	if !pm.IsSearchMode() {
+		t.Fatalf("expected IsSearchMode to be true after '/'")
+	}
+
+	// Type "web"
+	for _, ch := range "web" {
+		updated, _ = pm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}})
+		pm = updated.(PurgeModel)
+	}
+
+	if len(pm.VisibleIndices()) != 1 {
+		t.Fatalf("expected 1 match for 'web', got %d", len(pm.VisibleIndices()))
+	}
+	matchedRepo := pm.repos[pm.VisibleIndices()[0]]
+	if matchedRepo.RepoName != "web-app" {
+		t.Errorf("expected matched repo to be 'web-app', got %s", matchedRepo.RepoName)
+	}
+
+	view := pm.View()
+	if !strings.Contains(view, "web-app") || strings.Contains(view, "backend-api") {
+		t.Errorf("expected view to show only web-app, got:\n%s", view)
+	}
+
+	// Backspace 3 times
+	for i := 0; i < 3; i++ {
+		updated, _ = pm.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+		pm = updated.(PurgeModel)
+	}
+	if len(pm.VisibleIndices()) != 3 {
+		t.Errorf("expected all 3 repos visible after backspaces, got %d", len(pm.VisibleIndices()))
+	}
+
+	// Search for ecosystem "rust"
+	for _, ch := range "rust" {
+		updated, _ = pm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}})
+		pm = updated.(PurgeModel)
+	}
+	if len(pm.VisibleIndices()) != 1 {
+		t.Fatalf("expected 1 match for 'rust', got %d", len(pm.VisibleIndices()))
+	}
+	if pm.repos[pm.VisibleIndices()[0]].RepoName != "rust-tools" {
+		t.Errorf("expected matched repo 'rust-tools', got %s", pm.repos[pm.VisibleIndices()[0]].RepoName)
+	}
+
+	// Press Esc to exit search mode
+	updated, _ = pm.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	pm = updated.(PurgeModel)
+	if pm.IsSearchMode() {
+		t.Errorf("expected IsSearchMode to be false after Esc")
+	}
+}
+
+func TestPurge_ConfirmModal(t *testing.T) {
+	repos := []*RepoGroup{
+		{
+			RepoDir:    "/home/user/web-app",
+			RepoName:   "web-app",
+			TotalBytes: 50 * 1024 * 1024,
+			Targets: []domain.Target{
+				{ID: "t1", Path: "/home/user/web-app/node_modules", SizeBytes: 50 * 1024 * 1024},
+			},
+		},
+	}
+
+	m := NewPurgeModel(repos, nil, nil)
+
+	// 1. Press 'x' with 0 selected: should show warning and not enter confirming
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	pm := updated.(PurgeModel)
+	if pm.IsConfirming() {
+		t.Errorf("expected confirming to be false when 0 repos selected")
+	}
+	if !strings.Contains(pm.StatusMessage(), "Nenhum repositório selecionado") {
+		t.Errorf("expected warning status message, got: %s", pm.StatusMessage())
+	}
+
+	// 2. Select repo with Space
+	updated, _ = pm.Update(tea.KeyMsg{Type: tea.KeySpace})
+	pm = updated.(PurgeModel)
+
+	// 3. Press 'x' (or 'd') with selection: opens confirming modal
+	updated, _ = pm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	pm = updated.(PurgeModel)
+	if !pm.IsConfirming() {
+		t.Fatalf("expected confirming to be true after 'x' with selection")
+	}
+	modalView := pm.View()
+	if !strings.Contains(modalView, "CONFIRMAR EXPURGO") {
+		t.Errorf("expected view to contain 'CONFIRMAR EXPURGO', got:\n%s", modalView)
+	}
+
+	// 4. Press 'n': cancels confirmation
+	updated, _ = pm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	pm = updated.(PurgeModel)
+	if pm.IsConfirming() {
+		t.Errorf("expected confirming to be false after 'n'")
+	}
+
+	// 5. Press 'd': opens confirmation modal again
+	updated, _ = pm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	pm = updated.(PurgeModel)
+	if !pm.IsConfirming() {
+		t.Fatalf("expected confirming to be true after 'd'")
+	}
+
+	// 6. Press 'y': confirms and starts deletion
+	updated, cmd := pm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	pm = updated.(PurgeModel)
+	if pm.IsConfirming() {
+		t.Errorf("expected confirming to be false after 'y'")
+	}
+	if !pm.IsDeleting() {
+		t.Errorf("expected deleting to be true after 'y'")
+	}
+	if cmd == nil {
+		t.Fatalf("expected non-nil deletion command returned after 'y'")
+	}
+
+	// Execute deletion command
+	msg := cmd()
+	if _, ok := msg.(purgeCompleteMsg); !ok {
+		t.Fatalf("expected purgeCompleteMsg from cmd, got %T", msg)
+	}
+
+	// Feed completion message to Update
+	updated, _ = pm.Update(msg)
+	pm = updated.(PurgeModel)
+	if pm.IsDeleting() {
+		t.Errorf("expected deleting to be false after purgeCompleteMsg")
+	}
+
+	doneView := pm.View()
+	if !strings.Contains(doneView, "Expurgo concluído com sucesso") {
+		t.Errorf("expected done view to contain success message, got:\n%s", doneView)
+	}
+
+	// Press 'q' on done screen: quits
+	_, quitCmd := pm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	if quitCmd == nil {
+		t.Errorf("expected quit command on 'q' from done view")
+	}
+}
+func TestPurge_AdditionalCoverage(t *testing.T) {
+	repos := []*RepoGroup{
+		{
+			RepoDir:    "/home/user/r1",
+			RepoName:   "r1",
+			TotalBytes: 10 * 1024 * 1024,
+			Targets:    []domain.Target{{ID: "t1", SizeBytes: 10 * 1024 * 1024}},
+		},
+		{
+			RepoDir:    "/home/user/r2",
+			RepoName:   "r2",
+			TotalBytes: 20 * 1024 * 1024,
+			Targets:    []domain.Target{{ID: "t2", SizeBytes: 20 * 1024 * 1024}},
+		},
+	}
+
+	m := NewPurgeModel(repos, nil, nil)
+
+	// Init
+	if cmd := m.Init(); cmd != nil {
+		t.Errorf("expected nil Init cmd, got %v", cmd)
+	}
+
+	// Repos getter
+	if len(m.Repos()) != 2 {
+		t.Errorf("expected Repos() to return 2 items, got %d", len(m.Repos()))
+	}
+
+	// WindowSizeMsg
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	pm := updated.(PurgeModel)
+	if pm.width != 120 || pm.height != 40 {
+		t.Errorf("expected width 120 and height 40, got %dx%d", pm.width, pm.height)
+	}
+
+	// Small height edge case
+	smallUpdate, _ := m.Update(tea.WindowSizeMsg{Width: 40, Height: 5})
+	pmSmall := smallUpdate.(PurgeModel)
+	if pmSmall.visibleHeight() < 1 {
+		t.Errorf("expected visibleHeight >= 1 even for small window")
+	}
+
+	// Ctrl+C quit
+	_, quitCmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if quitCmd == nil {
+		t.Errorf("expected quit cmd on Ctrl+C")
+	}
+
+	// Deleting view and progress
+	mDeleting := m
+	mDeleting.deleting = true
+	mDeleting.progressTotal = 10
+	mDeleting.progressCount = 5
+	mDeleting.freedBytes = 50 * 1024 * 1024
+	deletingView := mDeleting.View()
+	if !strings.Contains(deletingView, "Expurgando") || !strings.Contains(deletingView, "5/10") {
+		t.Errorf("expected progress bar in deleting view, got:\n%s", deletingView)
+	}
+
+	// PurgeProgressMsg
+	updated, _ = mDeleting.Update(purgeProgressMsg{freedBytes: 10 * 1024 * 1024})
+	pmProgress := updated.(PurgeModel)
+	if pmProgress.progressCount != 6 || pmProgress.freedBytes != 60*1024*1024 {
+		t.Errorf("expected progress count 6 and 60MB freed, got %d and %d", pmProgress.progressCount, pmProgress.freedBytes)
+	}
+
+	// Quitting returns empty string
+	mQuitting := m
+	mQuitting.quitting = true
+	if v := mQuitting.View(); v != "" {
+		t.Errorf("expected empty string when quitting, got: %s", v)
+	}
+
+	// Scrolling bounds with many items
+	var manyRepos []*RepoGroup
+	for i := 0; i < 20; i++ {
+		manyRepos = append(manyRepos, &RepoGroup{
+			RepoDir:    fmt.Sprintf("/repo/%d", i),
+			RepoName:   fmt.Sprintf("repo-%02d", i),
+			TotalBytes: 1024,
+			Targets:    []domain.Target{{ID: fmt.Sprintf("t%d", i), SizeBytes: 1024}},
+		})
+	}
+	mScroll := NewPurgeModel(manyRepos, nil, nil)
+	mScroll.height = 12 // visibleHeight = 5
+	for i := 0; i < 15; i++ {
+		u, _ := mScroll.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+		mScroll = u.(PurgeModel)
+	}
+	if mScroll.Cursor() != 15 {
+		t.Errorf("expected cursor at 15, got %d", mScroll.Cursor())
+	}
+	if mScroll.offset <= 0 {
+		t.Errorf("expected offset to scroll down, got %d", mScroll.offset)
 	}
 }
