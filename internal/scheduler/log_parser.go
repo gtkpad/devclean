@@ -144,17 +144,18 @@ func populateEndMarker(run *LogRun, line string) {
 
 	for _, part := range parts[1:] {
 		p := strings.TrimSpace(part)
-		if strings.HasPrefix(p, "status=") {
+		switch {
+		case strings.HasPrefix(p, "status="):
 			run.Status = strings.TrimPrefix(p, "status=")
-		} else if strings.HasPrefix(p, "targets=") {
+		case strings.HasPrefix(p, "targets="):
 			if count, err := strconv.Atoi(strings.TrimPrefix(p, "targets=")); err == nil {
 				run.TargetsCount = count
 			}
-		} else if strings.HasPrefix(p, "freed=") {
+		case strings.HasPrefix(p, "freed="):
 			freedStr := strings.TrimPrefix(p, "freed=")
 			run.FreedHuman = freedStr
 			run.BytesFreed = ParseFreedBytes(freedStr)
-		} else if strings.HasPrefix(p, "duration=") {
+		case strings.HasPrefix(p, "duration="):
 			run.Duration = strings.TrimPrefix(p, "duration=")
 		}
 	}
