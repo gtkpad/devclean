@@ -501,3 +501,43 @@ func TestMutator_CorruptedYAMLSyntax(t *testing.T) {
 	}
 }
 
+func TestMutator_LoadWithAST_EmptyAndError(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// 1. Empty file
+	emptyFile := filepath.Join(tmpDir, "empty.yaml")
+	if err := os.WriteFile(emptyFile, []byte(""), 0644); err != nil {
+		t.Fatal(err)
+	}
+	root, cfg, err := LoadWithAST(emptyFile)
+	if err != nil {
+		t.Fatalf("LoadWithAST failed on empty file: %v", err)
+	}
+	if root == nil || GetMappingNode(root) == nil {
+		t.Errorf("expected non-nil root mapping for empty file")
+	}
+	if cfg == nil {
+		t.Errorf("expected non-nil config for empty file")
+	}
+
+	// 2. Read error (path is a directory)
+	dirPath := filepath.Join(tmpDir, "is_a_dir")
+	if err := os.MkdirAll(dirPath, 0755); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = LoadWithAST(dirPath)
+	if err == nil {
+		t.Error("expected error when reading directory as file")
+	}
+}
+
+func TestMutator_SaveConfigNode_Errors(t *testing.T) {
+	// Invalid path where MkdirAll fails
+	impossiblePath := "/dev/null/impossible/config.yaml"
+	root := &yaml.Node{Kind: yaml.MappingNode}
+	if err := SaveConfigNode(impossiblePath, root); err == nil {
+		t.Error("expected error saving to impossible path")
+	}
+}
+
+
