@@ -136,3 +136,77 @@ func TestTarget_IsVirtual(t *testing.T) {
 		}
 	}
 }
+
+func TestTarget_JSONSerialization(t *testing.T) {
+	target := Target{
+		ID:            "test-ttl-1",
+		Name:          "node_modules",
+		Path:          "/home/user/project/node_modules",
+		SizeBytes:     1024000,
+		EligibleBytes: 512000,
+		TTLEligible:   true,
+		Risk:          RiskMedium,
+		LastAccessed:  time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC),
+		Category:      "node",
+	}
+
+	data, err := json.Marshal(target)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	var raw map[string]interface{}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("Unmarshal to map failed: %v", err)
+	}
+
+	if raw["eligible_bytes"] != float64(512000) {
+		t.Errorf("raw[eligible_bytes] = %v, want 512000", raw["eligible_bytes"])
+	}
+	if raw["ttl_eligible"] != true {
+		t.Errorf("raw[ttl_eligible] = %v, want true", raw["ttl_eligible"])
+	}
+
+	var decoded Target
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal to Target failed: %v", err)
+	}
+
+	if decoded.EligibleBytes != 512000 {
+		t.Errorf("decoded.EligibleBytes = %d, want 512000", decoded.EligibleBytes)
+	}
+	if !decoded.TTLEligible {
+		t.Errorf("decoded.TTLEligible = %v, want true", decoded.TTLEligible)
+	}
+}
+
+func TestTarget_BackwardCompatibility(t *testing.T) {
+	// Old JSON payload without eligible_bytes or ttl_eligible
+	oldJSON := `{
+		"id": "legacy-1",
+		"name": "cargo-target",
+		"path": "/home/user/rust/target",
+		"size_bytes": 2048000,
+		"risk": "low",
+		"category": "rust"
+	}`
+
+	var decoded Target
+	if err := json.Unmarshal([]byte(oldJSON), &decoded); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+
+	if decoded.ID != "legacy-1" {
+		t.Errorf("decoded.ID = %q, want legacy-1", decoded.ID)
+	}
+	if decoded.SizeBytes != 2048000 {
+		t.Errorf("decoded.SizeBytes = %d, want 2048000", decoded.SizeBytes)
+	}
+	if decoded.EligibleBytes != 0 {
+		t.Errorf("decoded.EligibleBytes = %d, want 0", decoded.EligibleBytes)
+	}
+	if decoded.TTLEligible != false {
+		t.Errorf("decoded.TTLEligible = %v, want false", decoded.TTLEligible)
+	}
+}
+
