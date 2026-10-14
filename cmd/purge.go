@@ -441,6 +441,7 @@ func groupTargetsByRepo(
 				InactivityStr: inactivityStr,
 				Ecosystems:    make([]string, 0),
 				Targets:       make([]domain.Target, 0),
+				TargetsByEco:  make(map[string][]domain.Target),
 				TotalBytes:    0,
 				Expanded:      false,
 				Selected:      false,
@@ -453,7 +454,14 @@ func groupTargetsByRepo(
 		rg.TotalBytes += t.SizeBytes
 
 		eco := targetEcoMap[t.Path]
-		if eco != "" {
+		if eco == "" {
+			eco = "generic"
+		}
+		if rg.TargetsByEco == nil {
+			rg.TargetsByEco = make(map[string][]domain.Target)
+		}
+		rg.TargetsByEco[eco] = append(rg.TargetsByEco[eco], t)
+		if eco != "generic" {
 			hasEco := false
 			for _, e := range rg.Ecosystems {
 				if e == eco {

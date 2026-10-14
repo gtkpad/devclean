@@ -25,6 +25,7 @@ type RepoGroup struct {
 	InactivityStr string
 	Ecosystems    []string
 	Targets       []domain.Target
+	TargetsByEco  map[string][]domain.Target
 	TotalBytes    int64
 	Expanded      bool
 	Selected      bool
@@ -557,7 +558,13 @@ func (m PurgeModel) renderDeletingView() string {
 func (m PurgeModel) renderDoneView() string {
 	var b strings.Builder
 	b.WriteString("\n\n")
-	b.WriteString("  " + headerStyle.Render("✓ Expurgo concluído com sucesso!") + "\n\n")
+	if m.deletionErr != nil && m.freedCount == 0 {
+		b.WriteString("  " + statusAlertStyle.Render("✗ Falha no expurgo!") + "\n\n")
+	} else if m.deletionErr != nil {
+		b.WriteString("  " + statusAlertStyle.Render("⚠ Expurgo concluído com avisos/erros:") + "\n\n")
+	} else {
+		b.WriteString("  " + headerStyle.Render("✓ Expurgo concluído com sucesso!") + "\n\n")
+	}
 	b.WriteString(fmt.Sprintf("  Espaço liberado: %s em %d alvos de build\n", format.HumanSize(m.freedBytes), m.freedCount))
 	if m.deletionErr != nil {
 		b.WriteString(statusAlertStyle.Render(fmt.Sprintf("  Erros encontrados: %v\n", m.deletionErr)))
@@ -607,12 +614,18 @@ func (m PurgeModel) startDeletionCmd() tea.Cmd {
 			if !rg.Selected {
 				continue
 			}
-			for _, t := range rg.Targets {
-				eco := "generic"
-				if len(rg.Ecosystems) > 0 {
-					eco = rg.Ecosystems[0]
+			if len(rg.TargetsByEco) > 0 {
+				for eco, targets := range rg.TargetsByEco {
+					targetsByEco[eco] = append(targetsByEco[eco], targets...)
 				}
-				targetsByEco[eco] = append(targetsByEco[eco], t)
+			} else {
+				for _, t := range rg.Targets {
+					eco := "generic"
+					if len(rg.Ecosystems) > 0 {
+						eco = rg.Ecosystems[0]
+					}
+					targetsByEco[eco] = append(targetsByEco[eco], t)
+				}
 			}
 		}
 
@@ -626,10 +639,20 @@ func (m PurgeModel) startDeletionCmd() tea.Cmd {
 			return purgeCompleteMsg{freedBytes: 0, freedCount: 0, err: err}
 		}
 
+		var combinedErr error
+		if res != nil && len(res.Errors) > 0 {
+			var errMsgs []string
+			for _, e := range res.Errors {
+				errMsgs = append(errMsgs, e.Error())
+			}
+			combinedErr = fmt.Errorf("%s", strings.Join(errMsgs, "; "))
+		}
+
 		return purgeCompleteMsg{
 			freedBytes: res.TotalFreed,
 			freedCount: res.TotalCount,
 			result:     res,
+			err:        combinedErr,
 		}
 	}
 }
