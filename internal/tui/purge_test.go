@@ -662,3 +662,17 @@ func TestPurge_CoordinatorIntegration(t *testing.T) {
 		t.Errorf("expected error in renderDoneView, got:\n%s", errView)
 	}
 }
+
+func TestPurge_TrashOptionsPassed(t *testing.T) {
+	trashOpt := false
+	m := NewPurgeModel(nil, nil, nil, &trashOpt)
+	if m.useTrashOpt == nil || *m.useTrashOpt != false {
+		t.Fatalf("expected useTrashOpt false, got %v", m.useTrashOpt)
+	}
+
+	trashOptTrue := true
+	m2 := NewPurgeModel(nil, nil, nil, &trashOptTrue)
+	if m2.useTrashOpt == nil || *m2.useTrashOpt != true {
+		t.Fatalf("expected useTrashOpt true, got %v", m2.useTrashOpt)
+	}
+}

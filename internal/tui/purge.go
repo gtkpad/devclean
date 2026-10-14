@@ -55,10 +55,11 @@ type PurgeModel struct {
 	progressTotal  int
 	deletionResult *deleter.Result
 	deletionErr    error
+	useTrashOpt    *bool
 }
 
 // NewPurgeModel creates and initializes a PurgeModel.
-func NewPurgeModel(repos []*RepoGroup, coord *deleter.Coordinator, bl *safety.Blacklist) PurgeModel {
+func NewPurgeModel(repos []*RepoGroup, coord *deleter.Coordinator, bl *safety.Blacklist, useTrashOpt ...*bool) PurgeModel {
 	visible := make([]int, len(repos))
 	for i, rg := range repos {
 		visible[i] = i
@@ -75,6 +76,11 @@ func NewPurgeModel(repos []*RepoGroup, coord *deleter.Coordinator, bl *safety.Bl
 		}
 	}
 
+	var trashOpt *bool
+	if len(useTrashOpt) > 0 {
+		trashOpt = useTrashOpt[0]
+	}
+
 	m := PurgeModel{
 		repos:          repos,
 		visibleIndices: visible,
@@ -84,6 +90,7 @@ func NewPurgeModel(repos []*RepoGroup, coord *deleter.Coordinator, bl *safety.Bl
 		height:         24,
 		coordinator:    coord,
 		blacklist:      bl,
+		useTrashOpt:    trashOpt,
 	}
 	m.updateTotals()
 	return m
@@ -610,7 +617,8 @@ func (m PurgeModel) startDeletionCmd() tea.Cmd {
 		}
 
 		opts := deleter.Options{
-			Mode: "purge",
+			Mode:     "purge",
+			UseTrash: m.useTrashOpt,
 		}
 
 		res, err := coord.Delete(context.Background(), targetsByEco, opts)
