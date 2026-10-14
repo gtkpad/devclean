@@ -144,7 +144,10 @@ func newScheduleCmd() *cobra.Command {
 }
 
 func showStatus(configDir string, watchMode bool) error {
-	sched := scheduler.New(configDir)
+	sched, err := schedulerFactory(configDir, "")
+	if err != nil {
+		return fmt.Errorf("creating scheduler: %w", err)
+	}
 
 	if watchMode {
 		if sched.IsWatchInstalled() {
@@ -204,7 +207,10 @@ func installWatch(configDir string) error {
 		return fmt.Errorf("cannot determine binary path: %w", err)
 	}
 
-	sched := scheduler.New(configDir)
+	sched, err := schedulerFactory(configDir, "")
+	if err != nil {
+		return fmt.Errorf("creating scheduler: %w", err)
+	}
 
 	if sched.IsWatchInstalled() {
 		fmt.Fprintln(os.Stderr, "Watch daemon already registered. Remove first with `devclean unschedule --watch`.")
@@ -234,7 +240,10 @@ func newUnscheduleCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			resolver := platform.New()
 			paths := resolver.Resolve()
-			sched := scheduler.New(paths.ConfigDir)
+			sched, err := schedulerFactory(paths.ConfigDir, "")
+			if err != nil {
+				return fmt.Errorf("creating scheduler: %w", err)
+			}
 
 			if watchMode {
 				if err := sched.RemoveWatch(); err != nil {
