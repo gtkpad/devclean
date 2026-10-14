@@ -106,6 +106,12 @@ func TestShowStatus_Active(t *testing.T) {
 </dict></plist>`
 	_ = os.WriteFile(plistPath, []byte(plistContent), 0644)
 
+	// Simular unit de schedule instalado (Linux systemd)
+	systemdDir := filepath.Join(tmpDir, ".config", "systemd", "user")
+	_ = os.MkdirAll(systemdDir, 0755)
+	_ = os.WriteFile(filepath.Join(systemdDir, "devclean.service"), []byte("[Service]\nExecStart=/usr/local/bin/devclean\n"), 0644)
+	_ = os.WriteFile(filepath.Join(systemdDir, "devclean.timer"), []byte("[Timer]\nOnCalendar=*-*-* 00:00:00\n"), 0644)
+
 	// Simular histórico de execução
 	_ = scheduler.RecordRun(configDir, scheduler.RunResult{
 		Timestamp:    time.Now(),
@@ -126,6 +132,11 @@ func TestScheduleCmd_WatchModeAlreadyInstalled(t *testing.T) {
 	_ = os.MkdirAll(launchDir, 0755)
 	watchPlist := filepath.Join(launchDir, "com.devclean.watch.plist")
 	_ = os.WriteFile(watchPlist, []byte("<plist></plist>"), 0644)
+
+	systemdDir := filepath.Join(tmpDir, ".config", "systemd", "user")
+	_ = os.MkdirAll(systemdDir, 0755)
+	watchService := filepath.Join(systemdDir, "devclean-watch.service")
+	_ = os.WriteFile(watchService, []byte("[Unit]\nDescription=Watch\n"), 0644)
 
 	cmd := newScheduleCmd()
 	cmd.SetArgs([]string{"--watch"})
@@ -150,6 +161,12 @@ func TestUnscheduleCmd_WhenInstalled(t *testing.T) {
 
 	watchPlist := filepath.Join(launchDir, "com.devclean.watch.plist")
 	_ = os.WriteFile(watchPlist, []byte("<plist></plist>"), 0644)
+
+	systemdDir := filepath.Join(tmpDir, ".config", "systemd", "user")
+	_ = os.MkdirAll(systemdDir, 0755)
+	_ = os.WriteFile(filepath.Join(systemdDir, "devclean.service"), []byte("[Unit]\n"), 0644)
+	_ = os.WriteFile(filepath.Join(systemdDir, "devclean.timer"), []byte("[Unit]\n"), 0644)
+	_ = os.WriteFile(filepath.Join(systemdDir, "devclean-watch.service"), []byte("[Unit]\n"), 0644)
 
 	unCmd := newUnscheduleCmd()
 	_ = unCmd.Execute()
