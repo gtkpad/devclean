@@ -156,8 +156,17 @@ func newPurgeCmd() *cobra.Command {
 				hookRunner := hooks.New(cfg.Hooks)
 				coord := deleter.New(eng, cfg, bl, trashMgr, hookRunner, paths.ConfigDir, dataDir)
 
+				var useTrashOpt *bool
+				if useTrash {
+					t := true
+					useTrashOpt = &t
+				} else if permanent {
+					f := false
+					useTrashOpt = &f
+				}
+
 				repoGroups := groupTargetsByRepo(ctx, eligibleTargets, targetRepoMap, targetsByEco)
-				pModel := tui.NewPurgeModel(repoGroups, coord, bl)
+				pModel := tui.NewPurgeModel(repoGroups, coord, bl, useTrashOpt)
 				return purgeRunProgram(pModel)
 			}
 
