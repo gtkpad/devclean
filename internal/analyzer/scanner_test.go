@@ -1,9 +1,13 @@
 package analyzer_test
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
+	"time"
 
 	"github.com/gtkpad/devclean/internal/analyzer"
 	"github.com/gtkpad/devclean/internal/safety"
@@ -306,4 +310,118 @@ func TestScanImmediate_WithSymlinkChild(t *testing.T) {
 		t.Errorf("expected to find symlink.txt child")
 	}
 }
+
+func TestScanner_SymlinkNotFollowed(t *testing.T) {
+	tmpDir := t.TempDir()
+	subDir := filepath.Join(tmpDir, "sub")
+	if err := os.Mkdir(subDir, 0o755); err != nil {
+		t.Fatalf("mkdir failed: %v", err)
+	}
+
+	subFile := filepath.Join(subDir, "file.txt")
+	if err := os.WriteFile(subFile, []byte("data"), 0o644); err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+
+	// Create cyclic symlink inside subDir pointing to parent tmpDir: sub/loop -> tmpDir
+	loopLink := filepath.Join(subDir, "loop")
+	if err := os.Symlink(tmpDir, loopLink); err != nil {
+		t.Fatalf("create cyclic symlink failed: %v", err)
+	}
+
+	scanner := analyzer.NewScanner(nil, true, 0, 10)
+	node, err := scanner.ScanImmediate(tmpDir)
+	if err != nil {
+		t.Fatalf("ScanImmediate failed: %v", err)
+	}
+
+	var targetNode *analyzer.Node
+	for _, child := range node.Children {
+		if child.Name == "sub" {
+			targetNode = child
+			break
+		}
+	}
+	if targetNode == nil {
+		t.Fatal("expected sub child node")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	bytes, items, err := scanner.CalculateDirSize(ctx, targetNode, nil)
+	if err != nil {
+		t.Fatalf("CalculateDirSize failed: %v", err)
+	}
+
+	if items < 1 {
+		t.Errorf("expected at least 1 item, got %d", items)
+	}
+	if bytes < 4 {
+		t.Errorf("expected at least 4 bytes, got %d", bytes)
+	}
+	if !targetNode.Scanned {
+		t.Error("expected targetNode to be marked Scanned=true")
+	}
+}
+
+func TestScanner_MountBoundary(t *testing.T) {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		t.Skip("device ID mount boundary isolation only supported on darwin and linux")
+	}
+
+	tmpDir := t.TempDir()
+	subDir := filepath.Join(tmpDir, "sub")
+	if err := os.Mkdir(subDir, 0o755); err != nil {
+		t.Fatalf("mkdir failed: %v", err)
+	}
+
+	subFile := filepath.Join(subDir, "file.txt")
+	if err := os.WriteFile(subFile, []byte("sub content 12345"), 0o644); err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+
+	scanner := analyzer.NewScanner(nil, true, 0, 10)
+	// We simulate a node where HasDevID is true, but DeviceID is different from any real filesystem ID
+	fakeDevNode := &analyzer.Node{
+		Path:     tmpDir,
+		Name:     filepath.Base(tmpDir),
+		Type:     analyzer.ItemDir,
+		HasDevID: true,
+		DeviceID: 0xDeadBeefCafe, // Fake device ID
+	}
+
+	bytes, items, err := scanner.CalculateDirSize(context.Background(), fakeDevNode, nil)
+	if err != nil {
+		t.Fatalf("CalculateDirSize failed: %v", err)
+	}
+
+	// Subdir has different device ID, so it should be skipped with filepath.SkipDir
+	if bytes != 0 {
+		t.Errorf("expected 0 bytes because subDir should be skipped across mount boundary, got %d", bytes)
+	}
+	if items != 0 {
+		t.Errorf("expected 0 items because subDir should be skipped, got %d", items)
+	}
+}
+
+func TestScanner_ContextCancellation(t *testing.T) {
+	tmpDir := t.TempDir()
+	dirNode := &analyzer.Node{
+		Path: tmpDir,
+		Name: filepath.Base(tmpDir),
+		Type: analyzer.ItemDir,
+	}
+
+	scanner := analyzer.NewScanner(nil, true, 0, 10)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	_, _, err := scanner.CalculateDirSize(ctx, dirNode, nil)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled error, got: %v", err)
+	}
+}
+
 
