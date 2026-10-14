@@ -424,4 +424,46 @@ func TestScanner_ContextCancellation(t *testing.T) {
 	}
 }
 
+func TestScanner_CalculateDirSize_UpdatesChannel(t *testing.T) {
+	tmpDir := t.TempDir()
+	subFile := filepath.Join(tmpDir, "sample.txt")
+	if err := os.WriteFile(subFile, []byte("channel update test"), 0o644); err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+
+	scanner := analyzer.NewScanner(nil, true, 0, 10)
+	node, err := scanner.ScanImmediate(tmpDir)
+	if err != nil {
+		t.Fatalf("ScanImmediate failed: %v", err)
+	}
+
+	updates := make(chan analyzer.ScanUpdateMsg, 10)
+	bytes, items, err := scanner.CalculateDirSize(context.Background(), node, updates)
+	if err != nil {
+		t.Fatalf("CalculateDirSize failed: %v", err)
+	}
+	if bytes != int64(len("channel update test")) {
+		t.Errorf("expected size %d, got %d", len("channel update test"), bytes)
+	}
+	if items != 1 {
+		t.Errorf("expected items 1, got %d", items)
+	}
+
+	select {
+	case msg := <-updates:
+		if msg.Path != node.Path {
+			t.Errorf("expected update msg for path %q, got %q", node.Path, msg.Path)
+		}
+		if msg.SizeBytes != bytes {
+			t.Errorf("expected update msg size %d, got %d", bytes, msg.SizeBytes)
+		}
+		if !msg.Scanned {
+			t.Error("expected update msg Scanned to be true")
+		}
+	default:
+		t.Error("expected to receive update msg from updates channel")
+	}
+}
+
+
 
