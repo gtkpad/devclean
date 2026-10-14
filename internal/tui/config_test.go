@@ -1,6 +1,7 @@
 package tui_test
 
 import (
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -8,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/gtkpad/devclean/internal/config"
 	"github.com/gtkpad/devclean/internal/safety"
+	"github.com/gtkpad/devclean/internal/scheduler"
 	"github.com/gtkpad/devclean/internal/tui"
 	"gopkg.in/yaml.v3"
 )
@@ -856,6 +858,202 @@ func TestConfigTUI_OSErrorModal(t *testing.T) {
 	m = updateModel(m, tea.KeyMsg{Type: tea.KeyEnter})
 	if m.State() != tui.ConfigStateNormal {
 		t.Fatalf("expected ConfigStateNormal after Enter on OSError, got %v", m.State())
+	}
+}
+
+type mockScheduler struct {
+	installed          bool
+	watchInstalled     bool
+	status             *scheduler.Status
+	installErr         error
+	removeErr          error
+	installWatchErr    error
+	removeWatchErr     error
+	installCalled      bool
+	removeCalled       bool
+	installWatchCalled bool
+	removeWatchCalled  bool
+	lastSchedule       scheduler.Schedule
+	lastWatchSchedule  scheduler.WatchSchedule
+}
+
+func (m *mockScheduler) Install(s scheduler.Schedule) error {
+	m.installCalled = true
+	m.lastSchedule = s
+	if m.installErr != nil {
+		return m.installErr
+	}
+	m.installed = true
+	return nil
+}
+
+func (m *mockScheduler) Remove() error {
+	m.removeCalled = true
+	if m.removeErr != nil {
+		return m.removeErr
+	}
+	m.installed = false
+	return nil
+}
+
+func (m *mockScheduler) Status() (*scheduler.Status, error) {
+	if m.status != nil {
+		return m.status, nil
+	}
+	return &scheduler.Status{Active: m.installed}, nil
+}
+
+func (m *mockScheduler) IsInstalled() bool {
+	return m.installed
+}
+
+func (m *mockScheduler) InstallWatch(ws scheduler.WatchSchedule) error {
+	m.installWatchCalled = true
+	m.lastWatchSchedule = ws
+	if m.installWatchErr != nil {
+		return m.installWatchErr
+	}
+	m.watchInstalled = true
+	return nil
+}
+
+func (m *mockScheduler) RemoveWatch() error {
+	m.removeWatchCalled = true
+	if m.removeWatchErr != nil {
+		return m.removeWatchErr
+	}
+	m.watchInstalled = false
+	return nil
+}
+
+func (m *mockScheduler) IsWatchInstalled() bool {
+	return m.watchInstalled
+}
+
+func TestConfigTUI_OSSync_Success(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", "devclean-ossync-*.yaml")
+	if err != nil {
+		t.Fatalf("failed to create temp file: %v", err)
+	}
+	tmpPath := tmpFile.Name()
+	_ = tmpFile.Close()
+	defer os.Remove(tmpPath)
+	defer os.Remove(tmpPath + ".bak")
+
+	if err := os.WriteFile(tmpPath, []byte(config.DefaultConfigYAML), 0644); err != nil {
+		t.Fatalf("failed to write initial config: %v", err)
+	}
+
+	var root yaml.Node
+	if err := yaml.Unmarshal([]byte(config.DefaultConfigYAML), &root); err != nil {
+		t.Fatalf("unmarshal default yaml: %v", err)
+	}
+
+	mockSched := &mockScheduler{
+		installed:      false,
+		watchInstalled: false,
+	}
+
+	cfg := config.Defaults()
+	m := tui.NewConfigModel(&cfg, &root, tmpPath, mockSched, nil)
+
+	// Switch to TabScheduler (5)
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'5'}})
+	// Toggle scheduler active with space
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeySpace})
+
+	// Switch to TabWatch (4)
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'4'}})
+	// Toggle watch active with space
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeySpace})
+
+	if !m.IsDirty() {
+		t.Fatalf("expected model to be dirty before save")
+	}
+
+	// Trigger Save with Ctrl+S
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyCtrlS})
+
+	if !mockSched.installCalled {
+		t.Errorf("expected scheduler.Install to be called")
+	}
+	if !mockSched.installWatchCalled {
+		t.Errorf("expected scheduler.InstallWatch to be called")
+	}
+	if m.IsDirty() {
+		t.Errorf("expected model isDirty to be false after successful save")
+	}
+	if !strings.Contains(m.StatusMessage(), "sincronizados com sucesso") {
+		t.Errorf("expected success status message, got: %s", m.StatusMessage())
+	}
+}
+
+func TestConfigTUI_OSSyncFailureModal(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", "devclean-ossync-fail-*.yaml")
+	if err != nil {
+		t.Fatalf("failed to create temp file: %v", err)
+	}
+	tmpPath := tmpFile.Name()
+	_ = tmpFile.Close()
+	defer os.Remove(tmpPath)
+	defer os.Remove(tmpPath + ".bak")
+
+	initialContent := []byte(config.DefaultConfigYAML)
+	if err := os.WriteFile(tmpPath, initialContent, 0644); err != nil {
+		t.Fatalf("failed to write initial config: %v", err)
+	}
+
+	var root yaml.Node
+	if err := yaml.Unmarshal(initialContent, &root); err != nil {
+		t.Fatalf("unmarshal default yaml: %v", err)
+	}
+
+	simulatedErr := errors.New("launchctl: service already loaded")
+	mockSched := &mockScheduler{
+		installed:      false,
+		watchInstalled: false,
+		installErr:     simulatedErr,
+	}
+
+	cfg := config.Defaults()
+	m := tui.NewConfigModel(&cfg, &root, tmpPath, mockSched, nil)
+
+	// Switch to TabScheduler (5)
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'5'}})
+	// Toggle scheduler active
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeySpace})
+
+	if !m.IsDirty() {
+		t.Fatalf("expected model to be dirty")
+	}
+
+	// Trigger Save with Ctrl+S
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyCtrlS})
+
+	if m.State() != tui.ConfigStateOSError {
+		t.Fatalf("expected state ConfigStateOSError, got %v", m.State())
+	}
+	v := m.View()
+	if !strings.Contains(v, "launchctl: service already loaded") {
+		t.Errorf("expected OS error message in view, got: %s", v)
+	}
+	if !m.IsDirty() {
+		t.Errorf("expected model to remain dirty on OS failure")
+	}
+
+	// Dismiss modal with Enter
+	m = updateModel(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.State() != tui.ConfigStateNormal {
+		t.Fatalf("expected state ConfigStateNormal after dismissing modal, got %v", m.State())
+	}
+	if !m.IsDirty() {
+		t.Errorf("expected model to still remain dirty after dismissing modal")
+	}
+
+	// Verify file on disk was NOT overwritten
+	contentAfter, _ := os.ReadFile(tmpPath)
+	if string(contentAfter) != string(initialContent) {
+		t.Errorf("expected config file on disk to remain unchanged")
 	}
 }
 
