@@ -68,7 +68,7 @@ func setupV22GitRepo(t *testing.T, dir string, branch string, daysAgo int) {
 	}
 }
 
-// Flow 1: User configures custom paths and ecosystems via TUI (Phase 5) -> runs clean with preset (Phase 1)
+// Flow 1: User configures custom paths and ecosystems via TUI -> runs clean with preset
 func TestE2E_Flow1_ConfigTUI_To_CleanPresets(t *testing.T) {
 	tmpDir := t.TempDir()
 	homeDir := filepath.Join(tmpDir, "home")
@@ -91,7 +91,7 @@ func TestE2E_Flow1_ConfigTUI_To_CleanPresets(t *testing.T) {
 	_ = os.MkdirAll(filepath.Join(homeDir, ".pub-cache"), 0755)
 	_ = os.MkdirAll(filepath.Join(homeDir, ".conan"), 0755)
 
-	// Create Phase 1 Ecosystem fixtures
+	// Create ecosystem fixtures (Flutter, C++/CMake)
 	// 1. Flutter fixture (.dart_tool)
 	flutterProj := filepath.Join(workspace, "my_flutter_app")
 	flutterTool := filepath.Join(flutterProj, ".dart_tool")
@@ -217,7 +217,7 @@ func TestE2E_Flow1_ConfigTUI_To_CleanPresets(t *testing.T) {
 	}
 }
 
-// Flow 2: User finds installer (Phase 2) -> deletes to trash -> runs trash clean with retention (Phase 2)
+// Flow 2: User finds installer -> deletes to trash -> runs trash clean with retention
 func TestE2E_Flow2_Installer_To_TrashRetention(t *testing.T) {
 	tmpDir := t.TempDir()
 	homeDir := filepath.Join(tmpDir, "home")
@@ -360,7 +360,7 @@ installer:
 	}
 }
 
-// Flow 3: User schedules weekly clean via CLI (Phase 3) -> schedule run executes -> schedule logs inspects runs (Phase 3)
+// Flow 3: User schedules weekly clean via CLI -> schedule run executes -> schedule logs inspects runs
 func TestE2E_Flow3_SchedulerWeekly_Run_LogsAudit(t *testing.T) {
 	tmpDir := t.TempDir()
 	homeDir := filepath.Join(tmpDir, "home")
@@ -494,7 +494,7 @@ func TestE2E_Flow3_SchedulerWeekly_Run_LogsAudit(t *testing.T) {
 	}
 }
 
-// Flow 4: User explores disk via analyze (Phase 4) -> attempts to delete protected file (blocked) vs normal file (trashed)
+// Flow 4: User explores disk via analyze -> attempts to delete protected file (blocked) vs normal file (trashed)
 func TestE2E_Flow4_AnalyzeTUI_BlacklistProtection_Vs_Trash(t *testing.T) {
 	tmpDir := t.TempDir()
 	homeDir := filepath.Join(tmpDir, "home")
@@ -623,7 +623,7 @@ func TestE2E_Flow4_AnalyzeTUI_BlacklistProtection_Vs_Trash(t *testing.T) {
 	}
 }
 
-// Flow 5: User runs purge interactively (Phase 4) -> selects git repos -> confirms purge -> trash handles targets
+// Flow 5: User runs purge interactively -> selects git repos -> confirms purge -> trash handles targets
 func TestE2E_Flow5_PurgeTUI_GitRepoDetection_And_Trash(t *testing.T) {
 	tmpDir := t.TempDir()
 	homeDir := filepath.Join(tmpDir, "home")

@@ -37,7 +37,7 @@ func RegisterDefaultCleanersWithExecutor(eng *Engine, cfg *config.Config, resolv
 	}
 	paths := resolver.Resolve()
 
-	// 7 Ecossistemas originais
+	// Ecossistemas base de linguagens e containers
 	eng.Register(docker.New())
 	eng.Register(golang.New())
 	eng.Register(node.New(cfg.ScanPaths))
@@ -46,7 +46,7 @@ func RegisterDefaultCleanersWithExecutor(eng *Engine, cfg *config.Config, resolv
 	eng.Register(rust.New(cfg.ScanPaths))
 	eng.Register(java.New(cfg.ScanPaths))
 
-	// 6 Ecossistemas da Fase 3
+	// Ecossistemas de IA, runtimes e gerenciadores de pacotes
 	eng.Register(ai.New(cfg.ScanPaths))
 	eng.Register(pnpm.NewWithExecutor(exec))
 	eng.Register(bun.New())
@@ -54,7 +54,7 @@ func RegisterDefaultCleanersWithExecutor(eng *Engine, cfg *config.Config, resolv
 	eng.Register(xcode.NewWithExecutor(exec))
 	eng.Register(homebrew.NewWithExecutor(exec))
 
-	// 5 Novos ecossistemas da Fase 1
+	// Ecossistemas de compilação, infraestrutura e mobile
 	eng.Register(cpp.New(cfg.ScanPaths))
 	eng.Register(flutter.New(cfg.ScanPaths))
 	eng.Register(terraform.New(cfg.ScanPaths))
