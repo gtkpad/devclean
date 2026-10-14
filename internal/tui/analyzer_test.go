@@ -1,11 +1,19 @@
 package tui_test
 
 import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/gtkpad/devclean/internal/analyzer"
+	"github.com/gtkpad/devclean/internal/config"
+	"github.com/gtkpad/devclean/internal/deleter"
+	"github.com/gtkpad/devclean/internal/domain"
 	"github.com/gtkpad/devclean/internal/safety"
 	"github.com/gtkpad/devclean/internal/tui"
 )
@@ -378,6 +386,342 @@ func TestAnalyzer_DeleteModalFlow(t *testing.T) {
 	}
 	if !strings.Contains(am.StatusMessage(), "sucesso") {
 		t.Fatalf("expected success message, got: %s", am.StatusMessage())
+	}
+}
+
+type mockCleanerProvider struct {
+	cleaner domain.Cleaner
+}
+
+func (p *mockCleanerProvider) GetCleaner(name string) domain.Cleaner {
+	return p.cleaner
+}
+
+type mockCleaner struct {
+	cleaned []domain.Target
+	err     error
+}
+
+func (m *mockCleaner) Name() string { return "filesystem" }
+func (m *mockCleaner) IsInstalled() bool { return true }
+func (m *mockCleaner) Scan(_ context.Context, _ domain.EcosystemRules) ([]domain.Target, error) {
+	return nil, nil
+}
+func (m *mockCleaner) Clean(_ context.Context, targets []domain.Target) error {
+	if m.err != nil {
+		return m.err
+	}
+	m.cleaned = append(m.cleaned, targets...)
+	return nil
+}
+
+func TestAnalyzer_InviolableBlacklistAudit(t *testing.T) {
+	bl := safety.NewBlacklist([]string{"*.custom", "custom_protected"})
+
+	// Setup nodes covering core blacklist (.git, .ssh, .env, secrets.json),
+	// system roots, custom blacklists, and normal unprotected items.
+	protectedPaths := []struct {
+		path  string
+		name  string
+		isDir bool
+	}{
+		{"/repo/.git", ".git", true},
+		{"/repo/.ssh", ".ssh", true},
+		{"/repo/.env", ".env", false},
+		{"/repo/secrets.json", "secrets.json", false},
+		{"/repo/secrets.custom", "secrets.custom", false},
+		{"/repo/custom_protected", "custom_protected", true},
+	}
+
+	var children []*analyzer.Node
+	for _, p := range protectedPaths {
+		itemType := analyzer.ItemFile
+		if p.isDir {
+			itemType = analyzer.ItemDir
+		}
+		isProtected := safety.IsCoreBlacklisted(p.path) || bl.IsBlacklisted(p.path)
+		children = append(children, &analyzer.Node{
+			Path:        p.path,
+			Name:        p.name,
+			Type:        itemType,
+			SizeBytes:   1024,
+			ItemCount:   1,
+			IsProtected: isProtected,
+		})
+	}
+
+	// Also add an unprotected item at the end
+	children = append(children, &analyzer.Node{
+		Path:        "/repo/target_build",
+		Name:        "target_build",
+		Type:        analyzer.ItemDir,
+		SizeBytes:   4096,
+		ItemCount:   10,
+		IsProtected: false,
+	})
+
+	root := &analyzer.Node{
+		Path:      "/repo",
+		Name:      "repo",
+		Type:      analyzer.ItemDir,
+		Children:  children,
+		SizeBytes: 10000,
+	}
+	for _, c := range root.Children {
+		c.Parent = root
+	}
+
+	mc := &mockCleaner{}
+	cleaners := &mockCleanerProvider{cleaner: mc}
+	cfg := &config.Config{}
+	coord := deleter.New(cleaners, cfg, bl, nil, nil, "", "")
+
+	m := tui.NewAnalyzerModel(root, bl, coord, 100, 30)
+	view := m.View()
+
+	// 1. Verify view contains protected badge for every protected item
+	if !strings.Contains(view, "[🔒 PROTEGIDO]") && !strings.Contains(view, "[PROTEGIDO]") {
+		t.Fatalf("expected view to contain protected badge, got:\n%s", view)
+	}
+
+	// 2. Test deletion block on each protected item in the TUI
+	for idx, child := range m.CurrentDir().Children {
+		if !child.IsProtected {
+			continue
+		}
+		am := m
+		for step := 0; step < idx; step++ {
+			u, _ := am.Update(tea.KeyMsg{Type: tea.KeyDown})
+			am = u.(tui.AnalyzerModel)
+		}
+		if am.Cursor() != idx {
+			t.Fatalf("expected cursor at %d, got %d", idx, am.Cursor())
+		}
+
+		// Try pressing 'd'
+		u, _ := am.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+		am = u.(tui.AnalyzerModel)
+
+		if am.IsConfirmingDelete() {
+			t.Fatalf("expected delete confirmation modal NOT to open for protected item %s", child.Path)
+		}
+		if !strings.Contains(am.StatusMessage(), "Item protegido pela Blacklist Imutável") {
+			t.Fatalf("expected blacklist warning message for %s, got: %s", child.Path, am.StatusMessage())
+		}
+	}
+
+	// 3. Verify coordinator inviolability: if someone tries to pass protected paths directly to Coordinator,
+	// the coordinator must skip all of them in Stage 1 and never delete them.
+	rawTargets := make(map[string][]domain.Target)
+	for _, p := range protectedPaths {
+		rawTargets["filesystem"] = append(rawTargets["filesystem"], domain.Target{
+			ID:   p.path,
+			Path: p.path,
+		})
+	}
+	res, err := coord.Delete(context.Background(), rawTargets, deleter.Options{Mode: "tui"})
+	if err != nil {
+		t.Fatalf("unexpected coordinator error: %v", err)
+	}
+	if len(res.CleanedPaths) != 0 {
+		t.Fatalf("expected 0 cleaned paths for blacklisted targets, got %d: %v", len(res.CleanedPaths), res.CleanedPaths)
+	}
+	if len(mc.cleaned) != 0 {
+		t.Fatalf("expected mockCleaner to clean 0 targets, got %d", len(mc.cleaned))
+	}
+
+	// 4. Verify that the unprotected item DOES open confirmation modal on 'd'
+	var unprotIdx = -1
+	for idx, child := range m.CurrentDir().Children {
+		if !child.IsProtected {
+			unprotIdx = idx
+			break
+		}
+	}
+	if unprotIdx < 0 {
+		t.Fatal("expected to find unprotected child")
+	}
+
+	am := m
+	for step := 0; step < unprotIdx; step++ {
+		u, _ := am.Update(tea.KeyMsg{Type: tea.KeyDown})
+		am = u.(tui.AnalyzerModel)
+	}
+	if am.Cursor() != unprotIdx {
+		t.Fatalf("expected cursor on unprotected item (%d), got %d", unprotIdx, am.Cursor())
+	}
+	u, _ := am.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	am = u.(tui.AnalyzerModel)
+	if !am.IsConfirmingDelete() {
+		t.Fatalf("expected delete confirmation modal to open for unprotected item")
+	}
+}
+
+func TestAnalyzer_Lifecycle_Init_And_Updates(t *testing.T) {
+	tmpDir := t.TempDir()
+	subDir := filepath.Join(tmpDir, "child_dir")
+	if err := os.Mkdir(subDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(subDir, "f.txt"), []byte("data"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	bl := safety.NewBlacklist(nil)
+	scanner := analyzer.NewScanner(bl, true, 0, 10)
+	rootNode, err := scanner.ScanImmediate(tmpDir)
+	if err != nil {
+		t.Fatalf("ScanImmediate failed: %v", err)
+	}
+
+	m := tui.NewAnalyzerModel(rootNode, bl, nil, 100, 30)
+
+	// Call Init()
+	initCmd := m.Init()
+	if initCmd == nil {
+		t.Fatal("expected non-nil Init command")
+	}
+
+	// Test ScanUpdateMsg in Update
+	updateMsg := analyzer.ScanUpdateMsg{
+		Path:      subDir,
+		SizeBytes: 120 * 1024 * 1024, // >= 100MB
+		ItemCount: 15,
+		Scanned:   true,
+	}
+
+	updated, followUpCmd := m.Update(updateMsg)
+	am := updated.(tui.AnalyzerModel)
+
+	// Verify child updated
+	found := false
+	for _, child := range am.CurrentDir().Children {
+		if child.Path == subDir {
+			found = true
+			if child.SizeBytes != 120*1024*1024 {
+				t.Errorf("expected size 120MB, got %d", child.SizeBytes)
+			}
+			if child.ItemCount != 15 {
+				t.Errorf("expected item count 15, got %d", child.ItemCount)
+			}
+			if !child.Scanned {
+				t.Errorf("expected Scanned=true")
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("child node %s not found in currentDir", subDir)
+	}
+
+	// Verify followUpCmd is returned for next scan update
+	if followUpCmd == nil {
+		t.Error("expected followUpCmd to listen for next scan update")
+	}
+}
+
+func TestAnalyzer_DeleteNode_CoordinatorBranches(t *testing.T) {
+	root := &analyzer.Node{
+		Path:      "/delete-test",
+		Name:      "delete-test",
+		Type:      analyzer.ItemDir,
+		SizeBytes: 1000,
+		Children: []*analyzer.Node{
+			{Path: "/delete-test/err_item", Name: "err_item", Type: analyzer.ItemFile, SizeBytes: 500},
+			{Path: "/delete-test/ok_item", Name: "ok_item", Type: analyzer.ItemFile, SizeBytes: 500},
+		},
+	}
+	for _, c := range root.Children {
+		c.Parent = root
+	}
+
+	mc := &mockCleaner{err: errors.New("simulated cleanup error")}
+	cleaners := &mockCleanerProvider{cleaner: mc}
+	bl := safety.NewBlacklist(nil)
+	cfg := &config.Config{}
+	coord := deleter.New(cleaners, cfg, bl, nil, nil, "", "")
+
+	m := tui.NewAnalyzerModel(root, bl, coord, 100, 30)
+
+	// 1. Delete with error from coordinator
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	am := updated.(tui.AnalyzerModel)
+
+	updated, deleteCmd := am.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	am = updated.(tui.AnalyzerModel)
+	if deleteCmd == nil {
+		t.Fatal("expected deleteCmd")
+	}
+
+	msg := deleteCmd()
+	updated, _ = am.Update(msg)
+	am = updated.(tui.AnalyzerModel)
+
+	// Since mock cleaner returned an error, statusMessage should reflect failure
+	if !strings.Contains(am.StatusMessage(), "Erro ao mover para a lixeira") && !strings.Contains(am.StatusMessage(), "simulated cleanup error") {
+		t.Errorf("expected error in status message, got: %s", am.StatusMessage())
+	}
+}
+
+func TestAnalyzer_ScrollAndDimensions(t *testing.T) {
+	var children []*analyzer.Node
+	for i := 0; i < 25; i++ {
+		children = append(children, &analyzer.Node{
+			Path:      fmt.Sprintf("/scroll/node_%02d", i),
+			Name:      fmt.Sprintf("node_%02d", i),
+			Type:      analyzer.ItemFile,
+			SizeBytes: int64(100 * (i + 1)),
+		})
+	}
+	root := &analyzer.Node{
+		Path:     "/scroll",
+		Name:     "scroll",
+		Type:     analyzer.ItemDir,
+		Children: children,
+	}
+	for _, c := range root.Children {
+		c.Parent = root
+	}
+
+	// Height 15 -> visibleRows = 15 - 7 = 8
+	m := tui.NewAnalyzerModel(root, nil, nil, 80, 15)
+
+	if m.Offset() != 0 {
+		t.Errorf("initial offset = %d, want 0", m.Offset())
+	}
+
+	// Scroll down 12 times
+	am := m
+	for i := 0; i < 12; i++ {
+		u, _ := am.Update(tea.KeyMsg{Type: tea.KeyDown})
+		am = u.(tui.AnalyzerModel)
+	}
+
+	if am.Cursor() != 12 {
+		t.Errorf("cursor after 12 downs = %d, want 12", am.Cursor())
+	}
+	if am.Offset() <= 0 {
+		t.Errorf("expected offset > 0 after scrolling past visible rows, got %d", am.Offset())
+	}
+
+	// Scroll back up to 0
+	for i := 0; i < 12; i++ {
+		u, _ := am.Update(tea.KeyMsg{Type: tea.KeyUp})
+		am = u.(tui.AnalyzerModel)
+	}
+	if am.Cursor() != 0 {
+		t.Errorf("cursor after 12 ups = %d, want 0", am.Cursor())
+	}
+	if am.Offset() != 0 {
+		t.Errorf("expected offset 0 when cursor at top, got %d", am.Offset())
+	}
+
+	// Window resize
+	u, _ := am.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	am = u.(tui.AnalyzerModel)
+
+	view := am.View()
+	if !strings.Contains(view, "node_00") {
+		t.Errorf("expected node_00 in view, got:\n%s", view)
 	}
 }
 

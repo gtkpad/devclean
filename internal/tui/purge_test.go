@@ -1,13 +1,17 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/gtkpad/devclean/internal/config"
+	"github.com/gtkpad/devclean/internal/deleter"
 	"github.com/gtkpad/devclean/internal/domain"
+	"github.com/gtkpad/devclean/internal/safety"
 )
 
 func TestPurge_RepoGrouping(t *testing.T) {
@@ -571,5 +575,90 @@ func TestPurge_AdditionalCoverage(t *testing.T) {
 	}
 	if mScroll.offset <= 0 {
 		t.Errorf("expected offset to scroll down, got %d", mScroll.offset)
+	}
+}
+
+func TestPurge_CoordinatorIntegration(t *testing.T) {
+	bl := safety.NewBlacklist([]string{"*.protected"})
+	fc := &fakeCleaner{}
+	cleaners := &fakeCleanerProvider{cleaner: fc}
+	cfg := &config.Config{}
+	coord := deleter.New(cleaners, cfg, bl, nil, nil, "", "")
+
+	repos := []*RepoGroup{
+		{
+			RepoDir:    "/home/user/my-app",
+			RepoName:   "my-app",
+			Ecosystems: []string{"go"},
+			Targets: []domain.Target{
+				{ID: "t-safe", Path: "/home/user/my-app/bin", SizeBytes: 2048},
+				{ID: "t-blocked", Path: "/home/user/my-app/.git", SizeBytes: 1024},
+				{ID: "t-custom", Path: "/home/user/my-app/secrets.protected", SizeBytes: 512},
+			},
+			LastCommit: time.Now().Add(-30 * 24 * time.Hour),
+		},
+	}
+
+	// NewPurgeModel calculates TotalBytes and InactivityStr automatically if empty
+	m := NewPurgeModel(repos, coord, bl)
+	if m.repos[0].TotalBytes != 3584 {
+		t.Errorf("expected auto-calculated TotalBytes 3584, got %d", m.repos[0].TotalBytes)
+	}
+	if !strings.Contains(m.repos[0].InactivityStr, "30d atrás") {
+		t.Errorf("expected auto-calculated InactivityStr, got %q", m.repos[0].InactivityStr)
+	}
+
+	// Select the repo
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	pm := updated.(PurgeModel)
+
+	// Press 'x' to open confirmation modal
+	updated, _ = pm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	pm = updated.(PurgeModel)
+	if !pm.IsConfirming() {
+		t.Fatal("expected IsConfirming true")
+	}
+
+	// Press 'y' to start deletion with coordinator
+	updated, cmd := pm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	pm = updated.(PurgeModel)
+	if cmd == nil {
+		t.Fatal("expected non-nil deletion command")
+	}
+
+	msg := cmd()
+	compMsg, ok := msg.(purgeCompleteMsg)
+	if !ok {
+		t.Fatalf("expected purgeCompleteMsg, got %T", msg)
+	}
+	if compMsg.err != nil {
+		t.Fatalf("unexpected deletion error: %v", compMsg.err)
+	}
+
+	// Verify coordinator safety:
+	// The fake cleaner must only have cleaned safe target (t-safe).
+	// .git and secrets.protected MUST have been filtered by blacklist in Stage 1!
+	if len(fc.cleaned) != 1 {
+		t.Fatalf("expected exactly 1 cleaned target, got %d", len(fc.cleaned))
+	}
+	if fc.cleaned[0].Path != "/home/user/my-app/bin" {
+		t.Fatalf("expected cleaned path /home/user/my-app/bin, got %s", fc.cleaned[0].Path)
+	}
+
+	// Feed completion to model
+	updated, _ = pm.Update(compMsg)
+	pm = updated.(PurgeModel)
+	view := pm.View()
+	if !strings.Contains(view, "Expurgo concluído com sucesso") {
+		t.Errorf("expected success in view, got:\n%s", view)
+	}
+
+	// Test error case branch in Update
+	errMsg := purgeCompleteMsg{err: errors.New("simulated purge error")}
+	updated, _ = pm.Update(errMsg)
+	pmErr := updated.(PurgeModel)
+	errView := pmErr.renderDoneView()
+	if !strings.Contains(errView, "Erros encontrados") || !strings.Contains(errView, "simulated purge error") {
+		t.Errorf("expected error in renderDoneView, got:\n%s", errView)
 	}
 }
