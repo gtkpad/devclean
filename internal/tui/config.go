@@ -692,6 +692,11 @@ func (m ConfigModel) handleEditingKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "enter":
 		val := m.textInput.Value()
+		if m.state == ConfigStateAddingPath {
+			m.commitAddedPath(val)
+			m.textInput.Blur()
+			return m, nil
+		}
 		if err := m.validateCurrentInput(val); err != nil {
 			m.statusMsg = "⚠️ " + err.Error()
 			return m, nil
@@ -721,6 +726,11 @@ func (m *ConfigModel) commitEditing(val string) {
 	}
 
 	if m.activeTab == TabPaths {
+		if safety.IsCoreBlacklisted(trimmed) || (m.blacklist != nil && m.blacklist.IsBlacklisted(trimmed)) {
+			m.statusMsg = "⚠️ Caminho proibido pela Blacklist Imutável (.git, .env, .ssh, raízes do SO)"
+			m.state = ConfigStateNormal
+			return
+		}
 		totalScan := len(m.cfg.ScanPaths)
 		if m.cursor < totalScan {
 			m.cfg.ScanPaths[m.cursor] = trimmed
@@ -806,11 +816,58 @@ func (m *ConfigModel) commitEditing(val string) {
 }
 
 func (m *ConfigModel) deleteCurrentPath() {
-	// Hook for Task 3
+	if m.cfg == nil {
+		return
+	}
+	totalScan := len(m.cfg.ScanPaths)
+	if m.cursor < totalScan {
+		if len(m.cfg.ScanPaths) > 0 {
+			removed := m.cfg.ScanPaths[m.cursor]
+			m.cfg.ScanPaths = append(m.cfg.ScanPaths[:m.cursor], m.cfg.ScanPaths[m.cursor+1:]...)
+			m.isDirty = true
+			m.statusMsg = fmt.Sprintf("Caminho removido: %s", removed)
+			if m.cursor >= len(m.cfg.ScanPaths) && m.cursor > 0 {
+				m.cursor--
+			}
+		}
+	} else {
+		idx := m.cursor - totalScan
+		if idx < len(m.cfg.ExcludePaths) {
+			removed := m.cfg.ExcludePaths[idx]
+			m.cfg.ExcludePaths = append(m.cfg.ExcludePaths[:idx], m.cfg.ExcludePaths[idx+1:]...)
+			m.isDirty = true
+			m.statusMsg = fmt.Sprintf("Caminho excluído removido: %s", removed)
+			if m.cursor > 0 {
+				m.cursor--
+			}
+		}
+	}
 }
 
 func (m *ConfigModel) commitAddedPath(path string) {
-	// Hook for Task 3
+	cleanPath := strings.TrimSpace(path)
+	if cleanPath == "" {
+		m.state = ConfigStateNormal
+		return
+	}
+
+	// Inviolability check (NFR-03, T-05-03)
+	if safety.IsCoreBlacklisted(cleanPath) || (m.blacklist != nil && m.blacklist.IsBlacklisted(cleanPath)) {
+		m.statusMsg = "⚠️ Caminho proibido pela Blacklist Imutável (.git, .env, .ssh, raízes do SO)"
+		m.state = ConfigStateNormal
+		return
+	}
+
+	totalScan := len(m.cfg.ScanPaths)
+	if m.cursor >= totalScan && len(m.cfg.ExcludePaths) > 0 {
+		m.cfg.ExcludePaths = append(m.cfg.ExcludePaths, cleanPath)
+		m.statusMsg = fmt.Sprintf("Caminho excluído adicionado: %s", cleanPath)
+	} else {
+		m.cfg.ScanPaths = append(m.cfg.ScanPaths, cleanPath)
+		m.statusMsg = fmt.Sprintf("Caminho adicionado: %s", cleanPath)
+	}
+	m.isDirty = true
+	m.state = ConfigStateNormal
 }
 
 func (m *ConfigModel) save() error {
