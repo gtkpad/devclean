@@ -588,4 +588,113 @@ func TestXcodeCleaner_ProcessGuard_FailClosedOnPgrepError(t *testing.T) {
 	}
 }
 
+func TestXcodeCleaner_Archives_RiskHighWhenClosed(t *testing.T) {
+	devDir := t.TempDir()
+	xcodeDir := filepath.Join(devDir, "Xcode")
+	archivesDir := filepath.Join(xcodeDir, "Archives")
+	if err := os.MkdirAll(archivesDir, 0o755); err != nil {
+		t.Fatalf("failed to create Archives dir: %v", err)
+	}
+	sentinel := filepath.Join(archivesDir, "app.xcarchive")
+	if err := os.WriteFile(sentinel, []byte("archive contents with dSYM"), 0o644); err != nil {
+		t.Fatalf("failed to write archive file: %v", err)
+	}
+	oldTime := time.Now().AddDate(0, 0, -30)
+	_ = os.Chtimes(archivesDir, oldTime, oldTime)
+
+	mockExec := cleaner.NewMockExecutor()
+	mockProcessesStopped(mockExec)
+
+	c := NewWithDirExecutorAndOS(xcodeDir, mockExec, "darwin")
+	targets, err := c.Scan(context.Background(), domain.EcosystemRules{MaxAgeDays: 14})
+	if err != nil {
+		t.Fatalf("unexpected scan error: %v", err)
+	}
+
+	var foundArchive *domain.Target
+	for i := range targets {
+		if targets[i].Category == "xcode-archives" {
+			foundArchive = &targets[i]
+			break
+		}
+	}
+
+	if foundArchive == nil {
+		t.Fatalf("expected to find Xcode Archives target, but found none")
+	}
+
+	if foundArchive.Risk != domain.RiskHigh {
+		t.Errorf("expected Archives to have RiskHigh, got %v", foundArchive.Risk)
+	}
+	if foundArchive.ReviewOnly {
+		t.Errorf("expected Archives to have ReviewOnly = false when Xcode is closed, got true")
+	}
+	if !foundArchive.TTLEligible {
+		t.Errorf("expected Archives to have TTLEligible = true when older than MaxAgeDays")
+	}
+	if foundArchive.EligibleBytes <= 0 {
+		t.Errorf("expected EligibleBytes > 0, got %d", foundArchive.EligibleBytes)
+	}
+	if foundArchive.EligibleBytes != foundArchive.SizeBytes {
+		t.Errorf("expected EligibleBytes == SizeBytes (%d), got %d", foundArchive.SizeBytes, foundArchive.EligibleBytes)
+	}
+}
+
+func TestXcodeCleaner_Archives_ReviewOnlyWhenOpen(t *testing.T) {
+	devDir := t.TempDir()
+	xcodeDir := filepath.Join(devDir, "Xcode")
+	archivesDir := filepath.Join(xcodeDir, "Archives")
+	if err := os.MkdirAll(archivesDir, 0o755); err != nil {
+		t.Fatalf("failed to create Archives dir: %v", err)
+	}
+	sentinel := filepath.Join(archivesDir, "app.xcarchive")
+	if err := os.WriteFile(sentinel, []byte("archive contents with dSYM"), 0o644); err != nil {
+		t.Fatalf("failed to write archive file: %v", err)
+	}
+	oldTime := time.Now().AddDate(0, 0, -30)
+	_ = os.Chtimes(archivesDir, oldTime, oldTime)
+
+	mockExec := cleaner.NewMockExecutor()
+	mockExec.Outputs["pgrep -x Xcode"] = []byte("12345\n")
+	mockExec.Errors["pgrep -x Simulator"] = &cleaner.MockExitError{Code: 1}
+
+	c := NewWithDirExecutorAndOS(xcodeDir, mockExec, "darwin")
+	targets, err := c.Scan(context.Background(), domain.EcosystemRules{MaxAgeDays: 14})
+	if err != nil {
+		t.Fatalf("unexpected scan error: %v", err)
+	}
+
+	var foundArchive *domain.Target
+	for i := range targets {
+		if targets[i].Category == "xcode-archives" {
+			foundArchive = &targets[i]
+			break
+		}
+	}
+
+	if foundArchive == nil {
+		t.Fatalf("expected to find Xcode Archives target, but found none")
+	}
+
+	if foundArchive.Risk != domain.RiskHigh {
+		t.Errorf("expected Archives to have RiskHigh, got %v", foundArchive.Risk)
+	}
+	if !foundArchive.ReviewOnly {
+		t.Errorf("expected Archives to have ReviewOnly = true when Xcode is open")
+	}
+	if foundArchive.ReviewReason != domain.ReviewReasonActiveProcess {
+		t.Errorf("expected ReviewReason %q, got %q", domain.ReviewReasonActiveProcess, foundArchive.ReviewReason)
+	}
+	if foundArchive.TTLEligible {
+		t.Errorf("expected TTLEligible = false when Xcode is open")
+	}
+	if foundArchive.EligibleBytes != 0 {
+		t.Errorf("expected EligibleBytes = 0, got %d", foundArchive.EligibleBytes)
+	}
+	if foundArchive.SizeBytes <= 0 {
+		t.Errorf("expected SizeBytes > 0, got %d", foundArchive.SizeBytes)
+	}
+}
+
+
 
