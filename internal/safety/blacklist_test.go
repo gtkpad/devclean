@@ -1,6 +1,7 @@
 package safety
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -176,4 +177,62 @@ func TestSystemRoots(t *testing.T) {
 		t.Error("SystemRoots returned slice should be a copy, not mutated")
 	}
 }
+
+func TestBlacklist_SymlinkEvaluation(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// 1. Create a real .git folder and a symlink to it
+	gitDir := filepath.Join(tempDir, ".git")
+	if err := os.MkdirAll(gitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	symlinkToGit := filepath.Join(tempDir, "link_to_git")
+	if err := os.Symlink(gitDir, symlinkToGit); err != nil {
+		t.Fatal(err)
+	}
+
+	// 2. Create a safe folder and a symlink to it
+	safeDir := filepath.Join(tempDir, "safe_dir")
+	if err := os.MkdirAll(safeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	symlinkToSafe := filepath.Join(tempDir, "link_to_safe")
+	if err := os.Symlink(safeDir, symlinkToSafe); err != nil {
+		t.Fatal(err)
+	}
+
+	// 3. Create a custom protected directory and a symlink to it
+	customDir := filepath.Join(tempDir, "my_custom_secret")
+	if err := os.MkdirAll(customDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	symlinkToCustom := filepath.Join(tempDir, "link_to_custom")
+	if err := os.Symlink(customDir, symlinkToCustom); err != nil {
+		t.Fatal(err)
+	}
+
+	bl := NewBlacklist([]string{"*my_custom_secret*"})
+
+	// Canonical symlink to .git must be blacklisted (POL-04, D-16)
+	if !bl.IsBlacklisted(symlinkToGit) {
+		t.Errorf("bl.IsBlacklisted(symlinkToGit) = false, want true")
+	}
+	if !IsCoreBlacklisted(symlinkToGit) {
+		t.Errorf("IsCoreBlacklisted(symlinkToGit) = false, want true")
+	}
+
+	// Canonical symlink to custom protected directory must be blacklisted
+	if !bl.IsBlacklisted(symlinkToCustom) {
+		t.Errorf("bl.IsBlacklisted(symlinkToCustom) = false, want true")
+	}
+
+	// Symlink to safe directory must NOT be blacklisted
+	if bl.IsBlacklisted(symlinkToSafe) {
+		t.Errorf("bl.IsBlacklisted(symlinkToSafe) = true, want false")
+	}
+	if IsCoreBlacklisted(symlinkToSafe) {
+		t.Errorf("IsCoreBlacklisted(symlinkToSafe) = true, want false")
+	}
+}
+
 
