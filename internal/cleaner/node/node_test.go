@@ -434,3 +434,155 @@ func TestScan_DistExclusion(t *testing.T) {
 		}
 	}
 }
+
+func TestNodeCleaner_Scan_GlobalCaches_AutomationAndNpm(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+
+	// Clean out any custom env vars that might leak from host environment
+	t.Setenv("PUPPETEER_CACHE_DIR", "")
+	t.Setenv("PLAYWRIGHT_BROWSERS_PATH", "")
+	t.Setenv("CYPRESS_CACHE_FOLDER", "")
+
+	dirs := map[string]string{
+		"npm-cache":       filepath.Join(tempHome, ".npm", "_cacache"),
+		"npx-cache":       filepath.Join(tempHome, ".npm", "_npx"),
+		"npm-logs":        filepath.Join(tempHome, ".npm", "_logs"),
+		"corepack-cache":  filepath.Join(tempHome, "Library", "Caches", "node", "corepack"),
+		"node-puppeteer":  filepath.Join(tempHome, ".cache", "puppeteer"),
+		"node-playwright": filepath.Join(tempHome, "Library", "Caches", "ms-playwright"),
+		"node-cypress":    filepath.Join(tempHome, "Library", "Caches", "Cypress"),
+	}
+
+	for _, dir := range dirs {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("failed to mkdir %s: %v", dir, err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "sentinel.txt"), []byte("payload"), 0o644); err != nil {
+			t.Fatalf("failed to write sentinel in %s: %v", dir, err)
+		}
+	}
+
+	c := New([]string{})
+	targets, err := c.Scan(context.Background(), domain.EcosystemRules{Enabled: true, MaxAgeDays: 0})
+	if err != nil {
+		t.Fatalf("Scan() failed: %v", err)
+	}
+
+	foundCategories := make(map[string]domain.Target)
+	for _, tgt := range targets {
+		foundCategories[tgt.Category] = tgt
+	}
+
+	for cat, dir := range dirs {
+		tgt, exists := foundCategories[cat]
+		if !exists {
+			t.Errorf("expected target category %q to be discovered", cat)
+			continue
+		}
+		if tgt.Path != dir {
+			t.Errorf("category %q: expected path %q, got %q", cat, dir, tgt.Path)
+		}
+		if tgt.SizeBytes <= 0 {
+			t.Errorf("category %q: expected SizeBytes > 0, got %d", cat, tgt.SizeBytes)
+		}
+		if !tgt.TTLEligible {
+			t.Errorf("category %q: expected TTLEligible true with MaxAgeDays=0", cat)
+		}
+		if tgt.EligibleBytes != tgt.SizeBytes {
+			t.Errorf("category %q: expected EligibleBytes == SizeBytes (%d), got %d", cat, tgt.SizeBytes, tgt.EligibleBytes)
+		}
+		if tgt.ID == "" || len(tgt.ID) != 12 {
+			t.Errorf("category %q: expected 12-char hex ID, got %q", cat, tgt.ID)
+		}
+	}
+
+	// Test environment overrides
+	t.Run("environment overrides", func(t *testing.T) {
+		customPup := filepath.Join(tempHome, "custom-puppeteer")
+		customPlay := filepath.Join(tempHome, "custom-playwright")
+		customCyp := filepath.Join(tempHome, "custom-cypress")
+
+		t.Setenv("PUPPETEER_CACHE_DIR", customPup)
+		t.Setenv("PLAYWRIGHT_BROWSERS_PATH", customPlay)
+		t.Setenv("CYPRESS_CACHE_FOLDER", customCyp)
+
+		for _, dir := range []string{customPup, customPlay, customCyp} {
+			_ = os.MkdirAll(dir, 0o755)
+			_ = os.WriteFile(filepath.Join(dir, "sentinel.txt"), []byte("override"), 0o644)
+		}
+
+		targetsOverride, err := c.Scan(context.Background(), domain.EcosystemRules{Enabled: true, MaxAgeDays: 0})
+		if err != nil {
+			t.Fatalf("Scan() with overrides failed: %v", err)
+		}
+
+		overridePaths := make(map[string]string)
+		for _, tgt := range targetsOverride {
+			overridePaths[tgt.Category] = tgt.Path
+		}
+
+		if overridePaths["node-puppeteer"] != customPup {
+			t.Errorf("expected PUPPETEER_CACHE_DIR override %q, got %q", customPup, overridePaths["node-puppeteer"])
+		}
+		if overridePaths["node-playwright"] != customPlay {
+			t.Errorf("expected PLAYWRIGHT_BROWSERS_PATH override %q, got %q", customPlay, overridePaths["node-playwright"])
+		}
+		if overridePaths["node-cypress"] != customCyp {
+			t.Errorf("expected CYPRESS_CACHE_FOLDER override %q, got %q", customCyp, overridePaths["node-cypress"])
+		}
+	})
+}
+
+func TestNodeCleaner_RiskLevels_Automation(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+
+	dirs := map[string]string{
+		"npm-cache":       filepath.Join(tempHome, ".npm", "_cacache"),
+		"npx-cache":       filepath.Join(tempHome, ".npm", "_npx"),
+		"npm-logs":        filepath.Join(tempHome, ".npm", "_logs"),
+		"corepack-cache":  filepath.Join(tempHome, ".cache", "node", "corepack"),
+		"node-puppeteer":  filepath.Join(tempHome, ".cache", "puppeteer"),
+		"node-playwright": filepath.Join(tempHome, ".cache", "ms-playwright"),
+		"node-cypress":    filepath.Join(tempHome, ".cache", "Cypress"),
+	}
+
+	for _, dir := range dirs {
+		_ = os.MkdirAll(dir, 0o755)
+		_ = os.WriteFile(filepath.Join(dir, "sentinel.txt"), []byte("risk-test"), 0o644)
+	}
+
+	c := New([]string{})
+	targets, err := c.Scan(context.Background(), domain.EcosystemRules{Enabled: true, MaxAgeDays: 30})
+	if err != nil {
+		t.Fatalf("Scan() failed: %v", err)
+	}
+
+	riskMap := make(map[string]domain.RiskLevel)
+	for _, tgt := range targets {
+		riskMap[tgt.Category] = tgt.Risk
+	}
+
+	expectedRisks := map[string]domain.RiskLevel{
+		"node-puppeteer":  domain.RiskMedium,
+		"node-playwright": domain.RiskMedium,
+		"node-cypress":    domain.RiskLow,
+		"npm-cache":       domain.RiskLow,
+		"npx-cache":       domain.RiskLow,
+		"npm-logs":        domain.RiskLow,
+		"corepack-cache":  domain.RiskLow,
+	}
+
+	for cat, wantRisk := range expectedRisks {
+		gotRisk, ok := riskMap[cat]
+		if !ok {
+			t.Errorf("category %q not discovered", cat)
+			continue
+		}
+		if gotRisk != wantRisk {
+			t.Errorf("category %q: expected risk %v, got %v", cat, wantRisk, gotRisk)
+		}
+	}
+}
+

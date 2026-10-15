@@ -151,6 +151,96 @@ type foundTarget struct {
 	manifests []string
 }
 
+type globalCacheDef struct {
+	category string
+	name     string
+	risk     domain.RiskLevel
+	paths    []string
+}
+
+func getGlobalCacheCandidates(home string) []globalCacheDef {
+	darwinCaches := filepath.Join(home, "Library", "Caches")
+	xdgCaches := filepath.Join(home, ".cache")
+
+	puppeteerPaths := []string{
+		filepath.Join(xdgCaches, "puppeteer"),
+		filepath.Join(home, ".puppeteer"),
+	}
+	if env := os.Getenv("PUPPETEER_CACHE_DIR"); env != "" {
+		puppeteerPaths = []string{env}
+	}
+
+	playwrightPaths := []string{
+		filepath.Join(darwinCaches, "ms-playwright"),
+		filepath.Join(xdgCaches, "ms-playwright"),
+	}
+	if env := os.Getenv("PLAYWRIGHT_BROWSERS_PATH"); env != "" {
+		playwrightPaths = []string{env}
+	}
+
+	cypressPaths := []string{
+		filepath.Join(darwinCaches, "Cypress"),
+		filepath.Join(xdgCaches, "Cypress"),
+	}
+	if env := os.Getenv("CYPRESS_CACHE_FOLDER"); env != "" {
+		cypressPaths = []string{env}
+	}
+
+	return []globalCacheDef{
+		{
+			category: "npm-cache",
+			name:     "npm cache",
+			risk:     domain.RiskLow,
+			paths:    []string{filepath.Join(home, ".npm", "_cacache")},
+		},
+		{
+			category: "npx-cache",
+			name:     "npx cache",
+			risk:     domain.RiskLow,
+			paths:    []string{filepath.Join(home, ".npm", "_npx")},
+		},
+		{
+			category: "npm-logs",
+			name:     "npm logs",
+			risk:     domain.RiskLow,
+			paths:    []string{filepath.Join(home, ".npm", "_logs")},
+		},
+		{
+			category: "yarn-cache",
+			name:     "yarn cache",
+			risk:     domain.RiskLow,
+			paths:    []string{yarnCachePath(home)},
+		},
+		{
+			category: "corepack-cache",
+			name:     "Corepack cache",
+			risk:     domain.RiskLow,
+			paths: []string{
+				filepath.Join(darwinCaches, "node", "corepack"),
+				filepath.Join(xdgCaches, "node", "corepack"),
+			},
+		},
+		{
+			category: "node-puppeteer",
+			name:     "Puppeteer browser cache",
+			risk:     domain.RiskMedium,
+			paths:    puppeteerPaths,
+		},
+		{
+			category: "node-playwright",
+			name:     "Playwright browser cache",
+			risk:     domain.RiskMedium,
+			paths:    playwrightPaths,
+		},
+		{
+			category: "node-cypress",
+			name:     "Cypress binary cache",
+			risk:     domain.RiskLow,
+			paths:    cypressPaths,
+		},
+	}
+}
+
 func (c *nodeCleaner) scanGlobalCaches(rules domain.EcosystemRules) []domain.Target {
 	home, _ := os.UserHomeDir()
 	if home == "" {
@@ -159,44 +249,47 @@ func (c *nodeCleaner) scanGlobalCaches(rules domain.EcosystemRules) []domain.Tar
 
 	var targets []domain.Target
 	cutoff := time.Now().AddDate(0, 0, -rules.MaxAgeDays)
+	seenPaths := make(map[string]bool)
 
-	caches := []struct {
-		path     string
-		category string
-		name     string
-	}{
-		{filepath.Join(home, ".npm", "_cacache"), "npm-cache", "npm cache"},
-		{yarnCachePath(home), "yarn-cache", "yarn cache"},
-	}
+	for _, def := range getGlobalCacheCandidates(home) {
+		for _, path := range def.paths {
+			if path == "" || seenPaths[path] {
+				continue
+			}
+			seenPaths[path] = true
 
-	for _, cache := range caches {
-		info, err := os.Stat(cache.path)
-		if err != nil {
-			continue
+			info, err := os.Stat(path)
+			if err != nil || !info.IsDir() {
+				continue
+			}
+
+			size, _ := devfs.CalcDirSize(path)
+			if size == 0 {
+				continue
+			}
+
+			hash := sha256.Sum256([]byte(path))
+			id := fmt.Sprintf("%x", hash[:6])
+
+			ttlEligible := false
+			eligibleBytes := int64(0)
+			if rules.MaxAgeDays == 0 || info.ModTime().Before(cutoff) {
+				ttlEligible = true
+				eligibleBytes = size
+			}
+
+			targets = append(targets, domain.Target{
+				ID:            id,
+				Name:          def.name,
+				Path:          path,
+				SizeBytes:     size,
+				EligibleBytes: eligibleBytes,
+				TTLEligible:   ttlEligible,
+				Risk:          def.risk,
+				LastAccessed:  info.ModTime(),
+				Category:      def.category,
+			})
 		}
-
-		size, _ := devfs.CalcDirSize(cache.path)
-		hash := sha256.Sum256([]byte(cache.path))
-		id := fmt.Sprintf("%x", hash[:6])
-
-		ttlEligible := false
-		eligibleBytes := int64(0)
-		if rules.MaxAgeDays == 0 || info.ModTime().Before(cutoff) {
-			ttlEligible = true
-			eligibleBytes = size
-		}
-
-		targets = append(targets, domain.Target{
-			ID:            id,
-			Name:          cache.name,
-			Path:          cache.path,
-			SizeBytes:     size,
-			EligibleBytes: eligibleBytes,
-			TTLEligible:   ttlEligible,
-			Risk:          domain.RiskLow,
-			LastAccessed:  info.ModTime(),
-			Category:      cache.category,
-		})
 	}
 
 	return targets
