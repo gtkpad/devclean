@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -449,6 +451,86 @@ func TestEngine_ScanContextCancellation_NoDeadlock(t *testing.T) {
 		if r.Error != nil && !errors.Is(r.Error, context.Canceled) && !errors.Is(r.Error, context.DeadlineExceeded) {
 			t.Errorf("unexpected error on canceled scan: %v", r.Error)
 		}
+	}
+}
+
+func TestEngine_ScanAndCollect_AppliesCanonicalOwnership(t *testing.T) {
+	cfg := defaultConfig()
+	eng := New(cfg, &fakeResolver{})
+
+	tmp := t.TempDir()
+	parentDir := filepath.Join(tmp, "parent")
+	childDir := filepath.Join(parentDir, "sub")
+	if err := os.MkdirAll(childDir, 0755); err != nil {
+		t.Fatalf("failed to create dirs: %v", err)
+	}
+
+	// Cleaner 1: generic "macos" cleaner returns parentDir (100MB)
+	eng.Register(&fakeCleaner{
+		name:      "macos",
+		installed: true,
+		scanFn: func(_ domain.EcosystemRules) ([]domain.Target, error) {
+			return []domain.Target{
+				{
+					ID:            "macos-parent",
+					Name:          "macOS User Cache",
+					Path:          parentDir,
+					SizeBytes:     100 * 1024 * 1024,
+					EligibleBytes: 100 * 1024 * 1024,
+					TTLEligible:   true,
+				},
+			}, nil
+		},
+	})
+
+	// Cleaner 2: dedicated "node" cleaner returns childDir (40MB)
+	eng.Register(&fakeCleaner{
+		name:      "node",
+		installed: true,
+		scanFn: func(_ domain.EcosystemRules) ([]domain.Target, error) {
+			return []domain.Target{
+				{
+					ID:            "node-child",
+					Name:          "node_modules",
+					Path:          childDir,
+					SizeBytes:     40 * 1024 * 1024,
+					EligibleBytes: 40 * 1024 * 1024,
+					TTLEligible:   true,
+				},
+			}, nil
+		},
+	})
+
+	ctx := context.Background()
+	results := Collect(ctx, eng.Scan(ctx))
+
+	var parentTarget, childTarget *domain.Target
+	for _, r := range results {
+		for i := range r.Targets {
+			if r.Targets[i].ID == "macos-parent" {
+				parentTarget = &r.Targets[i]
+			}
+			if r.Targets[i].ID == "node-child" {
+				childTarget = &r.Targets[i]
+			}
+		}
+	}
+
+	if parentTarget == nil || childTarget == nil {
+		t.Fatalf("missing expected targets: parent=%v, child=%v", parentTarget, childTarget)
+	}
+
+	const expectedParent = 60 * 1024 * 1024
+	const expectedChild = 40 * 1024 * 1024
+
+	if parentTarget.SizeBytes != expectedParent {
+		t.Errorf("parent SizeBytes = %d, want %d", parentTarget.SizeBytes, expectedParent)
+	}
+	if parentTarget.EligibleBytes != expectedParent {
+		t.Errorf("parent EligibleBytes = %d, want %d", parentTarget.EligibleBytes, expectedParent)
+	}
+	if childTarget.SizeBytes != expectedChild {
+		t.Errorf("child SizeBytes = %d, want %d", childTarget.SizeBytes, expectedChild)
 	}
 }
 
