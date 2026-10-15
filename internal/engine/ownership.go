@@ -90,7 +90,7 @@ func ResolveCanonicalOwnership(results []domain.ScanResult) []domain.ScanResult 
 		tier := getEcosystemTier(results[rIdx].Ecosystem)
 		for tIdx := range results[rIdx].Targets {
 			t := &results[rIdx].Targets[tIdx]
-			if t.IsVirtual() {
+			if t.IsVirtual() || strings.TrimSpace(t.Path) == "" {
 				allTargets = append(allTargets, &resolvedTarget{
 					ecoIndex:          rIdx,
 					targetIndex:       tIdx,

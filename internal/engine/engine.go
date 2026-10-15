@@ -139,18 +139,18 @@ func (e *Engine) FilterNetworkMounts(ctx context.Context, paths []string) []stri
 	return local
 }
 
-// Collect drains the results channel into a slice.
+// Collect drains the results channel into a slice and applies canonical ownership resolution.
 func Collect(ctx context.Context, ch <-chan domain.ScanResult) []domain.ScanResult {
 	var results []domain.ScanResult
 	for {
 		select {
 		case r, ok := <-ch:
 			if !ok {
-				return results
+				return ResolveCanonicalOwnership(results)
 			}
 			results = append(results, r)
 		case <-ctx.Done():
-			return results
+			return ResolveCanonicalOwnership(results)
 		}
 	}
 }
