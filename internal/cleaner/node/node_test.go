@@ -282,6 +282,78 @@ func TestNodeCleaner_Clean(t *testing.T) {
 	}
 }
 
+func TestNodeCleaner_Clean_DirectFilesystem(t *testing.T) {
+	tempDir := t.TempDir()
+	cacheDir := filepath.Join(tempDir, "puppeteer-cache")
+	mkdirAll(t, filepath.Join(cacheDir, "chrome-mac"))
+	touchFile(t, filepath.Join(cacheDir, "chrome-mac", "browser.bin"))
+
+	c := New(nil)
+	targets := []domain.Target{
+		{Path: cacheDir, Category: "node-puppeteer"},
+	}
+
+	if err := c.Clean(context.Background(), targets); err != nil {
+		t.Fatalf("Clean failed: %v", err)
+	}
+
+	if _, err := os.Stat(cacheDir); !os.IsNotExist(err) {
+		t.Errorf("expected cacheDir to be removed, but it still exists")
+	}
+}
+
+func TestNodeCleaner_Clean_SymlinkProtection(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// 1. Outside directory with valuable files
+	valuableDir := filepath.Join(tempDir, "valuable-code")
+	mkdirAll(t, valuableDir)
+	secretPath := filepath.Join(valuableDir, "secret.txt")
+	if err := os.WriteFile(secretPath, []byte("super-secret"), 0o644); err != nil {
+		t.Fatalf("failed to write secret file: %v", err)
+	}
+
+	// 2. Symlink pretending to be cache target pointing to outside valuable directory
+	symlinkCache := filepath.Join(tempDir, "fake-cache-symlink")
+	if err := os.Symlink(valuableDir, symlinkCache); err != nil {
+		t.Fatalf("failed to create symlink: %v", err)
+	}
+
+	// 3. Blacklisted directory (.git)
+	gitDir := filepath.Join(tempDir, ".git")
+	mkdirAll(t, gitDir)
+	touchFile(t, filepath.Join(gitDir, "config"))
+
+	c := New(nil)
+	targets := []domain.Target{
+		{Path: symlinkCache, Category: "node-puppeteer"},
+		{Path: gitDir, Category: "node"},
+	}
+
+	if err := c.Clean(context.Background(), targets); err != nil {
+		t.Fatalf("Clean failed: %v", err)
+	}
+
+	// Verify valuable directory and its contents are untouched
+	if _, err := os.Stat(secretPath); err != nil {
+		t.Errorf("valuable file was deleted or affected: %v", err)
+	}
+	data, err := os.ReadFile(secretPath)
+	if err != nil || string(data) != "super-secret" {
+		t.Errorf("valuable file data was corrupted: %v", err)
+	}
+
+	// Verify symlink itself was skipped (not removed or traversed)
+	if _, err := os.Lstat(symlinkCache); err != nil {
+		t.Errorf("symlink target was not skipped safely: %v", err)
+	}
+
+	// Verify blacklisted directory was skipped
+	if _, err := os.Stat(filepath.Join(gitDir, "config")); err != nil {
+		t.Errorf("blacklisted .git directory was deleted: %v", err)
+	}
+}
+
 func TestScan_GlobalCaches(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)

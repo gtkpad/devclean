@@ -138,6 +138,12 @@ func (c *nodeCleaner) Scan(_ context.Context, rules domain.EcosystemRules) ([]do
 
 func (c *nodeCleaner) Clean(_ context.Context, targets []domain.Target) error {
 	for _, t := range targets {
+		if safety.IsCoreBlacklisted(t.Path) {
+			continue
+		}
+		if isLink, err := safety.IsSymlink(t.Path); err == nil && isLink {
+			continue // Refuse to traverse symlinks
+		}
 		if err := os.RemoveAll(t.Path); err != nil {
 			return err
 		}
