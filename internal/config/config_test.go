@@ -18,8 +18,10 @@ func writeTestConfig(t *testing.T, content string) string {
 
 func TestLoad_NoFile_ReturnsDefaults(t *testing.T) {
 	// With empty path (discovery mode), missing config returns defaults
+	t.Setenv("HOME", t.TempDir())
 	cfg, err := Load("")
 	if err != nil {
+
 		t.Fatalf("Load() error: %v", err)
 	}
 
@@ -262,8 +264,10 @@ func TestEcosystemConfig_ToRules(t *testing.T) {
 }
 
 func TestLoad_InstallerDefaults(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	cfg, err := Load("")
 	if err != nil {
+
 		t.Fatalf("Load() error: %v", err)
 	}
 
@@ -357,8 +361,10 @@ func TestSchedulerConfig_Defaults(t *testing.T) {
 		t.Errorf("expected empty slice, got %v", d.Scheduler.Args)
 	}
 
+	t.Setenv("HOME", t.TempDir())
 	cfg, err := Load("")
 	if err != nil {
+
 		t.Fatalf("Load(\"\") error: %v", err)
 	}
 	if cfg.Scheduler.Args == nil {

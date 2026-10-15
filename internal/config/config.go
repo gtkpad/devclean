@@ -3,11 +3,15 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/gtkpad/devclean/internal/domain"
+	"github.com/gtkpad/devclean/internal/fs"
 	"github.com/gtkpad/devclean/internal/platform"
+	"github.com/gtkpad/devclean/internal/safety"
 	"github.com/spf13/viper"
 )
+
 
 type EcosystemConfig struct {
 	Enabled      bool     `mapstructure:"enabled"`
@@ -281,3 +285,54 @@ func Load(configPath string) (*Config, error) {
 	}
 	return &cfg, nil
 }
+
+// CanonicalDiscoveryFolders lista determinística estrita das 7 pastas de projetos sob $HOME (D-09).
+var CanonicalDiscoveryFolders = []string{
+	"Documents",
+	"Projects",
+	"Developer",
+	"Code",
+	"Work",
+	"repos",
+	"workspace",
+}
+
+// EffectiveScanPaths retorna os diretórios ativos de varredura.
+// Se ScanPaths estiver preenchido no YAML ou por flag, tem precedência estrita (D-12).
+// Caso contrário, descobre as pastas existentes sob $HOME em ordem determinística (D-09, D-10, D-11).
+func (c *Config) EffectiveScanPaths() []string {
+	if c == nil {
+		return []string{}
+	}
+	if len(c.ScanPaths) > 0 {
+		paths := make([]string, 0, len(c.ScanPaths))
+		for _, p := range c.ScanPaths {
+			if clean := filepath.Clean(p); clean != "." && clean != "" {
+				paths = append(paths, clean)
+			}
+		}
+		return paths
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return []string{}
+	}
+
+	discovered := make([]string, 0, len(CanonicalDiscoveryFolders))
+	for _, folder := range CanonicalDiscoveryFolders {
+		candidate := filepath.Join(home, folder)
+		if fs.DirExists(candidate) {
+			realPath, err := filepath.EvalSymlinks(candidate)
+			if err != nil {
+				realPath = candidate
+			}
+			if !safety.IsCoreBlacklisted(realPath) {
+				discovered = append(discovered, realPath)
+			}
+		}
+	}
+
+	return discovered
+}
+
