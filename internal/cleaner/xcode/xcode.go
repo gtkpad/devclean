@@ -14,6 +14,7 @@ import (
 	"github.com/gtkpad/devclean/internal/cleaner"
 	"github.com/gtkpad/devclean/internal/domain"
 	devfs "github.com/gtkpad/devclean/internal/fs"
+	"github.com/gtkpad/devclean/internal/safety"
 )
 
 type xcodeCleaner struct {
@@ -82,9 +83,65 @@ func (c *xcodeCleaner) IsInstalled() bool {
 }
 
 
-// Scan looks for individual project directories in DerivedData and emits virtual simulator target.
+type xcodeTargetDef struct {
+	category   string
+	name       string
+	path       string
+	risk       domain.RiskLevel
+	simRelated bool
+}
+
+func (c *xcodeCleaner) getExpandedTargetDefs() []xcodeTargetDef {
+	if c.baseDir == "" {
+		return nil
+	}
+	devDir := filepath.Dir(c.baseDir)
+	if devfs.DirExists(filepath.Join(c.baseDir, "CoreSimulator")) {
+		devDir = c.baseDir
+	}
+
+	return []xcodeTargetDef{
+		{
+			category:   "xcode-coresimulator-caches",
+			name:       "CoreSimulator Caches",
+			path:       filepath.Join(devDir, "CoreSimulator", "Caches"),
+			risk:       domain.RiskLow,
+			simRelated: true,
+		},
+		{
+			category:   "xcode-coresimulator-temp",
+			name:       "CoreSimulator Temp",
+			path:       filepath.Join(devDir, "CoreSimulator", "Temp"),
+			risk:       domain.RiskLow,
+			simRelated: true,
+		},
+		{
+			category:   "xcode-ios-devicesupport",
+			name:       "Xcode iOS DeviceSupport",
+			path:       filepath.Join(c.baseDir, "iOS DeviceSupport"),
+			risk:       domain.RiskLow,
+			simRelated: false,
+		},
+		{
+			category:   "xcode-watchos-devicesupport",
+			name:       "Xcode watchOS DeviceSupport",
+			path:       filepath.Join(c.baseDir, "watchOS DeviceSupport"),
+			risk:       domain.RiskLow,
+			simRelated: false,
+		},
+		{
+			category:   "xcode-archives",
+			name:       "Xcode Archives",
+			path:       filepath.Join(c.baseDir, "Archives"),
+			risk:       domain.RiskHigh,
+			simRelated: false,
+		},
+	}
+}
+
+// Scan looks for individual project directories in DerivedData, expanded targets, and emits virtual simulator target.
 func (c *xcodeCleaner) Scan(ctx context.Context, rules domain.EcosystemRules) ([]domain.Target, error) {
-	if c.getOS() != "darwin" {
+	if c.getOS() != "darwin" || c.baseDir == "" {
 		return nil, nil
 	}
 
@@ -136,7 +193,42 @@ func (c *xcodeCleaner) Scan(ctx context.Context, rules domain.EcosystemRules) ([
 		}
 	}
 
-	// 2. Alvo virtual para simuladores iOS indisponíveis (D-10)
+	// 2. Alvos expandidos (CoreSimulator Caches/Temp, DeviceSupport, Archives) (DEV-03, D-13, D-14)
+	for _, def := range c.getExpandedTargetDefs() {
+		if isExcluded(def.path, rules.ExcludePaths) {
+			continue
+		}
+		info, err := os.Stat(def.path)
+		if err != nil || !info.IsDir() {
+			continue
+		}
+		size, _ := devfs.CalcDirSize(def.path)
+		if size == 0 {
+			continue
+		}
+
+		eligibleBytes := int64(0)
+		ttlEligible := false
+		if rules.MaxAgeDays == 0 || info.ModTime().Before(cutoff) {
+			eligibleBytes = size
+			ttlEligible = true
+		}
+
+		sum := sha256.Sum256([]byte(def.path))
+		targets = append(targets, domain.Target{
+			ID:            fmt.Sprintf("%x", sum[:6]),
+			Name:          def.name,
+			Path:          def.path,
+			SizeBytes:     size,
+			EligibleBytes: eligibleBytes,
+			TTLEligible:   ttlEligible,
+			Risk:          def.risk,
+			LastAccessed:  info.ModTime(),
+			Category:      def.category,
+		})
+	}
+
+	// 3. Alvo virtual para simuladores iOS indisponíveis (D-10)
 	targets = append(targets, domain.Target{
 		ID:            "xcode-simulators-unavailable",
 		Name:          "iOS Simulators (unavailable runtimes)",
@@ -151,13 +243,20 @@ func (c *xcodeCleaner) Scan(ctx context.Context, rules domain.EcosystemRules) ([
 	return targets, nil
 }
 
-// Clean removes physical DerivedData directories and triggers simctl for virtual targets.
+// Clean removes physical directories and triggers simctl for virtual targets.
 func (c *xcodeCleaner) Clean(ctx context.Context, targets []domain.Target) error {
 	for _, t := range targets {
 		if t.Path == "xcode://simulators/unavailable" {
 			if _, err := c.exec.Output(ctx, "xcrun", "simctl", "delete", "unavailable"); err != nil {
 				return fmt.Errorf("failed to delete unavailable simulators: %w", err)
 			}
+			continue
+		}
+
+		if safety.IsCoreBlacklisted(t.Path) {
+			continue
+		}
+		if isLink, err := safety.IsSymlink(t.Path); err == nil && isLink {
 			continue
 		}
 

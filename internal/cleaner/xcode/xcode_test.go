@@ -297,3 +297,140 @@ func TestXcodeCleaner_Clean_SimctlError(t *testing.T) {
 		t.Fatalf("expected clean error when simctl fails, got nil")
 	}
 }
+
+func TestXcodeCleaner_Scan_ExpandedTargets(t *testing.T) {
+	devDir := t.TempDir()
+	xcodeDir := filepath.Join(devDir, "Xcode")
+
+	paths := map[string]string{
+		"CoreSimulator Caches":        filepath.Join(devDir, "CoreSimulator", "Caches"),
+		"CoreSimulator Temp":          filepath.Join(devDir, "CoreSimulator", "Temp"),
+		"Xcode iOS DeviceSupport":     filepath.Join(xcodeDir, "iOS DeviceSupport"),
+		"Xcode watchOS DeviceSupport": filepath.Join(xcodeDir, "watchOS DeviceSupport"),
+		"Xcode Archives":              filepath.Join(xcodeDir, "Archives"),
+	}
+
+	for _, p := range paths {
+		if err := os.MkdirAll(p, 0o755); err != nil {
+			t.Fatalf("failed to create dir %s: %v", p, err)
+		}
+		if err := os.WriteFile(filepath.Join(p, "sentinel.dat"), []byte("payload"), 0o644); err != nil {
+			t.Fatalf("failed to write sentinel in %s: %v", p, err)
+		}
+	}
+
+	mockExec := cleaner.NewMockExecutor()
+	c := NewWithDirExecutorAndOS(xcodeDir, mockExec, "darwin")
+
+	targets, err := c.Scan(context.Background(), domain.EcosystemRules{MaxAgeDays: 0})
+	if err != nil {
+		t.Fatalf("unexpected scan error: %v", err)
+	}
+
+	expectedCategories := map[string]struct {
+		category string
+		risk     domain.RiskLevel
+	}{
+		"CoreSimulator Caches":        {category: "xcode-coresimulator-caches", risk: domain.RiskLow},
+		"CoreSimulator Temp":          {category: "xcode-coresimulator-temp", risk: domain.RiskLow},
+		"Xcode iOS DeviceSupport":     {category: "xcode-ios-devicesupport", risk: domain.RiskLow},
+		"Xcode watchOS DeviceSupport": {category: "xcode-watchos-devicesupport", risk: domain.RiskLow},
+		"Xcode Archives":              {category: "xcode-archives", risk: domain.RiskHigh},
+	}
+
+	foundCount := 0
+	for _, target := range targets {
+		if exp, ok := expectedCategories[target.Name]; ok {
+			foundCount++
+			if target.Category != exp.category {
+				t.Errorf("target %s: expected category %s, got %s", target.Name, exp.category, target.Category)
+			}
+			if target.Risk != exp.risk {
+				t.Errorf("target %s: expected risk %v, got %v", target.Name, exp.risk, target.Risk)
+			}
+			if target.SizeBytes <= 0 {
+				t.Errorf("target %s: expected size > 0, got %d", target.Name, target.SizeBytes)
+			}
+			if target.Path != paths[target.Name] {
+				t.Errorf("target %s: expected path %s, got %s", target.Name, paths[target.Name], target.Path)
+			}
+		}
+	}
+
+	if foundCount != len(expectedCategories) {
+		t.Fatalf("expected to find %d expanded targets, found %d", len(expectedCategories), foundCount)
+	}
+}
+
+func TestXcodeCleaner_Clean_DirectFilesystem(t *testing.T) {
+	tmpDir := t.TempDir()
+	targetDir := filepath.Join(tmpDir, "iOS DeviceSupport")
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		t.Fatalf("failed to create dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(targetDir, "sentinel.txt"), []byte("data"), 0o644); err != nil {
+		t.Fatalf("failed to write sentinel: %v", err)
+	}
+
+	mockExec := cleaner.NewMockExecutor()
+	c := NewWithDirExecutorAndOS(tmpDir, mockExec, "darwin")
+
+	targets := []domain.Target{
+		{
+			ID:       "ios-dev-support",
+			Name:     "Xcode iOS DeviceSupport",
+			Path:     targetDir,
+			Category: "xcode-ios-devicesupport",
+		},
+	}
+
+	if err := c.Clean(context.Background(), targets); err != nil {
+		t.Fatalf("unexpected clean error: %v", err)
+	}
+
+	if _, err := os.Stat(targetDir); !os.IsNotExist(err) {
+		t.Errorf("expected targetDir to be deleted, but it still exists")
+	}
+}
+
+func TestXcodeCleaner_Clean_SymlinkProtection(t *testing.T) {
+	tmpDir := t.TempDir()
+	realDir := filepath.Join(tmpDir, "real_sensitive_data")
+	if err := os.MkdirAll(realDir, 0o755); err != nil {
+		t.Fatalf("failed to create real dir: %v", err)
+	}
+	sentinelFile := filepath.Join(realDir, "important.txt")
+	if err := os.WriteFile(sentinelFile, []byte("precious"), 0o644); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
+
+	symlinkPath := filepath.Join(tmpDir, "symlink_target")
+	if err := os.Symlink(realDir, symlinkPath); err != nil {
+		t.Fatalf("failed to create symlink: %v", err)
+	}
+
+	mockExec := cleaner.NewMockExecutor()
+	c := NewWithDirExecutorAndOS(tmpDir, mockExec, "darwin")
+
+	targets := []domain.Target{
+		{
+			ID:       "symlink-id",
+			Name:     "Symlinked Target",
+			Path:     symlinkPath,
+			Category: "xcode-ios-devicesupport",
+		},
+	}
+
+	if err := c.Clean(context.Background(), targets); err != nil {
+		t.Fatalf("unexpected clean error: %v", err)
+	}
+
+	// Symlink target itself should NOT be deleted, and realDir must remain untouched
+	if _, err := os.Lstat(symlinkPath); os.IsNotExist(err) {
+		t.Errorf("expected symlink to be skipped and preserved, but it was deleted")
+	}
+	if _, err := os.Stat(sentinelFile); err != nil {
+		t.Errorf("real file in symlinked target was deleted or inaccessible: %v", err)
+	}
+}
+
