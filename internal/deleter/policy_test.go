@@ -2,6 +2,7 @@ package deleter_test
 
 import (
 	"context"
+	"crypto/sha256"
 	"os"
 	"path/filepath"
 	"strings"
@@ -649,5 +650,139 @@ func TestCoordinator_BlacklistSymlink(t *testing.T) {
 		t.Errorf("realProtected was damaged: %v", err)
 	}
 }
+
+func TestCoordinator_DryRun_ZeroMutation_Canary(t *testing.T) {
+	tempDir := t.TempDir()
+	configDir := filepath.Join(tempDir, "config")
+	dataDir := filepath.Join(tempDir, "data")
+	trashDir := filepath.Join(tempDir, "trash")
+
+	cfg := &config.Config{
+		Safety: config.SafetyConfig{
+			TrashEnabled: true,
+			TrashDir:     trashDir,
+		},
+	}
+
+	bl := safety.NewBlacklist(nil)
+	trashMgr := trash.New(cfg.Safety)
+
+	cleaners := newFakeCleanerProvider()
+	cleaner := &fakeCleaner{name: "test", installed: true}
+	cleaners.Register("test", cleaner)
+
+	coord := deleter.New(cleaners, cfg, bl, trashMgr, nil, configDir, dataDir)
+
+	// 1. Create canary file with specific content
+	canaryDir := filepath.Join(tempDir, "canary_target")
+	if err := os.MkdirAll(canaryDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	canaryPath := filepath.Join(canaryDir, "payload.bin")
+	canaryContent := []byte("ZERO-MUTATION-CANARY-DATA-VERIFY-POL-04")
+	if err := os.WriteFile(canaryPath, canaryContent, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	hashBefore := sha256.Sum256(canaryContent)
+	statBefore, err := os.Stat(canaryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 2. Create ReviewOnly target
+	reviewDir := filepath.Join(tempDir, "review_target")
+	if err := os.MkdirAll(reviewDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	reviewPath := filepath.Join(reviewDir, "store.bin")
+	if err := os.WriteFile(reviewPath, []byte("shared-store-data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	canaryTarget := domain.Target{
+		ID:        "canary-1",
+		Name:      "canary",
+		Path:      canaryDir,
+		SizeBytes: statBefore.Size(),
+	}
+	reviewTarget := domain.Target{
+		ID:           "review-1",
+		Name:         "review",
+		Path:         reviewDir,
+		SizeBytes:    1024,
+		ReviewOnly:   true,
+		ReviewReason: domain.ReviewReasonSharedStore,
+	}
+
+	opts := deleter.Options{
+		DryRun: true,
+		Auto:   true,
+		Mode:   "auto",
+	}
+
+	targets := map[string][]domain.Target{
+		"test": {canaryTarget, reviewTarget},
+	}
+
+	res, err := coord.Delete(context.Background(), targets, opts)
+	if err != nil {
+		t.Fatalf("DryRun Delete failed: %v", err)
+	}
+
+	// Results verification
+	if res.TotalCount != 1 {
+		t.Errorf("res.TotalCount = %d, want 1 (would_delete count)", res.TotalCount)
+	}
+	if res.TotalFreed != statBefore.Size() {
+		t.Errorf("res.TotalFreed = %d, want %d", res.TotalFreed, statBefore.Size())
+	}
+	if len(res.SkippedReviewOnly) != 1 {
+		t.Fatalf("len(res.SkippedReviewOnly) = %d, want 1", len(res.SkippedReviewOnly))
+	}
+
+	// Invariant POL-04, D-15:
+	// 1. Canary file must exist with identical SHA-256, size, and mtime
+	statAfter, err := os.Stat(canaryPath)
+	if err != nil {
+		t.Fatalf("canary file missing after DryRun: %v", err)
+	}
+	dataAfter, err := os.ReadFile(canaryPath)
+	if err != nil {
+		t.Fatalf("reading canary file: %v", err)
+	}
+	hashAfter := sha256.Sum256(dataAfter)
+	if hashBefore != hashAfter {
+		t.Errorf("canary file SHA-256 mutated! Before: %x, After: %x", hashBefore, hashAfter)
+	}
+	if statBefore.ModTime() != statAfter.ModTime() {
+		t.Errorf("canary file mtime mutated! Before: %v, After: %v", statBefore.ModTime(), statAfter.ModTime())
+	}
+	if statBefore.Size() != statAfter.Size() {
+		t.Errorf("canary file size mutated! Before: %d, After: %d", statBefore.Size(), statAfter.Size())
+	}
+
+	// 2. Trash directory must be completely empty with zero manifests
+	if entries, err := os.ReadDir(trashDir); err == nil && len(entries) > 0 {
+		t.Errorf("trashDir has entries after DryRun: %v", entries)
+	}
+	manifestPath := filepath.Join(trashDir, "manifest.json")
+	if _, err := os.Stat(manifestPath); !os.IsNotExist(err) {
+		t.Errorf("trash manifest.json was created during DryRun: %s", manifestPath)
+	}
+
+	// 3. History JSONL file must be non-existent or 0 bytes
+	historyPath := filepath.Join(dataDir, "history.jsonl")
+	if stat, err := os.Stat(historyPath); err == nil && stat.Size() > 0 {
+		t.Errorf("history JSONL was written during DryRun (%d bytes)", stat.Size())
+	}
+
+	// 4. Scheduler store must have recorded zero runs
+	schedulerPath := filepath.Join(configDir, "last-run.json")
+	if _, err := os.Stat(schedulerPath); !os.IsNotExist(err) {
+		t.Errorf("scheduler last-run.json was written during DryRun: %s", schedulerPath)
+	}
+}
+
 
 
