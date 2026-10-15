@@ -47,8 +47,15 @@ func formatTable(w io.Writer, results []domain.ScanResult, verbose bool, smart b
 
 		for _, t := range r.Targets {
 			path := t.Path
+			if t.ReviewOnly {
+				path = "⊙ " + path
+			}
 			if len(path) > 50 {
-				path = "..." + path[len(path)-47:]
+				if t.ReviewOnly {
+					path = "⊙ ..." + path[len(path)-43:]
+				} else {
+					path = "..." + path[len(path)-47:]
+				}
 			}
 
 			lastAccessed := t.LastAccessed.Format("2006-01-02")
@@ -59,7 +66,13 @@ func formatTable(w io.Writer, results []domain.ScanResult, verbose bool, smart b
 					r.Ecosystem, path, humanSize(t.SizeBytes), string(t.Risk), lastAccessed, t.SmartScore)
 			case verbose:
 				extra := fmt.Sprintf("[%s] %s", t.ID, t.Name)
-				if t.EligibleBytes < t.SizeBytes {
+				if t.ReviewOnly {
+					reason := t.ReviewReason
+					if reason == "" {
+						reason = domain.ReviewReasonSharedStore
+					}
+					extra += fmt.Sprintf(" [ReviewOnly: %s] (eligible: 0 B)", reason)
+				} else if t.EligibleBytes < t.SizeBytes {
 					extra += fmt.Sprintf(" (eligible: %s, ttl: %t)", humanSize(t.EligibleBytes), t.TTLEligible)
 				}
 				fmt.Fprintf(w, "%-12s %-50s %10s %8s %12s  %s\n",
