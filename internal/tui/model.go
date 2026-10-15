@@ -177,6 +177,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.waitForScanResult()
 
 	case scanDoneMsg:
+		m.results = engine.ResolveCanonicalOwnership(m.results)
 		m.flatTargets = flattenResults(m.results)
 		if len(m.flatTargets) == 0 {
 			m.state = stateDone
@@ -188,8 +189,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case scanCompleteMsg:
-		m.results = msg.results
-		m.flatTargets = flattenResults(msg.results)
+		m.results = engine.ResolveCanonicalOwnership(msg.results)
+		m.flatTargets = flattenResults(m.results)
 		if len(m.flatTargets) == 0 {
 			m.state = stateDone
 			m.emptyResult = true
