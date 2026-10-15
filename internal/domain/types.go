@@ -14,6 +14,15 @@ const (
 	RiskHigh   RiskLevel = "high"
 )
 
+// Semantic Review Reasons (POL-01, D-02)
+const (
+	ReviewReasonSharedStore      = "shared_store"
+	ReviewReasonActiveProcess    = "active_process"
+	ReviewReasonOrphanLeftover   = "orphan_leftover"
+	ReviewReasonSystemProtected  = "system_protected"
+	ReviewReasonSessionSensitive = "session_sensitive"
+)
+
 type AIAssessment struct {
 	ConfidenceScore float64 `json:"confidence_score"`
 	Action          string  `json:"action"`
@@ -27,11 +36,18 @@ type Target struct {
 	SizeBytes     int64         `json:"size_bytes"`
 	EligibleBytes int64         `json:"eligible_bytes"`
 	TTLEligible   bool          `json:"ttl_eligible"`
+	ReviewOnly    bool          `json:"review_only"`
+	ReviewReason  string        `json:"review_reason,omitempty"`
 	Risk          RiskLevel     `json:"risk"`
 	LastAccessed  time.Time     `json:"last_accessed"`
 	Category      string        `json:"category"`
 	AI            *AIAssessment `json:"ai_assessment,omitempty"`
 	SmartScore    float64       `json:"smart_score,omitempty"`
+}
+
+// IsReviewOnly reports whether the target is restricted to inventory inspection only.
+func (t Target) IsReviewOnly() bool {
+	return t.ReviewOnly
 }
 
 // IsVirtual returns true if the target represents a virtual resource (e.g. Docker images,
