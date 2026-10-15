@@ -58,8 +58,12 @@ func formatTable(w io.Writer, results []domain.ScanResult, verbose bool, smart b
 				fmt.Fprintf(w, "%-12s %-50s %10s %8s %12s %6.2f\n",
 					r.Ecosystem, path, humanSize(t.SizeBytes), string(t.Risk), lastAccessed, t.SmartScore)
 			case verbose:
-				fmt.Fprintf(w, "%-12s %-50s %10s %8s %12s  [%s] %s\n",
-					r.Ecosystem, path, humanSize(t.SizeBytes), string(t.Risk), lastAccessed, t.ID, t.Name)
+				extra := fmt.Sprintf("[%s] %s", t.ID, t.Name)
+				if t.EligibleBytes < t.SizeBytes {
+					extra += fmt.Sprintf(" (eligible: %s, ttl: %t)", humanSize(t.EligibleBytes), t.TTLEligible)
+				}
+				fmt.Fprintf(w, "%-12s %-50s %10s %8s %12s  %s\n",
+					r.Ecosystem, path, humanSize(t.SizeBytes), string(t.Risk), lastAccessed, extra)
 			default:
 				fmt.Fprintf(w, "%-12s %-50s %10s %8s %12s\n",
 					r.Ecosystem, path, humanSize(t.SizeBytes), string(t.Risk), lastAccessed)
