@@ -2,8 +2,26 @@ package cleaner
 
 import (
 	"context"
+	"fmt"
 	"strings"
 )
+
+// MockExitError implements interface{ ExitCode() int } and error.
+type MockExitError struct {
+	Code int
+	Msg  string
+}
+
+func (e *MockExitError) Error() string {
+	if e.Msg != "" {
+		return e.Msg
+	}
+	return fmt.Sprintf("exit status %d", e.Code)
+}
+
+func (e *MockExitError) ExitCode() int {
+	return e.Code
+}
 
 // MockCommandExecutor records calls and returns controlled outputs/errors for testing.
 type MockCommandExecutor struct {
