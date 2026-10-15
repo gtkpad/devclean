@@ -33,11 +33,27 @@ func (c *homebrewCleaner) Name() string {
 	return "homebrew"
 }
 
-// IsInstalled checks if the brew CLI is available in PATH.
+// IsInstalled checks if the brew CLI is available in PATH or its default cache exists on disk.
 func (c *homebrewCleaner) IsInstalled() bool {
-	_, err := c.exec.LookPath("brew")
-	return err == nil
+	if _, err := c.exec.LookPath("brew"); err == nil {
+		return true
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return false
+	}
+	candidates := []string{
+		filepath.Join(home, "Library", "Caches", "Homebrew"),
+		filepath.Join(home, ".cache", "Homebrew"),
+	}
+	for _, p := range candidates {
+		if devfs.DirExists(p) {
+			return true
+		}
+	}
+	return false
 }
+
 
 // Scan queries brew --cache and returns a virtual cleanup target if the cache size > 0.
 func (c *homebrewCleaner) Scan(ctx context.Context, rules domain.EcosystemRules) ([]domain.Target, error) {

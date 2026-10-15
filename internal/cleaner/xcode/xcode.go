@@ -70,14 +70,17 @@ func (c *xcodeCleaner) Name() string {
 	return "xcode"
 }
 
-// IsInstalled checks if running on Darwin and xcrun is available in PATH.
+// IsInstalled checks if running on Darwin and xcrun is available in PATH or DerivedData exists on disk.
 func (c *xcodeCleaner) IsInstalled() bool {
 	if c.getOS() != "darwin" || c.baseDir == "" {
 		return false
 	}
-	_, err := c.exec.LookPath("xcrun")
-	return err == nil
+	if _, err := c.exec.LookPath("xcrun"); err == nil {
+		return true
+	}
+	return devfs.DirExists(c.baseDir)
 }
+
 
 // Scan looks for individual project directories in DerivedData and emits virtual simulator target.
 func (c *xcodeCleaner) Scan(ctx context.Context, rules domain.EcosystemRules) ([]domain.Target, error) {

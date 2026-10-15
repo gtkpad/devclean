@@ -30,7 +30,7 @@ func New(cachePath string, scanPaths []string) domain.Cleaner {
 func (c *pythonCleaner) Name() string { return "python" }
 
 func (c *pythonCleaner) IsInstalled() bool {
-	if _, err := os.Stat(c.cachePath); err == nil {
+	if c.cachePath != "" && devfs.DirExists(c.cachePath) {
 		return true
 	}
 	for _, cmd := range []string{"python3", "python", "uv", "pip"} {
@@ -40,6 +40,7 @@ func (c *pythonCleaner) IsInstalled() bool {
 	}
 	return false
 }
+
 
 func (c *pythonCleaner) Scan(_ context.Context, rules domain.EcosystemRules) ([]domain.Target, error) {
 	var targets []domain.Target

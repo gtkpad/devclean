@@ -30,25 +30,22 @@ func New(scanPaths []string) domain.Cleaner {
 func (c *javaCleaner) Name() string { return "java" }
 
 func (c *javaCleaner) IsInstalled() bool {
-	// Check for gradle or mvn in PATH
+	// Check for java, gradle or mvn in PATH
 	path := os.Getenv("PATH")
 	for _, dir := range filepath.SplitList(path) {
-		if _, err := os.Stat(filepath.Join(dir, "gradle")); err == nil {
-			return true
-		}
-		if _, err := os.Stat(filepath.Join(dir, "mvn")); err == nil {
-			return true
+		for _, bin := range []string{"gradle", "mvn", "java"} {
+			if _, err := os.Stat(filepath.Join(dir, bin)); err == nil {
+				return true
+			}
 		}
 	}
-	// Fallback: check if gradle/maven home directories exist
-	if _, err := os.Stat(gradleHome()); err == nil {
-		return true
-	}
-	if _, err := os.Stat(mavenHome()); err == nil {
+	// Fallback: check if gradle/maven cache directories exist on disk
+	if devfs.DirExists(gradleHome()) || devfs.DirExists(mavenHome()) {
 		return true
 	}
 	return false
 }
+
 
 func (c *javaCleaner) Scan(ctx context.Context, rules domain.EcosystemRules) ([]domain.Target, error) {
 	var targets []domain.Target

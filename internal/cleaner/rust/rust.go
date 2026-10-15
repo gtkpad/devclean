@@ -30,18 +30,25 @@ func New(scanPaths []string) domain.Cleaner {
 func (c *rustCleaner) Name() string { return "rust" }
 
 func (c *rustCleaner) IsInstalled() bool {
-	if _, err := os.Stat(filepath.Join(cargoHome(), "bin")); err == nil {
-		return true
-	}
-	// Fallback: check PATH for cargo binary
+	// Check for cargo binary in PATH
 	path := os.Getenv("PATH")
 	for _, dir := range filepath.SplitList(path) {
 		if _, err := os.Stat(filepath.Join(dir, "cargo")); err == nil {
 			return true
 		}
 	}
+	// Fallback: check if cargo bin or global cache directories exist on disk
+	ch := cargoHome()
+	if ch != "" {
+		if devfs.DirExists(filepath.Join(ch, "bin")) ||
+			devfs.DirExists(filepath.Join(ch, "registry")) ||
+			devfs.DirExists(filepath.Join(ch, "git")) {
+			return true
+		}
+	}
 	return false
 }
+
 
 func (c *rustCleaner) Scan(ctx context.Context, rules domain.EcosystemRules) ([]domain.Target, error) {
 	var targets []domain.Target

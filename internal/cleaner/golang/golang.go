@@ -5,12 +5,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
 	"github.com/gtkpad/devclean/internal/domain"
 	"github.com/gtkpad/devclean/internal/fs"
 )
+
 
 type goCleaner struct {
 	modCache   string
@@ -25,9 +27,13 @@ func New() domain.Cleaner {
 func (c *goCleaner) Name() string { return "go" }
 
 func (c *goCleaner) IsInstalled() bool {
-	_, err := exec.LookPath("go")
-	return err == nil
+	if _, err := exec.LookPath("go"); err == nil {
+		return true
+	}
+	c.resolvePaths()
+	return fs.DirExists(c.modCache) || fs.DirExists(c.buildCache)
 }
+
 
 func (c *goCleaner) Scan(_ context.Context, rules domain.EcosystemRules) ([]domain.Target, error) {
 	c.resolvePaths()
@@ -69,19 +75,36 @@ func (c *goCleaner) Clean(_ context.Context, targets []domain.Target) error {
 }
 
 func (c *goCleaner) resolvePaths() {
-	// Check env vars first to avoid exec
+	// Check env vars first to avoid exec and respect test isolation
 	if v, ok := os.LookupEnv("GOMODCACHE"); ok {
 		c.modCache = v
 	} else {
 		c.modCache = goEnv("GOMODCACHE")
+		if c.modCache == "" {
+			if gopath := os.Getenv("GOPATH"); gopath != "" {
+				c.modCache = filepath.Join(gopath, "pkg", "mod")
+			} else if home, err := os.UserHomeDir(); err == nil && home != "" {
+				c.modCache = filepath.Join(home, "go", "pkg", "mod")
+			}
+		}
 	}
 
 	if v, ok := os.LookupEnv("GOCACHE"); ok {
 		c.buildCache = v
 	} else {
 		c.buildCache = goEnv("GOCACHE")
+		if c.buildCache == "" {
+			if home, err := os.UserHomeDir(); err == nil && home != "" {
+				if runtime.GOOS == "darwin" {
+					c.buildCache = filepath.Join(home, "Library", "Caches", "go-build")
+				} else {
+					c.buildCache = filepath.Join(home, ".cache", "go-build")
+				}
+			}
+		}
 	}
 }
+
 
 func (c *goCleaner) scanCache(path, category string, rules domain.EcosystemRules, cutoff time.Time) *domain.Target {
 	info, err := os.Stat(path)

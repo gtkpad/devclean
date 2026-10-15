@@ -3,6 +3,8 @@ package pnpm
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/gtkpad/devclean/internal/cleaner"
@@ -29,9 +31,26 @@ func (c *pnpmCleaner) Name() string {
 }
 
 func (c *pnpmCleaner) IsInstalled() bool {
-	_, err := c.exec.LookPath("pnpm")
-	return err == nil
+	if _, err := c.exec.LookPath("pnpm"); err == nil {
+		return true
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return false
+	}
+	candidates := []string{
+		filepath.Join(home, "Library", "pnpm", "store"),
+		filepath.Join(home, ".local", "share", "pnpm", "store"),
+		filepath.Join(home, ".pnpm-store"),
+	}
+	for _, p := range candidates {
+		if devfs.DirExists(p) {
+			return true
+		}
+	}
+	return false
 }
+
 
 func (c *pnpmCleaner) Scan(ctx context.Context, _ domain.EcosystemRules) ([]domain.Target, error) {
 	out, err := c.exec.Output(ctx, "pnpm", "store", "path")

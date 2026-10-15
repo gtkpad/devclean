@@ -36,9 +36,13 @@ func New(paths platform.Paths, scanPaths []string) domain.Cleaner {
 func (c *dotnetCleaner) Name() string { return "dotnet" }
 
 func (c *dotnetCleaner) IsInstalled() bool {
-	_, err := exec.LookPath("dotnet")
-	return err == nil
+	if _, err := exec.LookPath("dotnet"); err == nil {
+		return true
+	}
+	return devfs.DirExists(c.paths.DotNetNuGet) || devfs.DirExists(c.paths.DotNetHTTP) || devfs.DirExists(c.paths.DotNetTemp)
 }
+
+
 
 func (c *dotnetCleaner) Scan(_ context.Context, rules domain.EcosystemRules) ([]domain.Target, error) {
 	targets, err := c.scanGlobalCaches(rules)
