@@ -50,6 +50,11 @@ func TestXcodeCleaner_Name(t *testing.T) {
 	}
 }
 
+func mockProcessesStopped(mockExec *cleaner.MockCommandExecutor) {
+	mockExec.Errors["pgrep -x Xcode"] = &cleaner.MockExitError{Code: 1}
+	mockExec.Errors["pgrep -x Simulator"] = &cleaner.MockExitError{Code: 1}
+}
+
 func TestXcodeCleaner_Scan_GranularDerivedDataAndSimulators(t *testing.T) {
 	tmpDir := t.TempDir()
 	derivedDataDir := filepath.Join(tmpDir, "DerivedData")
@@ -93,6 +98,7 @@ func TestXcodeCleaner_Scan_GranularDerivedDataAndSimulators(t *testing.T) {
 	}
 
 	mockExec := cleaner.NewMockExecutor()
+	mockProcessesStopped(mockExec)
 	c := NewWithDirExecutorAndOS(tmpDir, mockExec, "darwin")
 
 	targets, err := c.Scan(context.Background(), domain.EcosystemRules{
@@ -212,6 +218,7 @@ func TestXcodeCleaner_Scan_ExcludePaths(t *testing.T) {
 	_ = os.Chtimes(projA, oldTime, oldTime)
 
 	mockExec := cleaner.NewMockExecutor()
+	mockProcessesStopped(mockExec)
 	c := NewWithDirExecutorAndOS(tmpDir, mockExec, "darwin")
 
 	targets, err := c.Scan(context.Background(), domain.EcosystemRules{
@@ -320,6 +327,7 @@ func TestXcodeCleaner_Scan_ExpandedTargets(t *testing.T) {
 	}
 
 	mockExec := cleaner.NewMockExecutor()
+	mockProcessesStopped(mockExec)
 	c := NewWithDirExecutorAndOS(xcodeDir, mockExec, "darwin")
 
 	targets, err := c.Scan(context.Background(), domain.EcosystemRules{MaxAgeDays: 0})
@@ -433,4 +441,151 @@ func TestXcodeCleaner_Clean_SymlinkProtection(t *testing.T) {
 		t.Errorf("real file in symlinked target was deleted or inaccessible: %v", err)
 	}
 }
+
+func TestXcodeCleaner_ProcessGuard_XcodeActive(t *testing.T) {
+	devDir := t.TempDir()
+	xcodeDir := filepath.Join(devDir, "Xcode")
+	derivedDataDir := filepath.Join(xcodeDir, "DerivedData", "App1")
+	if err := os.MkdirAll(derivedDataDir, 0o755); err != nil {
+		t.Fatalf("failed to create dir: %v", err)
+	}
+	_ = os.WriteFile(filepath.Join(derivedDataDir, "test.dat"), []byte("data"), 0o644)
+
+	archivesDir := filepath.Join(xcodeDir, "Archives")
+	if err := os.MkdirAll(archivesDir, 0o755); err != nil {
+		t.Fatalf("failed to create dir: %v", err)
+	}
+	_ = os.WriteFile(filepath.Join(archivesDir, "archive.dat"), []byte("archive"), 0o644)
+
+	coreSimCache := filepath.Join(devDir, "CoreSimulator", "Caches")
+	if err := os.MkdirAll(coreSimCache, 0o755); err != nil {
+		t.Fatalf("failed to create dir: %v", err)
+	}
+	_ = os.WriteFile(filepath.Join(coreSimCache, "cache.dat"), []byte("cache"), 0o644)
+
+	mockExec := cleaner.NewMockExecutor()
+	mockExec.Outputs["pgrep -x Xcode"] = []byte("12345\n")
+	mockExec.Errors["pgrep -x Simulator"] = &cleaner.MockExitError{Code: 1}
+
+	c := NewWithDirExecutorAndOS(xcodeDir, mockExec, "darwin")
+	targets, err := c.Scan(context.Background(), domain.EcosystemRules{MaxAgeDays: 0})
+	if err != nil {
+		t.Fatalf("unexpected scan error: %v", err)
+	}
+
+	if len(targets) == 0 {
+		t.Fatalf("expected targets, got 0")
+	}
+
+	for _, target := range targets {
+		if !target.ReviewOnly {
+			t.Errorf("expected target %s (%s) to have ReviewOnly = true", target.Name, target.Category)
+		}
+		if target.ReviewReason != domain.ReviewReasonActiveProcess {
+			t.Errorf("expected target %s to have ReviewReason %q, got %q", target.Name, domain.ReviewReasonActiveProcess, target.ReviewReason)
+		}
+		if target.EligibleBytes != 0 {
+			t.Errorf("expected target %s to have EligibleBytes = 0, got %d", target.Name, target.EligibleBytes)
+		}
+		if target.TTLEligible {
+			t.Errorf("expected target %s to have TTLEligible = false", target.Name)
+		}
+	}
+}
+
+func TestXcodeCleaner_ProcessGuard_SimulatorActive(t *testing.T) {
+	devDir := t.TempDir()
+	xcodeDir := filepath.Join(devDir, "Xcode")
+
+	derivedDataDir := filepath.Join(xcodeDir, "DerivedData", "App1")
+	if err := os.MkdirAll(derivedDataDir, 0o755); err != nil {
+		t.Fatalf("failed to create dir: %v", err)
+	}
+	_ = os.WriteFile(filepath.Join(derivedDataDir, "test.dat"), []byte("data"), 0o644)
+
+	archivesDir := filepath.Join(xcodeDir, "Archives")
+	if err := os.MkdirAll(archivesDir, 0o755); err != nil {
+		t.Fatalf("failed to create dir: %v", err)
+	}
+	_ = os.WriteFile(filepath.Join(archivesDir, "archive.dat"), []byte("archive"), 0o644)
+
+	coreSimCache := filepath.Join(devDir, "CoreSimulator", "Caches")
+	if err := os.MkdirAll(coreSimCache, 0o755); err != nil {
+		t.Fatalf("failed to create dir: %v", err)
+	}
+	_ = os.WriteFile(filepath.Join(coreSimCache, "cache.dat"), []byte("cache"), 0o644)
+
+	mockExec := cleaner.NewMockExecutor()
+	mockExec.Errors["pgrep -x Xcode"] = &cleaner.MockExitError{Code: 1}
+	mockExec.Outputs["pgrep -x Simulator"] = []byte("67890\n")
+
+	c := NewWithDirExecutorAndOS(xcodeDir, mockExec, "darwin")
+	targets, err := c.Scan(context.Background(), domain.EcosystemRules{MaxAgeDays: 0})
+	if err != nil {
+		t.Fatalf("unexpected scan error: %v", err)
+	}
+
+	for _, target := range targets {
+		isSim := target.Category == "xcode-coresimulator-caches" ||
+			target.Category == "xcode-coresimulator-temp" ||
+			target.Category == "virtual-xcode-simulators"
+
+		if isSim {
+			if !target.ReviewOnly {
+				t.Errorf("expected sim target %s to have ReviewOnly = true", target.Name)
+			}
+			if target.ReviewReason != domain.ReviewReasonActiveProcess {
+				t.Errorf("expected sim target %s to have ReviewReason %q, got %q", target.Name, domain.ReviewReasonActiveProcess, target.ReviewReason)
+			}
+			if target.EligibleBytes != 0 {
+				t.Errorf("expected sim target %s to have EligibleBytes = 0, got %d", target.Name, target.EligibleBytes)
+			}
+			if target.TTLEligible {
+				t.Errorf("expected sim target %s to have TTLEligible = false", target.Name)
+			}
+		} else {
+			if target.ReviewOnly {
+				t.Errorf("expected non-sim target %s to have ReviewOnly = false", target.Name)
+			}
+			if target.ReviewReason != "" {
+				t.Errorf("expected non-sim target %s to have empty ReviewReason, got %q", target.Name, target.ReviewReason)
+			}
+		}
+	}
+}
+
+func TestXcodeCleaner_ProcessGuard_FailClosedOnPgrepError(t *testing.T) {
+	devDir := t.TempDir()
+	xcodeDir := filepath.Join(devDir, "Xcode")
+	derivedDataDir := filepath.Join(xcodeDir, "DerivedData", "App1")
+	if err := os.MkdirAll(derivedDataDir, 0o755); err != nil {
+		t.Fatalf("failed to create dir: %v", err)
+	}
+	_ = os.WriteFile(filepath.Join(derivedDataDir, "test.dat"), []byte("data"), 0o644)
+
+	mockExec := cleaner.NewMockExecutor()
+	mockExec.Errors["pgrep -x Xcode"] = errors.New("exec: pgrep not found")
+
+	c := NewWithDirExecutorAndOS(xcodeDir, mockExec, "darwin")
+	targets, err := c.Scan(context.Background(), domain.EcosystemRules{MaxAgeDays: 0})
+	if err != nil {
+		t.Fatalf("unexpected scan error: %v", err)
+	}
+
+	for _, target := range targets {
+		if !target.ReviewOnly {
+			t.Errorf("expected target %s to fail-closed with ReviewOnly = true", target.Name)
+		}
+		if target.ReviewReason != domain.ReviewReasonActiveProcess {
+			t.Errorf("expected target %s to have ReviewReason %q, got %q", target.Name, domain.ReviewReasonActiveProcess, target.ReviewReason)
+		}
+		if target.EligibleBytes != 0 {
+			t.Errorf("expected target %s to have EligibleBytes = 0, got %d", target.Name, target.EligibleBytes)
+		}
+		if target.TTLEligible {
+			t.Errorf("expected target %s to have TTLEligible = false", target.Name)
+		}
+	}
+}
+
 

@@ -3,6 +3,7 @@ package xcode
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -89,6 +90,31 @@ type xcodeTargetDef struct {
 	path       string
 	risk       domain.RiskLevel
 	simRelated bool
+}
+
+// checkProcessStatus returns running=true if pgrep finds matching processes.
+// If pgrep fails with exit code 1, running=false, uncertain=false.
+// If pgrep fails with any other error, uncertain=true (FAIL CLOSED!).
+func checkProcessStatus(ctx context.Context, exec cleaner.CommandExecutor, processName string) (running bool, uncertain bool) {
+	out, err := exec.Output(ctx, "pgrep", "-x", processName)
+	if err == nil && len(strings.TrimSpace(string(out))) > 0 {
+		return true, false
+	}
+
+	var exitErr interface{ ExitCode() int }
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+		return false, false // Cleanly not running
+	}
+
+	// Any other error (missing pgrep, permission denied, timeout, exit code > 1) is UNCERTAIN -> FAIL CLOSED!
+	return false, true
+}
+
+func isSimulatorTarget(t domain.Target) bool {
+	return t.Category == "xcode-coresimulator-caches" ||
+		t.Category == "xcode-coresimulator-temp" ||
+		t.Category == "virtual-xcode-simulators" ||
+		t.Path == "xcode://simulators/unavailable"
 }
 
 func (c *xcodeCleaner) getExpandedTargetDefs() []xcodeTargetDef {
@@ -239,6 +265,27 @@ func (c *xcodeCleaner) Scan(ctx context.Context, rules domain.EcosystemRules) ([
 		Risk:          domain.RiskLow,
 		Category:      "virtual-xcode-simulators",
 	})
+
+	// 4. Process guard: fail-closed evaluation for Xcode and Simulator (DEV-03, D-11, D-12)
+	xcodeRunning, xcodeUncertain := checkProcessStatus(ctx, c.exec, "Xcode")
+	simRunning, simUncertain := checkProcessStatus(ctx, c.exec, "Simulator")
+
+	xcodeBlocked := xcodeRunning || xcodeUncertain
+	simBlocked := simRunning || simUncertain
+
+	for i := range targets {
+		if xcodeBlocked {
+			targets[i].ReviewOnly = true
+			targets[i].ReviewReason = domain.ReviewReasonActiveProcess
+			targets[i].EligibleBytes = 0
+			targets[i].TTLEligible = false
+		} else if simBlocked && isSimulatorTarget(targets[i]) {
+			targets[i].ReviewOnly = true
+			targets[i].ReviewReason = domain.ReviewReasonActiveProcess
+			targets[i].EligibleBytes = 0
+			targets[i].TTLEligible = false
+		}
+	}
 
 	return targets, nil
 }
