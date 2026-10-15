@@ -549,3 +549,105 @@ func TestCoordinator_DryRun_NoTrashPrune(t *testing.T) {
 	}
 }
 
+func TestCoordinator_BlacklistSymlink(t *testing.T) {
+	tempDir := t.TempDir()
+	configDir := filepath.Join(tempDir, "config")
+	dataDir := filepath.Join(tempDir, "data")
+	trashDir := filepath.Join(tempDir, "trash")
+
+	cfg := &config.Config{
+		Safety: config.SafetyConfig{
+			TrashEnabled: true,
+			TrashDir:     trashDir,
+		},
+	}
+
+	bl := safety.NewBlacklist([]string{"*protected_pattern*"})
+	trashMgr := trash.New(cfg.Safety)
+
+	cleaners := newFakeCleanerProvider()
+	cleaner := &fakeCleaner{name: "test", installed: true}
+	cleaners.Register("test", cleaner)
+
+	coord := deleter.New(cleaners, cfg, bl, trashMgr, nil, configDir, dataDir)
+
+	// 1. Real .git dir + symlink
+	realGit := filepath.Join(tempDir, ".git")
+	if err := os.MkdirAll(realGit, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(realGit, "config"), []byte("git config"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	symlinkGit := filepath.Join(tempDir, "target_symlink_git")
+	if err := os.Symlink(realGit, symlinkGit); err != nil {
+		t.Fatal(err)
+	}
+
+	// 2. Real custom protected dir + symlink
+	realProtected := filepath.Join(tempDir, "protected_pattern_dir")
+	if err := os.MkdirAll(realProtected, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(realProtected, "file.txt"), []byte("secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	symlinkProtected := filepath.Join(tempDir, "target_symlink_protected")
+	if err := os.Symlink(realProtected, symlinkProtected); err != nil {
+		t.Fatal(err)
+	}
+
+	// 3. Normal safe target
+	normalTarget := createPhysicalTarget(t, tempDir, "test/normal_target", 1024)
+
+	targets := map[string][]domain.Target{
+		"test": {
+			{
+				ID:        "symlink-git",
+				Name:      "symlink-git",
+				Path:      symlinkGit,
+				SizeBytes: 100,
+			},
+			{
+				ID:        "symlink-protected",
+				Name:      "symlink-protected",
+				Path:      symlinkProtected,
+				SizeBytes: 100,
+			},
+			normalTarget,
+		},
+	}
+
+	opts := deleter.Options{
+		Mode: "force",
+	}
+
+	res, err := coord.Delete(context.Background(), targets, opts)
+	if err != nil {
+		t.Fatalf("Delete() failed: %v", err)
+	}
+
+	// Only normalTarget should be deleted
+	if res.TotalCount != 1 {
+		t.Errorf("res.TotalCount = %d, want 1", res.TotalCount)
+	}
+	if len(res.CleanedPaths) != 1 || res.CleanedPaths[0] != normalTarget.Path {
+		t.Errorf("res.CleanedPaths = %v, want [%s]", res.CleanedPaths, normalTarget.Path)
+	}
+
+	// Symlinks must NOT have been deleted or moved
+	if _, err := os.Lstat(symlinkGit); err != nil {
+		t.Errorf("symlinkGit was modified/deleted: %v", err)
+	}
+	if _, err := os.Lstat(symlinkProtected); err != nil {
+		t.Errorf("symlinkProtected was modified/deleted: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(realGit, "config")); err != nil {
+		t.Errorf("realGit config was damaged: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(realProtected, "file.txt")); err != nil {
+		t.Errorf("realProtected was damaged: %v", err)
+	}
+}
+
+
