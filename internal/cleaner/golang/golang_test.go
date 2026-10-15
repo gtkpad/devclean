@@ -63,7 +63,7 @@ func TestGoCleaner_Scan_WithFakeCaches(t *testing.T) {
 	}
 }
 
-func TestGoCleaner_Scan_RecentCacheFiltered(t *testing.T) {
+func TestGoCleaner_Scan_RecentCacheReportedNotEligible(t *testing.T) {
 	modDir := t.TempDir()
 	writeOldFile(t, filepath.Join(modDir, "pkg/file.go"), 100)
 	// Don't set old mod time — it stays recent
@@ -78,8 +78,17 @@ func TestGoCleaner_Scan_RecentCacheFiltered(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
-	if len(targets) != 0 {
-		t.Errorf("expected 0 targets for recent cache, got %d", len(targets))
+	if len(targets) != 1 {
+		t.Fatalf("expected 1 target for recent cache, got %d", len(targets))
+	}
+	if targets[0].TTLEligible {
+		t.Errorf("expected TTLEligible = false for recent cache")
+	}
+	if targets[0].EligibleBytes != 0 {
+		t.Errorf("expected EligibleBytes = 0 for recent cache, got %d", targets[0].EligibleBytes)
+	}
+	if targets[0].SizeBytes <= 0 {
+		t.Errorf("expected SizeBytes > 0, got %d", targets[0].SizeBytes)
 	}
 }
 
