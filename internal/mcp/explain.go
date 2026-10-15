@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/gtkpad/devclean/internal/config"
+	"github.com/gtkpad/devclean/internal/domain"
+	"github.com/gtkpad/devclean/internal/engine"
 	"github.com/gtkpad/devclean/internal/fs"
 	"github.com/gtkpad/devclean/internal/safety"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -22,14 +24,16 @@ type PathExplainer interface {
 
 // ExplainResult is the structured response for explain_target.
 type ExplainResult struct {
-	Path      string   `json:"path"`
-	Status    string   `json:"status"`
-	Ecosystem string   `json:"ecosystem,omitempty"`
-	Reason    string   `json:"reason"`
-	SizeBytes int64    `json:"size_bytes,omitempty"`
-	AgeDays   int      `json:"age_days,omitempty"`
-	RiskLevel string   `json:"risk_level,omitempty"`
-	Score     *float64 `json:"score,omitempty"`
+	Path         string   `json:"path"`
+	Status       string   `json:"status"`
+	Ecosystem    string   `json:"ecosystem,omitempty"`
+	Reason       string   `json:"reason"`
+	SizeBytes    int64    `json:"size_bytes,omitempty"`
+	AgeDays      int      `json:"age_days,omitempty"`
+	RiskLevel    string   `json:"risk_level,omitempty"`
+	Score        *float64 `json:"score,omitempty"`
+	ReviewOnly   bool     `json:"review_only,omitempty"`
+	ReviewReason string   `json:"review_reason,omitempty"`
 }
 
 // WithExplainer injects a PathExplainer into the server.
@@ -90,6 +94,19 @@ func (e *DefaultExplainer) Explain(ctx context.Context, path string) (*ExplainRe
 			result.Reason = "Excluded by pattern: " + pattern
 			return result, nil
 		}
+	}
+
+	// Check review-only shared store patterns (POL-01, STORE-03, LEFT-04)
+	if isReviewOnlyPath(path) {
+		reason := getReviewReasonForPath(path)
+		eco := getEcosystemForReviewPath(path)
+		result.Status = "review_only"
+		result.ReviewOnly = true
+		result.ReviewReason = reason
+		result.Ecosystem = eco
+		result.Reason = fmt.Sprintf("Item de revisão [%s]: protegido por política ReviewOnly; requer ação manual ou ferramenta dedicada", reason)
+		result.SizeBytes, _ = fs.CalcDirSize(path)
+		return result, nil
 	}
 
 	// Check target patterns
@@ -178,9 +195,96 @@ func (s *Server) handleExplainTarget(ctx context.Context, request mcp.CallToolRe
 		return mcp.NewToolResultError(fmt.Sprintf("explain error: %v", err)), nil
 	}
 
+	// Enrich from active engine scan if target is known to be ReviewOnly
+	if s.engine != nil {
+		ch := s.engine.Scan(ctx)
+		scanResults := engine.Collect(ctx, ch)
+		for _, sr := range scanResults {
+			for _, t := range sr.Targets {
+				if t.Path == path || t.ID == path {
+					if t.ReviewOnly {
+						result.Status = "review_only"
+						result.ReviewOnly = true
+						result.ReviewReason = t.ReviewReason
+						if result.ReviewReason == "" {
+							result.ReviewReason = domain.ReviewReasonSharedStore
+						}
+						result.Reason = fmt.Sprintf("Item de revisão [%s]: protegido por política ReviewOnly; requer ação manual ou ferramenta dedicada", result.ReviewReason)
+						if result.Ecosystem == "" {
+							result.Ecosystem = sr.Ecosystem
+						}
+						if result.SizeBytes == 0 {
+							result.SizeBytes = t.SizeBytes
+						}
+					}
+					break
+				}
+			}
+		}
+	}
+
+	if result.ReviewOnly || result.Status == "review_only" {
+		result.Status = "review_only"
+		result.ReviewOnly = true
+		if result.ReviewReason == "" {
+			result.ReviewReason = domain.ReviewReasonSharedStore
+		}
+		if result.Reason == "" || (!strings.Contains(result.Reason, "manual") && !strings.Contains(result.Reason, "dedicada")) {
+			result.Reason = fmt.Sprintf("Item de revisão [%s]: protegido por política ReviewOnly; requer ação manual ou ferramenta dedicada", result.ReviewReason)
+		}
+	}
+
 	data, err := json.Marshal(result)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("marshal error: %v", err)), nil
 	}
 	return mcp.NewToolResultText(string(data)), nil
+}
+
+func isReviewOnlyPath(path string) bool {
+	lower := strings.ToLower(path)
+	if strings.Contains(lower, ".pnpm-store") || strings.Contains(lower, "pnpm/store") || strings.Contains(lower, "pnpm-store") {
+		return true
+	}
+	if strings.Contains(lower, ".nuget/packages") || strings.Contains(lower, "nuget/packages") {
+		return true
+	}
+	if strings.HasPrefix(lower, "docker://") || strings.Contains(lower, "docker/overlay2") || (strings.Contains(lower, "docker") && strings.Contains(lower, "storage")) {
+		return true
+	}
+	if strings.Contains(lower, "orbstack") && (strings.Contains(lower, "data") || strings.Contains(lower, "storage")) {
+		return true
+	}
+	if strings.Contains(lower, "launchagents") {
+		return true
+	}
+	return false
+}
+
+func getReviewReasonForPath(path string) string {
+	lower := strings.ToLower(path)
+	if strings.Contains(lower, "launchagents") {
+		return domain.ReviewReasonOrphanLeftover
+	}
+	return domain.ReviewReasonSharedStore
+}
+
+func getEcosystemForReviewPath(path string) string {
+	lower := strings.ToLower(path)
+	if strings.Contains(lower, "pnpm") {
+		return "pnpm"
+	}
+	if strings.Contains(lower, "nuget") {
+		return "dotnet"
+	}
+	if strings.Contains(lower, "docker") {
+		return "docker"
+	}
+	if strings.Contains(lower, "orbstack") {
+		return "orbstack"
+	}
+	if strings.Contains(lower, "launchagents") {
+		return "system"
+	}
+	return ""
 }

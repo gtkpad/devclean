@@ -216,11 +216,13 @@ func (s *Server) handlePropose(ctx context.Context, request mcp.CallToolRequest)
 	}
 
 	type proposalEntry struct {
-		ID       string `json:"id"`
-		Path     string `json:"path"`
-		Size     int64  `json:"size_bytes"`
-		Status   string `json:"status"` // "approved", "blocked", "not_found"
-		Reason   string `json:"reason,omitempty"`
+		ID            string `json:"id"`
+		Path          string `json:"path"`
+		Size          int64  `json:"size_bytes"`
+		EligibleBytes int64  `json:"eligible_bytes"`
+		Status        string `json:"status"` // "approved", "blocked", "review_only", "not_found"
+		ReviewReason  string `json:"review_reason,omitempty"`
+		Reason        string `json:"reason,omitempty"`
 	}
 
 	var entries []proposalEntry
@@ -234,7 +236,29 @@ func (s *Server) handlePropose(ctx context.Context, request mcp.CallToolRequest)
 			entries = append(entries, proposalEntry{ID: id, Path: t.Path, Size: t.SizeBytes, Status: "blocked", Reason: "path is protected by safety blacklist"})
 			continue
 		}
-		entries = append(entries, proposalEntry{ID: id, Path: t.Path, Size: t.SizeBytes, Status: "approved"})
+		if t.ReviewOnly {
+			reviewReason := t.ReviewReason
+			if reviewReason == "" {
+				reviewReason = domain.ReviewReasonSharedStore
+			}
+			entries = append(entries, proposalEntry{
+				ID:            id,
+				Path:          t.Path,
+				Size:          t.SizeBytes,
+				EligibleBytes: 0,
+				Status:        "review_only",
+				ReviewReason:  t.ReviewReason,
+				Reason:        fmt.Sprintf("Item de revisão [%s]: requer ação manual ou ferramenta dedicada", reviewReason),
+			})
+			continue
+		}
+		entries = append(entries, proposalEntry{
+			ID:            id,
+			Path:          t.Path,
+			Size:          t.SizeBytes,
+			EligibleBytes: t.EligibleBytes,
+			Status:        "approved",
+		})
 	}
 
 	data, err := json.Marshal(entries)
@@ -285,6 +309,9 @@ func (s *Server) handleExecute(ctx context.Context, request mcp.CallToolRequest)
 	result := map[string]interface{}{
 		"deleted_count": res.TotalCount,
 		"freed_bytes":   res.TotalFreed,
+	}
+	if len(res.SkippedReviewOnly) > 0 {
+		result["skipped_review_count"] = len(res.SkippedReviewOnly)
 	}
 	if len(res.Errors) > 0 {
 		var errStrs []string
