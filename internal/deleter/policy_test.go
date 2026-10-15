@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gtkpad/devclean/internal/config"
 	"github.com/gtkpad/devclean/internal/deleter"
@@ -444,3 +445,107 @@ func TestCoordinator_SingleGateModes(t *testing.T) {
 		})
 	}
 }
+
+func TestCoordinator_DryRun_NoTrashPrune(t *testing.T) {
+	tempDir := t.TempDir()
+	configDir := filepath.Join(tempDir, "config")
+	dataDir := filepath.Join(tempDir, "data")
+	trashDir := filepath.Join(tempDir, "trash")
+
+	cfg := &config.Config{
+		Safety: config.SafetyConfig{
+			TrashEnabled:  true,
+			TrashDir:      trashDir,
+			RetentionDays: 1, // 1 day retention
+		},
+	}
+
+	bl := safety.NewBlacklist(nil)
+	trashMgr := trash.New(cfg.Safety)
+
+	// Pre-populate trash with an expired batch
+	oldTarget := createPhysicalTarget(t, tempDir, "old-item", 1024)
+	if err := trashMgr.Move(context.Background(), []domain.Target{oldTarget}, "test"); err != nil {
+		t.Fatalf("failed to move target to trash: %v", err)
+	}
+
+	// Backdate the batch and entries in manifest to 10 days ago
+	manifestPath := trashMgr.ManifestPath()
+	manifest, err := trash.LoadManifest(manifestPath)
+	if err != nil {
+		t.Fatalf("failed to load manifest: %v", err)
+	}
+	if len(manifest.Batches) == 0 {
+		t.Fatalf("expected at least 1 batch in trash")
+	}
+	oldTime := time.Now().Add(-10 * 24 * time.Hour)
+	manifest.Batches[0].CreatedAt = oldTime
+	for i := range manifest.Batches[0].Entries {
+		manifest.Batches[0].Entries[i].MovedAt = oldTime
+	}
+	if err := trash.SaveManifest(manifestPath, manifest); err != nil {
+		t.Fatalf("failed to save backdated manifest: %v", err)
+	}
+
+	cleaners := newFakeCleanerProvider()
+	cleaner := &fakeCleaner{name: "test", installed: true}
+	cleaners.Register("test", cleaner)
+
+	coord := deleter.New(cleaners, cfg, bl, trashMgr, nil, configDir, dataDir)
+
+	reviewTarget := createPhysicalTarget(t, tempDir, "review-item", 2048)
+	reviewTarget.ReviewOnly = true
+	reviewTarget.ReviewReason = domain.ReviewReasonSharedStore
+
+	opts := deleter.Options{
+		DryRun: true,
+	}
+
+	targets := map[string][]domain.Target{
+		"test": {reviewTarget},
+	}
+
+	res, err := coord.Delete(context.Background(), targets, opts)
+	if err != nil {
+		t.Fatalf("DryRun Delete() failed: %v", err)
+	}
+
+	// Invariant D-14: SkippedReviewOnly is populated identically in DryRun mode
+	if len(res.SkippedReviewOnly) != 1 {
+		t.Fatalf("len(res.SkippedReviewOnly) = %d, want 1", len(res.SkippedReviewOnly))
+	}
+	if res.SkippedReviewOnly[0].ID != reviewTarget.ID {
+		t.Errorf("res.SkippedReviewOnly[0].ID = %q, want %q", res.SkippedReviewOnly[0].ID, reviewTarget.ID)
+	}
+
+	// Invariant POL-04, D-13: Trash retention was NOT enforced under DryRun
+	manifestAfter, err := trash.LoadManifest(manifestPath)
+	if err != nil {
+		t.Fatalf("failed to reload manifest: %v", err)
+	}
+	if len(manifestAfter.Batches) != 1 {
+		t.Fatalf("DryRun pruned trash batches! Expected 1 batch, got %d", len(manifestAfter.Batches))
+	}
+	if len(manifestAfter.Batches[0].Entries) == 0 {
+		t.Fatalf("DryRun pruned trash entries! Expected entries to remain")
+	}
+
+	// Now run live (DryRun: false) and verify trash maintenance IS performed by Coordinator
+	optsLive := deleter.Options{
+		DryRun: false,
+	}
+	_, err = coord.Delete(context.Background(), targets, optsLive)
+	if err != nil {
+		t.Fatalf("Live Delete() failed: %v", err)
+	}
+
+	manifestLive, err := trash.LoadManifest(manifestPath)
+	if err != nil {
+		t.Fatalf("failed to reload manifest after live: %v", err)
+	}
+	// The expired batch should now have been pruned by Coordinator Stage 6.1
+	if len(manifestLive.Batches) != 0 {
+		t.Errorf("Live run should have pruned expired batch, got %d batches", len(manifestLive.Batches))
+	}
+}
+
