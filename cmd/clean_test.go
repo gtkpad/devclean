@@ -51,6 +51,39 @@ func TestFilterByTTL_ZeroMaxAge(t *testing.T) {
 	}
 }
 
+func TestFilterByTTL_TTLEligibleDirectConsumption(t *testing.T) {
+	targets := []domain.Target{
+		{Path: "/tmp/eligible", TTLEligible: true, SizeBytes: 1024, EligibleBytes: 1024},
+		{Path: "/tmp/ineligible", TTLEligible: false, SizeBytes: 2048, EligibleBytes: 0},
+	}
+
+	result := filterByTTL(targets, 30)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 target, got %d", len(result))
+	}
+	if result[0].Path != "/tmp/eligible" {
+		t.Errorf("expected /tmp/eligible, got %s", result[0].Path)
+	}
+}
+
+func TestFilterByTTL_TTLEligibleTakesPrecedenceOverMtime(t *testing.T) {
+	// Even if LastAccessed is older than cutoff, if cleaner evaluated TTLEligible=false, it is not eligible
+	targets := []domain.Target{
+		{
+			Path:          "/tmp/mtime-old-but-manifest-fresh",
+			LastAccessed:  time.Now().Add(-60 * 24 * time.Hour),
+			SizeBytes:     4096,
+			EligibleBytes: 0,
+			TTLEligible:   false,
+		},
+	}
+
+	result := filterByTTL(targets, 30)
+	if len(result) != 0 {
+		t.Errorf("expected 0 targets when TTLEligible=false despite old LastAccessed, got %d", len(result))
+	}
+}
+
 func TestRejectBlacklisted_RemovesBlacklistedPaths(t *testing.T) {
 	bl := safety.NewBlacklist(nil)
 	targets := []domain.Target{

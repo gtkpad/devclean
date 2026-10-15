@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -146,4 +147,82 @@ func TestFormat_ErrorAndVerboseBranches(t *testing.T) {
 		t.Fatalf("formatJSON error: %v", err)
 	}
 }
+
+func TestFormatTable_Verbose_PartialEligibility(t *testing.T) {
+	results := []domain.ScanResult{
+		{
+			Ecosystem: "node",
+			Targets: []domain.Target{
+				{
+					ID:            "part1",
+					Name:          "node_modules",
+					Path:          "/project/node_modules",
+					SizeBytes:     10000,
+					EligibleBytes: 5000,
+					TTLEligible:   false,
+					Risk:          domain.RiskLow,
+					LastAccessed:  time.Now(),
+				},
+			},
+		},
+	}
+
+	var buf bytes.Buffer
+	formatTable(&buf, results, true, false)
+	output := buf.String()
+
+	if !strings.Contains(output, "eligible:") || !strings.Contains(output, "ttl:") {
+		t.Errorf("expected verbose table to display partial eligibility info, got: %s", output)
+	}
+}
+
+func TestFormatJSON_IncludesEligibleFields(t *testing.T) {
+	results := []domain.ScanResult{
+		{
+			Ecosystem: "rust",
+			Targets: []domain.Target{
+				{
+					ID:            "r1",
+					Name:          "target",
+					Path:          "/project/target",
+					SizeBytes:     50000,
+					EligibleBytes: 50000,
+					TTLEligible:   true,
+					Risk:          domain.RiskLow,
+					LastAccessed:  time.Now(),
+				},
+			},
+		},
+	}
+
+	var buf bytes.Buffer
+	if err := formatJSON(&buf, results); err != nil {
+		t.Fatalf("formatJSON error: %v", err)
+	}
+
+	var parsed []struct {
+		Ecosystem string `json:"ecosystem"`
+		Targets   []struct {
+			EligibleBytes int64 `json:"eligible_bytes"`
+			TTLEligible   bool  `json:"ttl_eligible"`
+		} `json:"targets"`
+	}
+
+	if err := json.Unmarshal(buf.Bytes(), &parsed); err != nil {
+		t.Fatalf("unmarshal error: %v", err)
+	}
+
+	if len(parsed) != 1 || len(parsed[0].Targets) != 1 {
+		t.Fatalf("unexpected structure: %+v", parsed)
+	}
+
+	target := parsed[0].Targets[0]
+	if target.EligibleBytes != 50000 {
+		t.Errorf("expected eligible_bytes=50000, got %d", target.EligibleBytes)
+	}
+	if !target.TTLEligible {
+		t.Errorf("expected ttl_eligible=true, got false")
+	}
+}
+
 
