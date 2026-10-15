@@ -275,16 +275,23 @@ Run 'devclean scan' to preview what would be cleaned.`)
 				title = "Clean Dry-Run Summary"
 			}
 
+			var skippedReviewBytes int64
+			for _, t := range res.SkippedReviewOnly {
+				skippedReviewBytes += t.SizeBytes
+			}
+
 			reportData := ui.ReportData{
-				Title:          title,
-				TotalFreed:     res.TotalFreed,
-				TotalCount:     res.TotalCount,
-				TrashCount:     trashCount,
-				PermanentCount: permanentCount,
-				Duration:       res.Duration,
-				DiskBefore:     diskBeforeFree,
-				DiskAfter:      diskAfterFree,
-				Ecosystems:     ecoMetrics,
+				Title:              title,
+				TotalFreed:         res.TotalFreed,
+				TotalCount:         res.TotalCount,
+				TrashCount:         trashCount,
+				PermanentCount:     permanentCount,
+				Duration:           res.Duration,
+				DiskBefore:         diskBeforeFree,
+				DiskAfter:          diskAfterFree,
+				Ecosystems:         ecoMetrics,
+				SkippedReviewCount: len(res.SkippedReviewOnly),
+				SkippedReviewBytes: skippedReviewBytes,
 			}
 
 			if quiet {

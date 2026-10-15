@@ -80,12 +80,13 @@ func RenderReport(w io.Writer, data ReportData) {
 	}
 
 	var (
-		cardStyle      lipgloss.Style
-		headerStyle    lipgloss.Style
-		labelStyle     lipgloss.Style
-		valueStyle     lipgloss.Style
-		barFilledStyle lipgloss.Style
-		barEmptyStyle  lipgloss.Style
+		cardStyle         lipgloss.Style
+		headerStyle       lipgloss.Style
+		labelStyle        lipgloss.Style
+		valueStyle        lipgloss.Style
+		barFilledStyle    lipgloss.Style
+		barEmptyStyle     lipgloss.Style
+		reviewNoticeStyle lipgloss.Style
 	)
 
 	if noColor || !isTTY {
@@ -97,6 +98,7 @@ func RenderReport(w io.Writer, data ReportData) {
 		valueStyle = renderer.NewStyle()
 		barFilledStyle = renderer.NewStyle()
 		barEmptyStyle = renderer.NewStyle()
+		reviewNoticeStyle = renderer.NewStyle()
 	} else {
 		cardStyle = renderer.NewStyle().
 			Border(lipgloss.RoundedBorder()).
@@ -107,6 +109,7 @@ func RenderReport(w io.Writer, data ReportData) {
 		valueStyle = renderer.NewStyle().Bold(true)
 		barFilledStyle = renderer.NewStyle().Foreground(lipgloss.Color("42"))
 		barEmptyStyle = renderer.NewStyle().Foreground(lipgloss.Color("238"))
+		reviewNoticeStyle = renderer.NewStyle().Foreground(lipgloss.Color("214"))
 	}
 
 	var sb strings.Builder
@@ -148,6 +151,10 @@ func RenderReport(w io.Writer, data ReportData) {
 		}
 	}
 
+	if data.SkippedReviewCount > 0 {
+		sb.WriteString(fmt.Sprintf("\n%s\n", reviewNoticeStyle.Render(fmt.Sprintf("⊙ %d itens mantidos para revisão (%s) — execute 'devclean scan' para detalhes", data.SkippedReviewCount, formatBytes(data.SkippedReviewBytes)))))
+	}
+
 	fmt.Fprintln(w, cardStyle.Render(sb.String()))
 }
 
@@ -180,17 +187,19 @@ func FormatReportJSON(w io.Writer, data ReportData) error {
 	}
 
 	report := CleanReportJSON{
-		Title:           title,
-		TotalFreed:      data.TotalFreed,
-		TotalFreedHuman: formatBytes(data.TotalFreed),
-		TotalCount:      data.TotalCount,
-		TrashCount:      data.TrashCount,
-		PermanentCount:  data.PermanentCount,
-		DurationMs:      data.Duration.Milliseconds(),
-		DiskBefore:      data.DiskBefore,
-		DiskAfter:       data.DiskAfter,
-		DiskDiff:        diskDiff,
-		Ecosystems:      data.Ecosystems,
+		Title:              title,
+		TotalFreed:         data.TotalFreed,
+		TotalFreedHuman:    formatBytes(data.TotalFreed),
+		TotalCount:         data.TotalCount,
+		TrashCount:         data.TrashCount,
+		PermanentCount:     data.PermanentCount,
+		DurationMs:         data.Duration.Milliseconds(),
+		DiskBefore:         data.DiskBefore,
+		DiskAfter:          data.DiskAfter,
+		DiskDiff:           diskDiff,
+		Ecosystems:         data.Ecosystems,
+		SkippedReviewCount: data.SkippedReviewCount,
+		SkippedReviewBytes: data.SkippedReviewBytes,
 	}
 
 	enc := json.NewEncoder(w)
