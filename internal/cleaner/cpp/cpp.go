@@ -14,10 +14,12 @@ import (
 	"time"
 
 	"github.com/bmatcuk/doublestar/v4"
+	"github.com/gtkpad/devclean/internal/cleaner"
 	"github.com/gtkpad/devclean/internal/domain"
 	devfs "github.com/gtkpad/devclean/internal/fs"
 	"github.com/gtkpad/devclean/internal/safety"
 )
+
 
 type cppCleaner struct {
 	scanPaths []string
@@ -43,7 +45,12 @@ func (c *cppCleaner) IsInstalled() bool {
 		}
 	}
 
+	if cleaner.HasShallowManifest(c.scanPaths, "CMakeLists.txt", "Makefile", "meson.build", "conanfile.txt", "conanfile.py", "vcpkg.json") {
+		return true
+	}
+
 	home, _ := os.UserHomeDir()
+
 	candidateDirs := []string{
 		filepath.Join(home, ".conan"),
 		filepath.Join(home, ".conan2"),

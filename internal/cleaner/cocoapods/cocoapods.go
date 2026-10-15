@@ -13,10 +13,12 @@ import (
 	"time"
 
 	"github.com/bmatcuk/doublestar/v4"
+	"github.com/gtkpad/devclean/internal/cleaner"
 	"github.com/gtkpad/devclean/internal/domain"
 	devfs "github.com/gtkpad/devclean/internal/fs"
 	"github.com/gtkpad/devclean/internal/safety"
 )
+
 
 type cocoapodsCleaner struct {
 	scanPaths []string
@@ -40,14 +42,13 @@ func (c *cocoapodsCleaner) IsInstalled() bool {
 		return true
 	}
 
-	// 2. Presence of Podfile in scanPaths
-	for _, root := range c.scanPaths {
-		if hasAnyPodfiles(root) {
-			return true
-		}
+	// 2. Presence of Podfile in scanPaths (shallow D-16)
+	if cleaner.HasShallowManifest(c.scanPaths, "Podfile") {
+		return true
 	}
 
 	// 3. Global cache directories
+
 	for _, dir := range globalCacheCandidateDirs() {
 		if _, err := os.Stat(dir); err == nil {
 			return true
@@ -293,23 +294,3 @@ func globalCacheCandidateDirs() []string {
 	return candidateDirs
 }
 
-func hasAnyPodfiles(root string) bool {
-	found := false
-	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if d.IsDir() {
-			if d.Name() == ".git" {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if d.Name() == "Podfile" {
-			found = true
-			return fs.SkipAll
-		}
-		return nil
-	})
-	return found
-}

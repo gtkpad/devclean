@@ -13,10 +13,12 @@ import (
 	"time"
 
 	"github.com/bmatcuk/doublestar/v4"
+	"github.com/gtkpad/devclean/internal/cleaner"
 	"github.com/gtkpad/devclean/internal/domain"
 	devfs "github.com/gtkpad/devclean/internal/fs"
 	"github.com/gtkpad/devclean/internal/safety"
 )
+
 
 type elixirCleaner struct {
 	scanPaths []string
@@ -48,14 +50,13 @@ func (c *elixirCleaner) IsInstalled() bool {
 		}
 	}
 
-	// 2. Presence of mix.exs in scanPaths
-	for _, root := range c.scanPaths {
-		if hasAnyMixExs(root) {
-			return true
-		}
+	// 2. Presence of mix.exs in scanPaths (shallow D-16)
+	if cleaner.HasShallowManifest(c.scanPaths, "mix.exs") {
+		return true
 	}
 
 	// 3. Global Hex packages cache
+
 	for _, dir := range globalHexCacheCandidateDirs() {
 		if _, err := os.Stat(dir); err == nil {
 			return true
@@ -313,23 +314,3 @@ func globalHexCacheCandidateDirs() []string {
 	return candidateDirs
 }
 
-func hasAnyMixExs(root string) bool {
-	found := false
-	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if d.IsDir() {
-			if d.Name() == ".git" {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if d.Name() == "mix.exs" {
-			found = true
-			return fs.SkipAll
-		}
-		return nil
-	})
-	return found
-}

@@ -13,10 +13,12 @@ import (
 	"time"
 
 	"github.com/bmatcuk/doublestar/v4"
+	"github.com/gtkpad/devclean/internal/cleaner"
 	"github.com/gtkpad/devclean/internal/domain"
 	devfs "github.com/gtkpad/devclean/internal/fs"
 	"github.com/gtkpad/devclean/internal/safety"
 )
+
 
 type flutterCleaner struct {
 	scanPaths []string
@@ -47,7 +49,12 @@ func (c *flutterCleaner) IsInstalled() bool {
 		}
 	}
 
+	if cleaner.HasShallowManifest(c.scanPaths, "pubspec.yaml") {
+		return true
+	}
+
 	home, _ := os.UserHomeDir()
+
 	candidateDirs := []string{
 		filepath.Join(home, ".pub-cache"),
 	}

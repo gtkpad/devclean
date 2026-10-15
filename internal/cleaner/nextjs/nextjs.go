@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"time"
 
 	"github.com/bmatcuk/doublestar/v4"
+	"github.com/gtkpad/devclean/internal/cleaner"
 	"github.com/gtkpad/devclean/internal/domain"
 	devfs "github.com/gtkpad/devclean/internal/fs"
 	"github.com/gtkpad/devclean/internal/safety"
@@ -29,8 +31,12 @@ func (c *nextjsCleaner) Name() string {
 }
 
 func (c *nextjsCleaner) IsInstalled() bool {
-	return true
+	if _, err := exec.LookPath("next"); err == nil {
+		return true
+	}
+	return cleaner.HasShallowManifest(c.scanPaths, "next.config.js", "next.config.mjs", "next.config.ts", ".next")
 }
+
 
 func (c *nextjsCleaner) Scan(ctx context.Context, rules domain.EcosystemRules) ([]domain.Target, error) {
 	var targets []domain.Target
