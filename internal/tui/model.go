@@ -70,6 +70,9 @@ type model struct {
 	// smart mode
 	SmartMode      bool
 	SmartThreshold float64
+
+	// status notification message
+	statusMessage string
 }
 
 func New(eng *engine.Engine, bl *safety.Blacklist, cfg *config.Config) model {
