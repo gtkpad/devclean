@@ -784,5 +784,273 @@ func TestCoordinator_DryRun_ZeroMutation_Canary(t *testing.T) {
 	}
 }
 
+func TestCoordinator_DryRun_ZeroMutation_Phase08(t *testing.T) {
+	tempDir := t.TempDir()
+	configDir := filepath.Join(tempDir, "config")
+	dataDir := filepath.Join(tempDir, "data")
+	trashDir := filepath.Join(tempDir, "trash")
+
+	cfg := &config.Config{
+		Safety: config.SafetyConfig{
+			TrashEnabled: true,
+			TrashDir:     trashDir,
+		},
+	}
+
+	bl := safety.NewBlacklist(nil)
+	trashMgr := trash.New(cfg.Safety)
+
+	cleaners := newFakeCleanerProvider()
+	nodeCleaner := &fakeCleaner{name: "node", installed: true}
+	pnpmCleaner := &fakeCleaner{name: "pnpm", installed: true}
+	shellCleaner := &fakeCleaner{name: "shell", installed: true}
+	xcodeCleaner := &fakeCleaner{name: "xcode", installed: true}
+	cleaners.Register("node", nodeCleaner)
+	cleaners.Register("pnpm", pnpmCleaner)
+	cleaners.Register("shell", shellCleaner)
+	cleaners.Register("xcode", xcodeCleaner)
+
+	coord := deleter.New(cleaners, cfg, bl, trashMgr, nil, configDir, dataDir)
+
+	type canarySpec struct {
+		eco          string
+		id           string
+		name         string
+		category     string
+		risk         domain.RiskLevel
+		relPath      string
+		payload      string
+		reviewOnly   bool
+		reviewReason string
+	}
+
+	specs := []canarySpec{
+		// Node & Headless
+		{
+			eco:        "node",
+			id:         "node-puppeteer-canary",
+			name:       "Puppeteer browser cache",
+			category:   "node-puppeteer",
+			risk:       domain.RiskMedium,
+			relPath:    "node/puppeteer_cache/chrome",
+			payload:    "PUPPETEER-CHROMIUM-BIN-CANARY-DATA-V1",
+			reviewOnly: false,
+		},
+		{
+			eco:        "node",
+			id:         "node-cacache-canary",
+			name:       "npm cache",
+			category:   "npm-cache",
+			risk:       domain.RiskLow,
+			relPath:    "node/npm_cacache/index",
+			payload:    "NPM-CACACHE-METADATA-CANARY-DATA-V1",
+			reviewOnly: false,
+		},
+		// pnpm
+		{
+			eco:        "pnpm",
+			id:         "pnpm-meta-canary",
+			name:       "pnpm metadata cache",
+			category:   "pnpm-cache",
+			risk:       domain.RiskLow,
+			relPath:    "pnpm/metadata/registry.json",
+			payload:    "PNPM-METADATA-REGISTRY-CANARY-DATA-V1",
+			reviewOnly: false,
+		},
+		// Shell & CLI
+		{
+			eco:        "shell",
+			id:         "shell-mise-cache-canary",
+			name:       "mise cache",
+			category:   "shell-mise-cache",
+			risk:       domain.RiskLow,
+			relPath:    "shell/mise_cache/plugins",
+			payload:    "MISE-CACHE-METADATA-CANARY-DATA-V1",
+			reviewOnly: false,
+		},
+		{
+			eco:        "shell",
+			id:         "shell-mise-downloads-canary",
+			name:       "mise downloads",
+			category:   "shell-mise-downloads",
+			risk:       domain.RiskLow,
+			relPath:    "shell/mise_downloads/go.tar.gz",
+			payload:    "MISE-DOWNLOADS-TARBALL-CANARY-DATA-V1",
+			reviewOnly: false,
+		},
+		{
+			eco:        "shell",
+			id:         "shell-zcompdump-canary",
+			name:       "Zsh completion cache",
+			category:   "shell-zsh-compdump",
+			risk:       domain.RiskLow,
+			relPath:    "shell/zsh_compdump/.zcompdump-mac",
+			payload:    "ZSH-COMPLETION-DUMP-CANARY-DATA-V1",
+			reviewOnly: false,
+		},
+		// Xcode
+		{
+			eco:        "xcode",
+			id:         "xcode-deriveddata-canary",
+			name:       "Xcode DerivedData: ProjectA",
+			category:   "xcode-derived-data",
+			risk:       domain.RiskLow,
+			relPath:    "xcode/DerivedData/ProjectA/build.bin",
+			payload:    "XCODE-DERIVEDDATA-CANARY-DATA-V1",
+			reviewOnly: false,
+		},
+		{
+			eco:          "xcode",
+			id:           "xcode-archives-canary",
+			name:         "Xcode Archives",
+			category:     "xcode-archives",
+			risk:         domain.RiskHigh,
+			relPath:      "xcode/Archives/2026/App.xcarchive",
+			payload:      "XCODE-ARCHIVES-DSYM-CANARY-DATA-V1",
+			reviewOnly:   true,
+			reviewReason: domain.ReviewReasonActiveProcess,
+		},
+		{
+			eco:          "xcode",
+			id:           "xcode-sim-cache-canary",
+			name:         "CoreSimulator Caches",
+			category:     "xcode-coresimulator-caches",
+			risk:         domain.RiskLow,
+			relPath:      "xcode/CoreSimulator/Caches/cache.db",
+			payload:      "CORESIMULATOR-CACHES-CANARY-DATA-V1",
+			reviewOnly:   true,
+			reviewReason: domain.ReviewReasonActiveProcess,
+		},
+	}
+
+	type fileState struct {
+		absPath string
+		hash    [32]byte
+		size    int64
+		mtime   time.Time
+	}
+
+	var preStates []fileState
+	var expectedFreedBytes int64
+	var expectedWouldDeleteCount int
+	var expectedSkippedCount int
+
+	targetsByEco := make(map[string][]domain.Target)
+
+	for _, sp := range specs {
+		fullPath := filepath.Join(tempDir, sp.relPath)
+		dir := filepath.Dir(fullPath)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("failed to create dir %s: %v", dir, err)
+		}
+		if err := os.WriteFile(fullPath, []byte(sp.payload), 0o644); err != nil {
+			t.Fatalf("failed to write payload to %s: %v", fullPath, err)
+		}
+
+		info, err := os.Stat(fullPath)
+		if err != nil {
+			t.Fatalf("stat %s: %v", fullPath, err)
+		}
+
+		preStates = append(preStates, fileState{
+			absPath: fullPath,
+			hash:    sha256.Sum256([]byte(sp.payload)),
+			size:    info.Size(),
+			mtime:   info.ModTime(),
+		})
+
+		targetDir := dir
+		targetSize := info.Size()
+
+		if sp.reviewOnly {
+			expectedSkippedCount++
+		} else {
+			expectedWouldDeleteCount++
+			expectedFreedBytes += targetSize
+		}
+
+		trg := domain.Target{
+			ID:            sp.id,
+			Name:          sp.name,
+			Path:          targetDir,
+			SizeBytes:     targetSize,
+			EligibleBytes: targetSize,
+			TTLEligible:   !sp.reviewOnly,
+			Risk:          sp.risk,
+			Category:      sp.category,
+			ReviewOnly:    sp.reviewOnly,
+			ReviewReason:  sp.reviewReason,
+		}
+		if sp.reviewOnly {
+			trg.EligibleBytes = 0
+		}
+
+		targetsByEco[sp.eco] = append(targetsByEco[sp.eco], trg)
+	}
+
+	opts := deleter.Options{
+		DryRun: true,
+		Auto:   true,
+		Mode:   "auto",
+	}
+
+	res, err := coord.Delete(context.Background(), targetsByEco, opts)
+	if err != nil {
+		t.Fatalf("DryRun Delete failed: %v", err)
+	}
+
+	// 1. Assert result metrics
+	if res.TotalCount != expectedWouldDeleteCount {
+		t.Errorf("res.TotalCount = %d, want %d", res.TotalCount, expectedWouldDeleteCount)
+	}
+	if res.TotalFreed != expectedFreedBytes {
+		t.Errorf("res.TotalFreed = %d, want %d", res.TotalFreed, expectedFreedBytes)
+	}
+	if len(res.SkippedReviewOnly) != expectedSkippedCount {
+		t.Fatalf("len(res.SkippedReviewOnly) = %d, want %d", len(res.SkippedReviewOnly), expectedSkippedCount)
+	}
+	if len(res.Errors) != 0 {
+		t.Errorf("expected 0 errors, got %d: %v", len(res.Errors), res.Errors)
+	}
+
+	// 2. Strict POL-04, VAL-02 zero-mutation assertion on EVERY canary file
+	for _, pre := range preStates {
+		postInfo, err := os.Stat(pre.absPath)
+		if err != nil {
+			t.Fatalf("canary file missing after DryRun: %s (err: %v)", pre.absPath, err)
+		}
+		data, err := os.ReadFile(pre.absPath)
+		if err != nil {
+			t.Fatalf("reading canary file %s: %v", pre.absPath, err)
+		}
+		postHash := sha256.Sum256(data)
+		if postHash != pre.hash {
+			t.Errorf("SHA-256 mutated for %s! Before: %x, After: %x", pre.absPath, pre.hash, postHash)
+		}
+		if postInfo.Size() != pre.size {
+			t.Errorf("Byte size mutated for %s! Before: %d, After: %d", pre.absPath, pre.size, postInfo.Size())
+		}
+		if postInfo.ModTime() != pre.mtime {
+			t.Errorf("mtime mutated for %s! Before: %v, After: %v", pre.absPath, pre.mtime, postInfo.ModTime())
+		}
+	}
+
+	// 3. Trash directory must remain completely empty with zero manifests
+	if entries, err := os.ReadDir(trashDir); err == nil && len(entries) > 0 {
+		t.Errorf("trashDir has entries after DryRun: %v", entries)
+	}
+	manifestPath := filepath.Join(trashDir, "manifest.json")
+	if _, err := os.Stat(manifestPath); !os.IsNotExist(err) {
+		t.Errorf("trash manifest.json was created during DryRun: %s", manifestPath)
+	}
+
+	// 4. Cleaners must never have been called
+	if len(nodeCleaner.Cleaned()) != 0 || len(pnpmCleaner.Cleaned()) != 0 ||
+		len(shellCleaner.Cleaned()) != 0 || len(xcodeCleaner.Cleaned()) != 0 {
+		t.Errorf("cleaners were invoked during DryRun")
+	}
+}
+
+
 
 
