@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -695,6 +696,34 @@ func TestXcodeCleaner_Archives_ReviewOnlyWhenOpen(t *testing.T) {
 		t.Errorf("expected SizeBytes > 0, got %d", foundArchive.SizeBytes)
 	}
 }
+
+func TestXcodeCleaner_Clean_PermissionHandling(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping unix permission test on windows")
+	}
+	tempDir := t.TempDir()
+	lockedDir := filepath.Join(tempDir, "locked")
+	if err := os.MkdirAll(lockedDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(lockedDir, "file.txt")
+	if err := os.WriteFile(file, []byte("data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.Chmod(lockedDir, 0o555)
+	t.Cleanup(func() {
+		_ = os.Chmod(lockedDir, 0o755)
+	})
+
+	c := NewWithDirExecutorAndOS(tempDir, cleaner.NewMockExecutor(), "darwin")
+	targets := []domain.Target{
+		{Path: file, Category: "xcode-coresimulator-caches"},
+	}
+
+	// Must not panic
+	_ = c.Clean(context.Background(), targets)
+}
+
 
 
 

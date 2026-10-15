@@ -1,9 +1,11 @@
 package shell
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -714,6 +716,34 @@ func TestShellCleaner_Clean_BlacklistAndZDOTDIR(t *testing.T) {
 		t.Errorf("VIOLATION: .ssh dir was deleted by Clean")
 	}
 }
+
+func TestShellCleaner_Clean_PermissionHandling(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping unix permission test on windows")
+	}
+	tempDir := t.TempDir()
+	lockedDir := filepath.Join(tempDir, "locked")
+	if err := os.MkdirAll(lockedDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(lockedDir, "file.txt")
+	if err := os.WriteFile(file, []byte("data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.Chmod(lockedDir, 0o555)
+	t.Cleanup(func() {
+		_ = os.Chmod(lockedDir, 0o755)
+	})
+
+	c := New()
+	targets := []domain.Target{
+		{Path: file, Category: "shell-mise-cache"},
+	}
+
+	// Must not panic
+	_ = c.Clean(context.Background(), targets)
+}
+
 
 
 
