@@ -84,23 +84,28 @@ func (c *dotnetCleaner) scanGlobalCaches(rules domain.EcosystemRules) ([]domain.
 		}
 
 		lastAccessed := info.ModTime()
-		if rules.MaxAgeDays > 0 && lastAccessed.After(cutoff) {
-			continue
-		}
-
 		size, err := devfs.CalcDirSize(d.path)
 		if err != nil || size == 0 {
 			continue
 		}
 
+		eligibleBytes := int64(0)
+		ttlEligible := false
+		if rules.MaxAgeDays == 0 || lastAccessed.Before(cutoff) {
+			eligibleBytes = size
+			ttlEligible = true
+		}
+
 		targets = append(targets, domain.Target{
-			ID:           d.category + ":" + d.path,
-			Name:         d.category,
-			Path:         d.path,
-			SizeBytes:    size,
-			Risk:         domain.RiskLow,
-			LastAccessed: lastAccessed,
-			Category:     d.category,
+			ID:            d.category + ":" + d.path,
+			Name:          d.category,
+			Path:          d.path,
+			SizeBytes:     size,
+			EligibleBytes: eligibleBytes,
+			TTLEligible:   ttlEligible,
+			Risk:          domain.RiskLow,
+			LastAccessed:  lastAccessed,
+			Category:      d.category,
 		})
 	}
 
@@ -146,6 +151,7 @@ func (c *dotnetCleaner) scanLocalBuildOutputs(rules domain.EcosystemRules) ([]do
 		return nil, err
 	}
 
+	cutoff := time.Now().AddDate(0, 0, -rules.MaxAgeDays)
 	targets := make([]domain.Target, 0, len(allPaths))
 	for _, p := range allPaths {
 		info, err := os.Stat(p)
@@ -158,14 +164,24 @@ func (c *dotnetCleaner) scanLocalBuildOutputs(rules domain.EcosystemRules) ([]do
 		hash := sha256.Sum256([]byte(p))
 		id := fmt.Sprintf("%x", hash[:6])
 
+		lastAccessed := info.ModTime()
+		eligibleBytes := int64(0)
+		ttlEligible := false
+		if rules.MaxAgeDays == 0 || lastAccessed.Before(cutoff) {
+			eligibleBytes = sizes[p]
+			ttlEligible = true
+		}
+
 		targets = append(targets, domain.Target{
-			ID:           id,
-			Name:         projectName + "/" + dirName,
-			Path:         p,
-			SizeBytes:    sizes[p],
-			Risk:         domain.RiskLow,
-			LastAccessed: info.ModTime(),
-			Category:     "dotnet-build",
+			ID:            id,
+			Name:          projectName + "/" + dirName,
+			Path:          p,
+			SizeBytes:     sizes[p],
+			EligibleBytes: eligibleBytes,
+			TTLEligible:   ttlEligible,
+			Risk:          domain.RiskLow,
+			LastAccessed:  lastAccessed,
+			Category:      "dotnet-build",
 		})
 	}
 

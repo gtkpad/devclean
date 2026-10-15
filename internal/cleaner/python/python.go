@@ -50,12 +50,12 @@ func (c *pythonCleaner) Scan(_ context.Context, rules domain.EcosystemRules) ([]
 	}
 
 	// 2. Pip cache
-	if pipTarget := c.scanPipCache(); pipTarget != nil {
+	if pipTarget := c.scanPipCache(rules); pipTarget != nil {
 		targets = append(targets, *pipTarget)
 	}
 
 	// 3. Conda packages
-	if condaTarget := c.scanCondaPkgs(); condaTarget != nil {
+	if condaTarget := c.scanCondaPkgs(rules); condaTarget != nil {
 		targets = append(targets, *condaTarget)
 	}
 
@@ -69,13 +69,15 @@ func (c *pythonCleaner) Scan(_ context.Context, rules domain.EcosystemRules) ([]
 			hash := sha256.Sum256([]byte("pycache:" + root))
 			id := fmt.Sprintf("%x", hash[:6])
 			targets = append(targets, domain.Target{
-				ID:           id,
-				Name:         "__pycache__ (" + filepath.Base(root) + ")",
-				Path:         root,
-				SizeBytes:    pycacheSize,
-				Risk:         domain.RiskLow,
-				LastAccessed: time.Now(),
-				Category:     "python-pycache",
+				ID:            id,
+				Name:          "__pycache__ (" + filepath.Base(root) + ")",
+				Path:          root,
+				SizeBytes:     pycacheSize,
+				EligibleBytes: pycacheSize,
+				TTLEligible:   true,
+				Risk:          domain.RiskLow,
+				LastAccessed:  time.Now(),
+				Category:      "python-pycache",
 			})
 		}
 	}
@@ -124,27 +126,33 @@ func (c *pythonCleaner) scanUVCache(rules domain.EcosystemRules) *domain.Target 
 
 	lastAccessed := info.ModTime()
 	cutoff := time.Now().AddDate(0, 0, -rules.MaxAgeDays)
-	if rules.MaxAgeDays > 0 && lastAccessed.After(cutoff) {
-		return nil
-	}
 
 	size, err := devfs.CalcDirSize(c.cachePath)
 	if err != nil || size == 0 {
 		return nil
 	}
 
+	eligibleBytes := int64(0)
+	ttlEligible := false
+	if rules.MaxAgeDays == 0 || lastAccessed.Before(cutoff) {
+		eligibleBytes = size
+		ttlEligible = true
+	}
+
 	return &domain.Target{
-		ID:           "uv-cache:" + c.cachePath,
-		Name:         "uv-cache",
-		Path:         c.cachePath,
-		SizeBytes:    size,
-		Risk:         domain.RiskLow,
-		LastAccessed: lastAccessed,
-		Category:     "uv-cache",
+		ID:            "uv-cache:" + c.cachePath,
+		Name:          "uv-cache",
+		Path:          c.cachePath,
+		SizeBytes:     size,
+		EligibleBytes: eligibleBytes,
+		TTLEligible:   ttlEligible,
+		Risk:          domain.RiskLow,
+		LastAccessed:  lastAccessed,
+		Category:      "uv-cache",
 	}
 }
 
-func (c *pythonCleaner) scanPipCache() *domain.Target {
+func (c *pythonCleaner) scanPipCache(rules domain.EcosystemRules) *domain.Target {
 	path := pipCachePath()
 	if path == "" {
 		return nil
@@ -160,21 +168,32 @@ func (c *pythonCleaner) scanPipCache() *domain.Target {
 		return nil
 	}
 
+	cutoff := time.Now().AddDate(0, 0, -rules.MaxAgeDays)
+	lastAccessed := info.ModTime()
+	eligibleBytes := int64(0)
+	ttlEligible := false
+	if rules.MaxAgeDays == 0 || lastAccessed.Before(cutoff) {
+		eligibleBytes = size
+		ttlEligible = true
+	}
+
 	hash := sha256.Sum256([]byte(path))
 	id := fmt.Sprintf("%x", hash[:6])
 
 	return &domain.Target{
-		ID:           id,
-		Name:         "pip cache",
-		Path:         path,
-		SizeBytes:    size,
-		Risk:         domain.RiskLow,
-		LastAccessed: info.ModTime(),
-		Category:     "pip-cache",
+		ID:            id,
+		Name:          "pip cache",
+		Path:          path,
+		SizeBytes:     size,
+		EligibleBytes: eligibleBytes,
+		TTLEligible:   ttlEligible,
+		Risk:          domain.RiskLow,
+		LastAccessed:  lastAccessed,
+		Category:      "pip-cache",
 	}
 }
 
-func (c *pythonCleaner) scanCondaPkgs() *domain.Target {
+func (c *pythonCleaner) scanCondaPkgs(rules domain.EcosystemRules) *domain.Target {
 	path := condaPkgsPath()
 	if path == "" {
 		return nil
@@ -190,17 +209,28 @@ func (c *pythonCleaner) scanCondaPkgs() *domain.Target {
 		return nil
 	}
 
+	cutoff := time.Now().AddDate(0, 0, -rules.MaxAgeDays)
+	lastAccessed := info.ModTime()
+	eligibleBytes := int64(0)
+	ttlEligible := false
+	if rules.MaxAgeDays == 0 || lastAccessed.Before(cutoff) {
+		eligibleBytes = size
+		ttlEligible = true
+	}
+
 	hash := sha256.Sum256([]byte(path))
 	id := fmt.Sprintf("%x", hash[:6])
 
 	return &domain.Target{
-		ID:           id,
-		Name:         "conda packages",
-		Path:         path,
-		SizeBytes:    size,
-		Risk:         domain.RiskLow,
-		LastAccessed: info.ModTime(),
-		Category:     "conda-pkgs",
+		ID:            id,
+		Name:          "conda packages",
+		Path:          path,
+		SizeBytes:     size,
+		EligibleBytes: eligibleBytes,
+		TTLEligible:   ttlEligible,
+		Risk:          domain.RiskLow,
+		LastAccessed:  lastAccessed,
+		Category:      "conda-pkgs",
 	}
 }
 
@@ -243,13 +273,15 @@ func (c *pythonCleaner) walkScanPath(root string, rules domain.EcosystemRules) (
 				}
 
 				venvTargets = append(venvTargets, domain.Target{
-					ID:           id,
-					Name:         filepath.Base(filepath.Dir(path)) + "/" + d.Name(),
-					Path:         path,
-					SizeBytes:    size,
-					Risk:         risk,
-					LastAccessed: lastAccessed,
-					Category:     "python-venv-orphan",
+					ID:            id,
+					Name:          filepath.Base(filepath.Dir(path)) + "/" + d.Name(),
+					Path:          path,
+					SizeBytes:     size,
+					EligibleBytes: size,
+					TTLEligible:   true,
+					Risk:          risk,
+					LastAccessed:  lastAccessed,
+					Category:      "python-venv-orphan",
 				})
 			}
 			return filepath.SkipDir

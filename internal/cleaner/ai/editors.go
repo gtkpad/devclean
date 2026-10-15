@@ -39,37 +39,49 @@ func scanEditors(home string, rules domain.EcosystemRules) ([]domain.Target, err
 		editorName := filepath.Base(appDir)
 		cachedDataDir := filepath.Join(appDir, "CachedData")
 		if info, err := os.Stat(cachedDataDir); err == nil && info.IsDir() {
-			if rules.MaxAgeDays == 0 || info.ModTime().Before(cutoff) {
-				size, _ := devfs.CalcDirSize(cachedDataDir)
-				if size > 0 {
-					targets = append(targets, domain.Target{
-						ID:           hashPath(cachedDataDir),
-						Name:         editorName + ": CachedData (V8 bytecode)",
-						Path:         cachedDataDir,
-						SizeBytes:    size,
-						Risk:         domain.RiskLow,
-						LastAccessed: info.ModTime(),
-						Category:     "editor-cached-data",
-					})
+			size, _ := devfs.CalcDirSize(cachedDataDir)
+			if size > 0 {
+				eligibleBytes := int64(0)
+				ttlEligible := false
+				if rules.MaxAgeDays == 0 || info.ModTime().Before(cutoff) {
+					eligibleBytes = size
+					ttlEligible = true
 				}
+				targets = append(targets, domain.Target{
+					ID:            hashPath(cachedDataDir),
+					Name:          editorName + ": CachedData (V8 bytecode)",
+					Path:          cachedDataDir,
+					SizeBytes:     size,
+					EligibleBytes: eligibleBytes,
+					TTLEligible:   ttlEligible,
+					Risk:          domain.RiskLow,
+					LastAccessed:  info.ModTime(),
+					Category:      "editor-cached-data",
+				})
 			}
 		}
 
 		logsDir := filepath.Join(appDir, "logs")
 		if info, err := os.Stat(logsDir); err == nil && info.IsDir() {
-			if rules.MaxAgeDays == 0 || info.ModTime().Before(cutoff) {
-				size, _ := devfs.CalcDirSize(logsDir)
-				if size > 0 {
-					targets = append(targets, domain.Target{
-						ID:           hashPath(logsDir),
-						Name:         editorName + ": logs",
-						Path:         logsDir,
-						SizeBytes:    size,
-						Risk:         domain.RiskLow,
-						LastAccessed: info.ModTime(),
-						Category:     "editor-logs",
-					})
+			size, _ := devfs.CalcDirSize(logsDir)
+			if size > 0 {
+				eligibleBytes := int64(0)
+				ttlEligible := false
+				if rules.MaxAgeDays == 0 || info.ModTime().Before(cutoff) {
+					eligibleBytes = size
+					ttlEligible = true
 				}
+				targets = append(targets, domain.Target{
+					ID:            hashPath(logsDir),
+					Name:          editorName + ": logs",
+					Path:          logsDir,
+					SizeBytes:     size,
+					EligibleBytes: eligibleBytes,
+					TTLEligible:   ttlEligible,
+					Risk:          domain.RiskLow,
+					LastAccessed:  info.ModTime(),
+					Category:      "editor-logs",
+				})
 			}
 		}
 	}
@@ -106,18 +118,23 @@ func scanEditors(home string, rules domain.EcosystemRules) ([]domain.Target, err
 				continue
 			}
 			if info, err := os.Stat(fullExtDir); err == nil && info.IsDir() {
-				if rules.MaxAgeDays > 0 && info.ModTime().After(cutoff) {
-					continue
-				}
 				size, _ := devfs.CalcDirSize(fullExtDir)
+				eligibleBytes := int64(0)
+				ttlEligible := false
+				if rules.MaxAgeDays == 0 || info.ModTime().Before(cutoff) {
+					eligibleBytes = size
+					ttlEligible = true
+				}
 				targets = append(targets, domain.Target{
-					ID:           hashPath(fullExtDir),
-					Name:         filepath.Base(extRoot) + ": obsolete extension " + extFolder,
-					Path:         fullExtDir,
-					SizeBytes:    size,
-					Risk:         domain.RiskLow,
-					LastAccessed: info.ModTime(),
-					Category:     "editor-obsolete-extension",
+					ID:            hashPath(fullExtDir),
+					Name:          filepath.Base(extRoot) + ": obsolete extension " + extFolder,
+					Path:          fullExtDir,
+					SizeBytes:     size,
+					EligibleBytes: eligibleBytes,
+					TTLEligible:   ttlEligible,
+					Risk:          domain.RiskLow,
+					LastAccessed:  info.ModTime(),
+					Category:      "editor-obsolete-extension",
 				})
 			}
 		}

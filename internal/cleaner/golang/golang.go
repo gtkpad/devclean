@@ -70,13 +70,13 @@ func (c *goCleaner) Clean(_ context.Context, targets []domain.Target) error {
 
 func (c *goCleaner) resolvePaths() {
 	// Check env vars first to avoid exec
-	if v := os.Getenv("GOMODCACHE"); v != "" {
+	if v, ok := os.LookupEnv("GOMODCACHE"); ok {
 		c.modCache = v
 	} else {
 		c.modCache = goEnv("GOMODCACHE")
 	}
 
-	if v := os.Getenv("GOCACHE"); v != "" {
+	if v, ok := os.LookupEnv("GOCACHE"); ok {
 		c.buildCache = v
 	} else {
 		c.buildCache = goEnv("GOCACHE")
@@ -101,8 +101,11 @@ func (c *goCleaner) scanCache(path, category string, rules domain.EcosystemRules
 	}
 
 	lastAccessed := info.ModTime()
-	if rules.MaxAgeDays > 0 && lastAccessed.After(cutoff) {
-		return nil
+	eligibleBytes := int64(0)
+	ttlEligible := false
+	if rules.MaxAgeDays == 0 || lastAccessed.Before(cutoff) {
+		eligibleBytes = size
+		ttlEligible = true
 	}
 
 	risk := domain.RiskLow // caches are always re-downloadable
@@ -111,13 +114,15 @@ func (c *goCleaner) scanCache(path, category string, rules domain.EcosystemRules
 	}
 
 	return &domain.Target{
-		ID:           category + ":" + path,
-		Name:         category,
-		Path:         path,
-		SizeBytes:    size,
-		Risk:         risk,
-		LastAccessed: lastAccessed,
-		Category:     category,
+		ID:            category + ":" + path,
+		Name:          category,
+		Path:          path,
+		SizeBytes:     size,
+		EligibleBytes: eligibleBytes,
+		TTLEligible:   ttlEligible,
+		Risk:          risk,
+		LastAccessed:  lastAccessed,
+		Category:      category,
 	}
 }
 

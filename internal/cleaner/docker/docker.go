@@ -78,17 +78,22 @@ func (c *dockerCleaner) Scan(ctx context.Context, rules domain.EcosystemRules) (
 
 	cutoff := time.Now().AddDate(0, 0, -rules.MaxAgeDays)
 	for _, img := range images {
-		if rules.MaxAgeDays > 0 && img.Created.After(cutoff) {
-			continue
+		eligibleBytes := int64(0)
+		ttlEligible := false
+		if rules.MaxAgeDays == 0 || img.Created.Before(cutoff) {
+			eligibleBytes = img.Size
+			ttlEligible = true
 		}
 		targets = append(targets, domain.Target{
-			ID:           img.ID,
-			Name:         formatImageName(img.Tags),
-			Path:         "docker://" + img.ID,
-			SizeBytes:    img.Size,
-			Risk:         classifyImageRisk(img.Created, cutoff),
-			LastAccessed: img.Created,
-			Category:     "dangling-image",
+			ID:            img.ID,
+			Name:          formatImageName(img.Tags),
+			Path:          "docker://" + img.ID,
+			SizeBytes:     img.Size,
+			EligibleBytes: eligibleBytes,
+			TTLEligible:   ttlEligible,
+			Risk:          classifyImageRisk(img.Created, cutoff),
+			LastAccessed:  img.Created,
+			Category:      "dangling-image",
 		})
 	}
 
@@ -96,17 +101,22 @@ func (c *dockerCleaner) Scan(ctx context.Context, rules domain.EcosystemRules) (
 	volumes, err := c.api.listVolumes(ctx)
 	if err == nil {
 		for _, vol := range volumes {
-			if rules.MaxAgeDays > 0 && vol.Created.After(cutoff) {
-				continue
+			eligibleBytes := int64(0)
+			ttlEligible := false
+			if rules.MaxAgeDays == 0 || vol.Created.Before(cutoff) {
+				eligibleBytes = 0
+				ttlEligible = true
 			}
 			targets = append(targets, domain.Target{
-				ID:           vol.Name,
-				Name:         vol.Name,
-				Path:         "docker://volume/" + vol.Name,
-				SizeBytes:    0, // volume size not easily obtainable without inspection
-				Risk:         classifyVolumeRisk(vol.Created, cutoff),
-				LastAccessed: vol.Created,
-				Category:     "orphan-volume",
+				ID:            vol.Name,
+				Name:          vol.Name,
+				Path:          "docker://volume/" + vol.Name,
+				SizeBytes:     0, // volume size not easily obtainable without inspection
+				EligibleBytes: eligibleBytes,
+				TTLEligible:   ttlEligible,
+				Risk:          classifyVolumeRisk(vol.Created, cutoff),
+				LastAccessed:  vol.Created,
+				Category:      "orphan-volume",
 			})
 		}
 	}
@@ -115,13 +125,15 @@ func (c *dockerCleaner) Scan(ctx context.Context, rules domain.EcosystemRules) (
 	cacheSize, err := c.api.diskUsage(ctx)
 	if err == nil && cacheSize > 0 {
 		targets = append(targets, domain.Target{
-			ID:           "build-cache",
-			Name:         "Docker Build Cache",
-			Path:         "docker://build-cache",
-			SizeBytes:    cacheSize,
-			Risk:         domain.RiskLow,
-			LastAccessed: time.Now(),
-			Category:     "build-cache",
+			ID:            "build-cache",
+			Name:          "Docker Build Cache",
+			Path:          "docker://build-cache",
+			SizeBytes:     cacheSize,
+			EligibleBytes: cacheSize,
+			TTLEligible:   true,
+			Risk:          domain.RiskLow,
+			LastAccessed:  time.Now(),
+			Category:      "build-cache",
 		})
 	}
 
@@ -187,17 +199,22 @@ func (c *dockerCleaner) scanCLI(rules domain.EcosystemRules) ([]domain.Target, e
 			}
 			size := parseDockerSize(parts[1])
 			created := parseDockerTime(parts[2])
-			if rules.MaxAgeDays > 0 && created.After(cutoff) {
-				continue
+			eligibleBytes := int64(0)
+			ttlEligible := false
+			if rules.MaxAgeDays == 0 || created.Before(cutoff) {
+				eligibleBytes = size
+				ttlEligible = true
 			}
 			targets = append(targets, domain.Target{
-				ID:           parts[0],
-				Name:         parts[0][:12],
-				Path:         "docker://" + parts[0],
-				SizeBytes:    size,
-				Risk:         classifyImageRisk(created, cutoff),
-				LastAccessed: created,
-				Category:     "dangling-image",
+				ID:            parts[0],
+				Name:          parts[0][:12],
+				Path:          "docker://" + parts[0],
+				SizeBytes:     size,
+				EligibleBytes: eligibleBytes,
+				TTLEligible:   ttlEligible,
+				Risk:          classifyImageRisk(created, cutoff),
+				LastAccessed:  created,
+				Category:      "dangling-image",
 			})
 		}
 	}
@@ -211,13 +228,15 @@ func (c *dockerCleaner) scanCLI(rules domain.EcosystemRules) ([]domain.Target, e
 				continue
 			}
 			targets = append(targets, domain.Target{
-				ID:           name,
-				Name:         name,
-				Path:         "docker://volume/" + name,
-				SizeBytes:    0,
-				Risk:         domain.RiskMedium,
-				LastAccessed: time.Now(),
-				Category:     "orphan-volume",
+				ID:            name,
+				Name:          name,
+				Path:          "docker://volume/" + name,
+				SizeBytes:     0,
+				EligibleBytes: 0,
+				TTLEligible:   true,
+				Risk:          domain.RiskMedium,
+				LastAccessed:  time.Now(),
+				Category:      "orphan-volume",
 			})
 		}
 	}
@@ -236,13 +255,15 @@ func (c *dockerCleaner) scanCLI(rules domain.EcosystemRules) ([]domain.Target, e
 				size := parseDockerSize(entry.Size)
 				if size > 0 {
 					targets = append(targets, domain.Target{
-						ID:           "build-cache",
-						Name:         "Docker Build Cache",
-						Path:         "docker://build-cache",
-						SizeBytes:    size,
-						Risk:         domain.RiskLow,
-						LastAccessed: time.Now(),
-						Category:     "build-cache",
+						ID:            "build-cache",
+						Name:          "Docker Build Cache",
+						Path:          "docker://build-cache",
+						SizeBytes:     size,
+						EligibleBytes: size,
+						TTLEligible:   true,
+						Risk:          domain.RiskLow,
+						LastAccessed:  time.Now(),
+						Category:      "build-cache",
 					})
 				}
 			}
