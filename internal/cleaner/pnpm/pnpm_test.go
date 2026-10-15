@@ -302,3 +302,78 @@ func TestPnpmCleaner_Clean_DiskMetadataCache(t *testing.T) {
 		t.Errorf("outsideDir should not be affected: %v", err)
 	}
 }
+
+func TestPnpmCleaner_Clean_SymlinkProtection(t *testing.T) {
+	tempHome := t.TempDir()
+	outsideDir := filepath.Join(tempHome, "valuable-outside-dir")
+	if err := os.MkdirAll(outsideDir, 0o755); err != nil {
+		t.Fatalf("failed to create outside dir: %v", err)
+	}
+	canaryPath := filepath.Join(outsideDir, "canary.txt")
+	if err := os.WriteFile(canaryPath, []byte("vital pnpm package source"), 0o644); err != nil {
+		t.Fatalf("failed to write canary: %v", err)
+	}
+
+	symlinkPath := filepath.Join(tempHome, "symlink-cache-pnpm")
+	if err := os.Symlink(outsideDir, symlinkPath); err != nil {
+		t.Fatalf("failed to create symlink: %v", err)
+	}
+
+	mock := cleaner.NewMockExecutor()
+	c := NewWithExecutor(mock)
+
+	targets := []domain.Target{
+		{
+			ID:       "symlink-target",
+			Name:     "pnpm metadata symlink",
+			Path:     symlinkPath,
+			Category: "pnpm-cache",
+		},
+	}
+
+	if err := c.Clean(context.Background(), targets); err != nil {
+		t.Fatalf("Clean() unexpected error: %v", err)
+	}
+
+	// Symlink target must not be traversed and outside files remain intact
+	if _, err := os.Stat(canaryPath); err != nil {
+		t.Errorf("VIOLATION: symlink target contents were deleted: %v", err)
+	}
+	data, err := os.ReadFile(canaryPath)
+	if err != nil || string(data) != "vital pnpm package source" {
+		t.Errorf("canary file data was corrupted: %v", err)
+	}
+	if _, err := os.Lstat(symlinkPath); err != nil {
+		t.Errorf("symlink itself should be skipped and preserved: %v", err)
+	}
+}
+
+func TestPnpmCleaner_Clean_PermissionHandling(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping unix permission test on windows")
+	}
+	tempDir := t.TempDir()
+	lockedDir := filepath.Join(tempDir, "locked")
+	if err := os.MkdirAll(lockedDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(lockedDir, "file.txt")
+	if err := os.WriteFile(file, []byte("data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.Chmod(lockedDir, 0o555)
+	t.Cleanup(func() {
+		_ = os.Chmod(lockedDir, 0o755)
+	})
+
+	mock := cleaner.NewMockExecutor()
+	c := NewWithExecutor(mock)
+
+	targets := []domain.Target{
+		{Path: file, Category: "pnpm-cache"},
+	}
+
+	// Must not panic
+	_ = c.Clean(context.Background(), targets)
+}
+
