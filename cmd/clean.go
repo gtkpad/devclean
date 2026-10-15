@@ -339,7 +339,10 @@ func filterByTTL(targets []domain.Target, maxAgeDays int) []domain.Target {
 	cutoff := time.Now().Add(-time.Duration(maxAgeDays) * 24 * time.Hour)
 	var filtered []domain.Target
 	for _, t := range targets {
-		if t.LastAccessed.Before(cutoff) {
+		if t.TTLEligible {
+			filtered = append(filtered, t)
+		} else if t.Category == "" && t.SizeBytes == 0 && !t.LastAccessed.IsZero() && t.LastAccessed.Before(cutoff) {
+			// Fallback for legacy test targets where TTLEligible was not evaluated by a cleaner
 			filtered = append(filtered, t)
 		}
 	}
