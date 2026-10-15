@@ -176,3 +176,129 @@ func TestPnpmCleaner_Clean(t *testing.T) {
 		}
 	})
 }
+
+func TestPnpmCleaner_IsInstalled_DiskPresence(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+
+	mock := cleaner.NewMockExecutor()
+	mock.Errors["lookpath:pnpm"] = errors.New("not found")
+	c := NewWithExecutor(mock)
+
+	if c.IsInstalled() {
+		t.Fatalf("expected IsInstalled() to be false initially")
+	}
+
+	cacheDir := filepath.Join(tempHome, "Library", "Caches", "pnpm")
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		t.Fatalf("failed to mkdir: %v", err)
+	}
+
+	if !c.IsInstalled() {
+		t.Errorf("expected IsInstalled() == true when Library/Caches/pnpm exists")
+	}
+}
+
+func TestPnpmCleaner_Scan_DiskMetadataCache(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+
+	cacheDir := filepath.Join(tempHome, ".cache", "pnpm")
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		t.Fatalf("failed to mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(cacheDir, "metadata.json"), []byte("cached-metadata"), 0o644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	mock := cleaner.NewMockExecutor()
+	mock.Errors["pnpm store path"] = errors.New("pnpm not in path")
+	c := NewWithExecutor(mock)
+
+	targets, err := c.Scan(context.Background(), domain.EcosystemRules{Enabled: true, MaxAgeDays: 0})
+	if err != nil {
+		t.Fatalf("Scan() unexpected error: %v", err)
+	}
+
+	var metaTarget *domain.Target
+	for i := range targets {
+		if targets[i].Category == "pnpm-cache" {
+			metaTarget = &targets[i]
+			break
+		}
+	}
+
+	if metaTarget == nil {
+		t.Fatalf("expected target with category 'pnpm-cache' to be discovered")
+	}
+
+	if metaTarget.Name != "pnpm metadata cache" {
+		t.Errorf("Name = %q, want 'pnpm metadata cache'", metaTarget.Name)
+	}
+	if metaTarget.Path != cacheDir {
+		t.Errorf("Path = %q, want %q", metaTarget.Path, cacheDir)
+	}
+	if metaTarget.Risk != domain.RiskLow {
+		t.Errorf("Risk = %v, want RiskLow", metaTarget.Risk)
+	}
+	if metaTarget.SizeBytes <= 0 {
+		t.Errorf("SizeBytes = %d, want > 0", metaTarget.SizeBytes)
+	}
+	if !metaTarget.TTLEligible {
+		t.Errorf("expected TTLEligible = true with MaxAgeDays = 0")
+	}
+	if metaTarget.EligibleBytes != metaTarget.SizeBytes {
+		t.Errorf("EligibleBytes = %d, want %d", metaTarget.EligibleBytes, metaTarget.SizeBytes)
+	}
+	if len(metaTarget.ID) != 12 {
+		t.Errorf("ID = %q, want 12-char hex string", metaTarget.ID)
+	}
+}
+
+func TestPnpmCleaner_Clean_DiskMetadataCache(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+
+	cacheDir := filepath.Join(tempHome, "Library", "Caches", "pnpm")
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		t.Fatalf("failed to mkdir: %v", err)
+	}
+	testFile := filepath.Join(cacheDir, "meta.bin")
+	if err := os.WriteFile(testFile, []byte("data"), 0o644); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
+
+	outsideDir := filepath.Join(tempHome, "outside")
+	if err := os.MkdirAll(outsideDir, 0o755); err != nil {
+		t.Fatalf("failed to mkdir: %v", err)
+	}
+	symlinkPath := filepath.Join(tempHome, "symlink-cache")
+	if err := os.Symlink(outsideDir, symlinkPath); err != nil {
+		t.Fatalf("failed to symlink: %v", err)
+	}
+
+	mock := cleaner.NewMockExecutor()
+	mock.Outputs["pnpm store prune"] = []byte("pruned")
+	c := NewWithExecutor(mock)
+
+	targets := []domain.Target{
+		{Path: "pnpm://store/prune"},
+		{Path: cacheDir, Category: "pnpm-cache"},
+		{Path: symlinkPath, Category: "pnpm-cache"},
+	}
+
+	if err := c.Clean(context.Background(), targets); err != nil {
+		t.Fatalf("Clean() unexpected error: %v", err)
+	}
+
+	if _, err := os.Stat(cacheDir); !os.IsNotExist(err) {
+		t.Errorf("expected cacheDir to be deleted")
+	}
+
+	if _, err := os.Lstat(symlinkPath); err != nil {
+		t.Errorf("expected symlinkPath to be skipped, got error: %v", err)
+	}
+	if _, err := os.Stat(outsideDir); err != nil {
+		t.Errorf("outsideDir should not be affected: %v", err)
+	}
+}
