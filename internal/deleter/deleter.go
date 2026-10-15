@@ -3,6 +3,7 @@ package deleter
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"time"
 
@@ -44,12 +45,13 @@ type Options struct {
 }
 
 type Result struct {
-	TotalFreed   int64
-	TotalCount   int
-	CleanedPaths []string
-	Ecosystems   []string
-	Errors       []error
-	Duration     time.Duration
+	TotalFreed        int64
+	TotalCount        int
+	CleanedPaths      []string
+	Ecosystems        []string
+	SkippedReviewOnly []domain.Target
+	Errors            []error
+	Duration          time.Duration
 }
 
 type Coordinator struct {
@@ -97,9 +99,10 @@ func (c *Coordinator) Delete(
 	startTime := time.Now()
 
 	res := &Result{
-		CleanedPaths: make([]string, 0),
-		Ecosystems:   make([]string, 0),
-		Errors:       make([]error, 0),
+		CleanedPaths:      make([]string, 0),
+		Ecosystems:        make([]string, 0),
+		SkippedReviewOnly: make([]domain.Target, 0),
+		Errors:            make([]error, 0),
 	}
 
 	trashActive := false
@@ -129,12 +132,32 @@ func (c *Coordinator) Delete(
 			continue
 		}
 
-		// Stage 1: Safety Validation & Blacklist filtering
+		// Stage 1: Safety Validation, Blacklist & ReviewOnly filtering
 		var safeTargets []domain.Target
 		for _, t := range rawTargets {
-			if c.blacklist != nil && c.blacklist.IsBlacklisted(t.Path) {
+			if c.blacklist != nil {
+				if c.blacklist.IsBlacklisted(t.Path) {
+					continue
+				}
+				if resolved, err := filepath.EvalSymlinks(t.Path); err == nil && resolved != t.Path {
+					if c.blacklist.IsBlacklisted(resolved) {
+						continue
+					}
+				}
+			}
+
+			if t.ReviewOnly {
+				res.SkippedReviewOnly = append(res.SkippedReviewOnly, t)
+				if opts.OnWarning != nil {
+					reason := t.ReviewReason
+					if reason == "" {
+						reason = domain.ReviewReasonSharedStore
+					}
+					opts.OnWarning(fmt.Sprintf("Item de revisão retido [%s]: %s (%s)", reason, t.Path, humanSize(t.SizeBytes)))
+				}
 				continue
 			}
+
 			safeTargets = append(safeTargets, t)
 		}
 		if len(safeTargets) == 0 {
