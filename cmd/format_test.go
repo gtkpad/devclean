@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -224,5 +225,85 @@ func TestFormatJSON_IncludesEligibleFields(t *testing.T) {
 		t.Errorf("expected ttl_eligible=true, got false")
 	}
 }
+
+func TestFormatTable_ReviewOnly(t *testing.T) {
+	results := []domain.ScanResult{
+		{
+			Ecosystem: "docker",
+			Targets: []domain.Target{
+				{
+					ID:           "doc1",
+					Name:         "docker-storage",
+					Path:         "/var/lib/docker",
+					SizeBytes:    10737418240,
+					Risk:         domain.RiskHigh,
+					ReviewOnly:   true,
+					ReviewReason: domain.ReviewReasonSharedStore,
+					LastAccessed: time.Date(2025, 1, 15, 0, 0, 0, 0, time.UTC),
+				},
+				{
+					ID:           "doc2",
+					Name:         "docker-cache",
+					Path:         "/var/lib/docker/buildkit",
+					SizeBytes:    1048576,
+					Risk:         domain.RiskLow,
+					ReviewOnly:   false,
+					LastAccessed: time.Date(2025, 1, 15, 0, 0, 0, 0, time.UTC),
+				},
+			},
+		},
+	}
+
+	// 1. Standard table output: ReviewOnly path must be prefixed with "⊙ " (POL-03, D-09)
+	var buf bytes.Buffer
+	formatTable(&buf, results, false, false)
+	output := buf.String()
+
+	if !strings.Contains(output, "⊙ /var/lib/docker") {
+		t.Errorf("expected standard table to prefix ReviewOnly target path with '⊙ ', got:\n%s", output)
+	}
+	if strings.Contains(output, "⊙ /var/lib/docker/buildkit") {
+		t.Errorf("expected normal target path NOT to be prefixed with '⊙ ', got:\n%s", output)
+	}
+
+	// 2. Verbose table output: ReviewOnly target must display [ReviewOnly: <reason>] (eligible: 0 B) (POL-03, D-09)
+	var verboseBuf bytes.Buffer
+	formatTable(&verboseBuf, results, true, false)
+	verboseOutput := verboseBuf.String()
+
+	if !strings.Contains(verboseOutput, "⊙ /var/lib/docker") {
+		t.Errorf("expected verbose table to prefix ReviewOnly target path with '⊙ ', got:\n%s", verboseOutput)
+	}
+	expectedVerboseTag := fmt.Sprintf("[ReviewOnly: %s] (eligible: 0 B)", domain.ReviewReasonSharedStore)
+	if !strings.Contains(verboseOutput, expectedVerboseTag) {
+		t.Errorf("expected verbose table to contain %q, got:\n%s", expectedVerboseTag, verboseOutput)
+	}
+
+	// 3. Long path ReviewOnly target: marker '⊙ ' must remain visible after truncation
+	longResult := []domain.ScanResult{
+		{
+			Ecosystem: "node",
+			Targets: []domain.Target{
+				{
+					ID:           "long1",
+					Name:         "long-pnpm-store",
+					Path:         "/Users/developer/Library/pnpm/store/v3/files/very/deep/nested/path/to/cache",
+					SizeBytes:    524288000,
+					Risk:         domain.RiskLow,
+					ReviewOnly:   true,
+					ReviewReason: domain.ReviewReasonSharedStore,
+					LastAccessed: time.Date(2025, 1, 15, 0, 0, 0, 0, time.UTC),
+				},
+			},
+		},
+	}
+	var longBuf bytes.Buffer
+	formatTable(&longBuf, longResult, false, false)
+	longOutput := longBuf.String()
+	if !strings.Contains(longOutput, "⊙ ") {
+		t.Errorf("expected long ReviewOnly path to retain '⊙ ' marker, got:\n%s", longOutput)
+	}
+}
+
 
 

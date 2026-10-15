@@ -24,30 +24,34 @@ type EcosystemMetric struct {
 
 // ReportData consolida os dados necessários para renderizar o relatório pós-limpeza.
 type ReportData struct {
-	Title          string            `json:"title"`
-	TotalFreed     int64             `json:"total_freed"`
-	TotalCount     int               `json:"total_count"`
-	TrashCount     int               `json:"trash_count"`
-	PermanentCount int               `json:"permanent_count"`
-	Duration       time.Duration     `json:"duration"`
-	DiskBefore     *uint64           `json:"disk_before,omitempty"`
-	DiskAfter      *uint64           `json:"disk_after,omitempty"`
-	Ecosystems     []EcosystemMetric `json:"ecosystems,omitempty"`
+	Title              string            `json:"title"`
+	TotalFreed         int64             `json:"total_freed"`
+	TotalCount         int               `json:"total_count"`
+	TrashCount         int               `json:"trash_count"`
+	PermanentCount     int               `json:"permanent_count"`
+	Duration           time.Duration     `json:"duration"`
+	DiskBefore         *uint64           `json:"disk_before,omitempty"`
+	DiskAfter          *uint64           `json:"disk_after,omitempty"`
+	Ecosystems         []EcosystemMetric `json:"ecosystems,omitempty"`
+	SkippedReviewCount int               `json:"skipped_review_count,omitempty"`
+	SkippedReviewBytes int64             `json:"skipped_review_bytes,omitempty"`
 }
 
 // CleanReportJSON representa as métricas completas de limpeza em formato JSON estruturado (D-11).
 type CleanReportJSON struct {
-	Title           string            `json:"title"`
-	TotalFreed      int64             `json:"total_freed"`
-	TotalFreedHuman string            `json:"total_freed_human"`
-	TotalCount      int               `json:"total_count"`
-	TrashCount      int               `json:"trash_count"`
-	PermanentCount  int               `json:"permanent_count"`
-	DurationMs      int64             `json:"duration_ms"`
-	DiskBefore      *uint64           `json:"disk_before,omitempty"`
-	DiskAfter       *uint64           `json:"disk_after,omitempty"`
-	DiskDiff        *int64            `json:"disk_diff,omitempty"`
-	Ecosystems      []EcosystemMetric `json:"ecosystems,omitempty"`
+	Title              string            `json:"title"`
+	TotalFreed         int64             `json:"total_freed"`
+	TotalFreedHuman    string            `json:"total_freed_human"`
+	TotalCount         int               `json:"total_count"`
+	TrashCount         int               `json:"trash_count"`
+	PermanentCount     int               `json:"permanent_count"`
+	DurationMs         int64             `json:"duration_ms"`
+	DiskBefore         *uint64           `json:"disk_before,omitempty"`
+	DiskAfter          *uint64           `json:"disk_after,omitempty"`
+	DiskDiff           *int64            `json:"disk_diff,omitempty"`
+	Ecosystems         []EcosystemMetric `json:"ecosystems,omitempty"`
+	SkippedReviewCount int               `json:"skipped_review_count,omitempty"`
+	SkippedReviewBytes int64             `json:"skipped_review_bytes,omitempty"`
 }
 
 var forceTTYForTest *bool
