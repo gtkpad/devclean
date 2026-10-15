@@ -23,6 +23,7 @@ import (
 	"github.com/gtkpad/devclean/internal/cleaner/pnpm"
 	"github.com/gtkpad/devclean/internal/cleaner/python"
 	"github.com/gtkpad/devclean/internal/cleaner/rust"
+	"github.com/gtkpad/devclean/internal/cleaner/shell"
 	"github.com/gtkpad/devclean/internal/cleaner/terraform"
 	"github.com/gtkpad/devclean/internal/cleaner/xcode"
 	"github.com/gtkpad/devclean/internal/domain"
@@ -303,6 +304,7 @@ func TestCleaners_IsInstalled_InstantResponse(t *testing.T) {
 		terraform.New([]string{tempDir}),
 		cocoapods.New([]string{tempDir}),
 		elixir.New([]string{tempDir}),
+		shell.New(),
 	}
 
 	// Warm-up pass to prime OS path lookups and socket initialization
@@ -317,7 +319,7 @@ func TestCleaners_IsInstalled_InstantResponse(t *testing.T) {
 	elapsed := time.Since(start)
 
 	if elapsed > 100*time.Millisecond {
-		t.Errorf("IsInstalled() execution for all 18 cleaners took %v, want < 100ms", elapsed)
+		t.Errorf("IsInstalled() execution for all 19 cleaners took %v, want < 100ms", elapsed)
 	}
 }
 

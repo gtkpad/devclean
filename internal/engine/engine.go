@@ -193,6 +193,8 @@ func (e *Engine) ecosystemConfig(name string) config.EcosystemConfig {
 		return e.config.Ecosystems.CocoaPods
 	case "elixir":
 		return e.config.Ecosystems.Elixir
+	case "shell":
+		return e.config.Ecosystems.Shell
 	default:
 		return config.EcosystemConfig{Enabled: true, FailMode: "continue"}
 	}

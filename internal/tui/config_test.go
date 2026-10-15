@@ -76,7 +76,7 @@ func TestConfigTUI_VerticalNavigation(t *testing.T) {
 	cfg := config.Defaults()
 	m := tui.NewConfigModel(&cfg, nil, "/tmp/cfg.yaml", nil, nil)
 
-	// Switch to TabEcosystems (18 items)
+	// Switch to TabEcosystems (19 items)
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
 	m = updated.(tui.ConfigModel)
 
@@ -114,13 +114,13 @@ func TestConfigTUI_VerticalNavigation(t *testing.T) {
 		t.Fatalf("expected cursor 2 after 'j', got %d", m.Cursor())
 	}
 
-	// Repeated 'j' should clamp to maxCursor (17 for 18 ecosystems)
+	// Repeated 'j' should clamp to maxCursor (18 for 19 ecosystems)
 	for i := 0; i < 25; i++ {
 		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
 		m = updated.(tui.ConfigModel)
 	}
-	if m.Cursor() != 17 {
-		t.Fatalf("expected cursor clamped at 17, got %d", m.Cursor())
+	if m.Cursor() != 18 {
+		t.Fatalf("expected cursor clamped at 18, got %d", m.Cursor())
 	}
 
 	// Repeated 'k' should return to 0
@@ -813,8 +813,8 @@ func TestConfigTUI_EcosystemsCoverage(t *testing.T) {
 	m := tui.NewConfigModel(&cfg, nil, "/tmp/cfg.yaml", nil, nil)
 	m = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
 
-	// Navigate and toggle all 18 ecosystems
-	for i := 0; i < 18; i++ {
+	// Navigate and toggle all 19 ecosystems
+	for i := 0; i < 19; i++ {
 		m = updateModel(m, tea.KeyMsg{Type: tea.KeySpace})
 		m = updateModel(m, tea.KeyMsg{Type: tea.KeyDown})
 	}
