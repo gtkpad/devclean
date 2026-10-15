@@ -409,3 +409,101 @@ func TestSchedulerConfig_ValidationInvalid(t *testing.T) {
 	}
 }
 
+func TestConfig_EffectiveScanPaths_DiscoveryOrder(t *testing.T) {
+	fakeHome := t.TempDir()
+	t.Setenv("HOME", fakeHome)
+
+	// Create canonical discovery folders in arbitrary order
+	createdFolders := []string{"repos", "Code", "Projects", "Documents", "workspace", "Work", "Developer"}
+	for _, folder := range createdFolders {
+		dirPath := filepath.Join(fakeHome, folder)
+		if err := os.Mkdir(dirPath, 0755); err != nil {
+			t.Fatalf("failed to create test directory %s: %v", dirPath, err)
+		}
+	}
+
+	cfg := Defaults()
+	effective := cfg.EffectiveScanPaths()
+
+	expectedOrder := []string{"Documents", "Projects", "Developer", "Code", "Work", "repos", "workspace"}
+	if len(effective) != len(expectedOrder) {
+		t.Fatalf("expected %d discovered paths, got %d: %v", len(expectedOrder), len(effective), effective)
+	}
+
+	for i, expectedName := range expectedOrder {
+		expectedPath, err := filepath.EvalSymlinks(filepath.Join(fakeHome, expectedName))
+		if err != nil {
+			expectedPath = filepath.Join(fakeHome, expectedName)
+		}
+		if effective[i] != expectedPath {
+			t.Errorf("position %d: expected %s, got %s", i, expectedPath, effective[i])
+		}
+	}
+
+	// Test subset discovery
+	subsetHome := t.TempDir()
+	t.Setenv("HOME", subsetHome)
+	_ = os.Mkdir(filepath.Join(subsetHome, "Code"), 0755)
+	_ = os.Mkdir(filepath.Join(subsetHome, "Projects"), 0755)
+
+	subsetEffective := cfg.EffectiveScanPaths()
+	if len(subsetEffective) != 2 {
+		t.Fatalf("expected 2 discovered paths for subset, got %d: %v", len(subsetEffective), subsetEffective)
+	}
+
+	expectedP1, _ := filepath.EvalSymlinks(filepath.Join(subsetHome, "Projects"))
+	expectedP2, _ := filepath.EvalSymlinks(filepath.Join(subsetHome, "Code"))
+	if subsetEffective[0] != expectedP1 || subsetEffective[1] != expectedP2 {
+		t.Errorf("expected [%s, %s], got %v", expectedP1, expectedP2, subsetEffective)
+	}
+}
+
+func TestConfig_EffectiveScanPaths_EmptyFallback(t *testing.T) {
+	emptyHome := t.TempDir()
+	t.Setenv("HOME", emptyHome)
+
+	cfg := Defaults()
+	effective := cfg.EffectiveScanPaths()
+
+	if effective == nil || len(effective) != 0 {
+		t.Errorf("expected empty slice for empty fallback, got %v", effective)
+	}
+}
+
+func TestConfig_EffectiveScanPaths_ExplicitPrecedence(t *testing.T) {
+	fakeHome := t.TempDir()
+	t.Setenv("HOME", fakeHome)
+	_ = os.Mkdir(filepath.Join(fakeHome, "Projects"), 0755)
+	_ = os.Mkdir(filepath.Join(fakeHome, "Code"), 0755)
+
+	cfg := Defaults()
+	cfg.ScanPaths = []string{
+		filepath.Join(fakeHome, "custom/../custom/folder"),
+	}
+
+	effective := cfg.EffectiveScanPaths()
+	expectedCustom := filepath.Clean(filepath.Join(fakeHome, "custom/folder"))
+
+	if len(effective) != 1 || effective[0] != expectedCustom {
+		t.Fatalf("expected explicit paths [%s], got %v", expectedCustom, effective)
+	}
+}
+
+func TestConfig_EffectiveScanPaths_Immutability(t *testing.T) {
+	fakeHome := t.TempDir()
+	t.Setenv("HOME", fakeHome)
+	_ = os.Mkdir(filepath.Join(fakeHome, "Projects"), 0755)
+
+	cfg := Defaults()
+	if len(cfg.ScanPaths) != 0 {
+		t.Fatalf("initial cfg.ScanPaths should be empty, got %v", cfg.ScanPaths)
+	}
+
+	_ = cfg.EffectiveScanPaths()
+
+	if len(cfg.ScanPaths) != 0 {
+		t.Errorf("cfg.ScanPaths must remain immutable after EffectiveScanPaths, got %v", cfg.ScanPaths)
+	}
+}
+
+
