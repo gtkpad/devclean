@@ -57,6 +57,7 @@ var allowedCleanValues = map[string]bool{
 	"terraform":   true,
 	"cocoapods":   true,
 	"elixir":      true,
+	"shell":       true,
 }
 
 // Validate checks the config for invalid values and returns a clear error message.
@@ -70,24 +71,25 @@ func (c *Config) Validate() error {
 	}
 
 	hooks := map[string]HookConfig{
-		"hooks.node":     c.Hooks.Node,
-		"hooks.go":       c.Hooks.Go,
-		"hooks.docker":   c.Hooks.Docker,
-		"hooks.dotnet":   c.Hooks.DotNet,
-		"hooks.python":   c.Hooks.Python,
-		"hooks.rust":     c.Hooks.Rust,
-		"hooks.java":     c.Hooks.Java,
-		"hooks.ai":       c.Hooks.AI,
-		"hooks.pnpm":     c.Hooks.Pnpm,
-		"hooks.bun":      c.Hooks.Bun,
-		"hooks.nextjs":   c.Hooks.NextJS,
-		"hooks.xcode":    c.Hooks.Xcode,
+		"hooks.node":      c.Hooks.Node,
+		"hooks.go":        c.Hooks.Go,
+		"hooks.docker":    c.Hooks.Docker,
+		"hooks.dotnet":    c.Hooks.DotNet,
+		"hooks.python":    c.Hooks.Python,
+		"hooks.rust":      c.Hooks.Rust,
+		"hooks.java":      c.Hooks.Java,
+		"hooks.ai":        c.Hooks.AI,
+		"hooks.pnpm":      c.Hooks.Pnpm,
+		"hooks.bun":       c.Hooks.Bun,
+		"hooks.nextjs":    c.Hooks.NextJS,
+		"hooks.xcode":     c.Hooks.Xcode,
 		"hooks.homebrew":  c.Hooks.Homebrew,
 		"hooks.cpp":       c.Hooks.CPP,
 		"hooks.flutter":   c.Hooks.Flutter,
 		"hooks.terraform": c.Hooks.Terraform,
 		"hooks.cocoapods": c.Hooks.CocoaPods,
 		"hooks.elixir":    c.Hooks.Elixir,
+		"hooks.shell":     c.Hooks.Shell,
 	}
 
 	for name, h := range hooks {

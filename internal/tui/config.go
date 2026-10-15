@@ -66,6 +66,7 @@ var ecosystemMetas = []EcosystemMeta{
 	{Key: "terraform", Name: "Terraform", Description: "Cache de plugins e diretórios .terraform"},
 	{Key: "cocoapods", Name: "CocoaPods", Description: "Cache e diretórios Pods"},
 	{Key: "elixir", Name: "Elixir", Description: "Diretórios _build e deps do Mix"},
+	{Key: "shell", Name: "Shell & CLI", Description: "Caches do mise, GitHub CLI, pre-commit, Oh My Zsh e zcompdump"},
 }
 
 // ConfigModel is the Bubble Tea model for interactive devclean config.
@@ -420,6 +421,8 @@ func (m *ConfigModel) getEcosystem(key string) *config.EcosystemConfig {
 		return &m.cfg.Ecosystems.CocoaPods
 	case "elixir":
 		return &m.cfg.Ecosystems.Elixir
+	case "shell":
+		return &m.cfg.Ecosystems.Shell
 	default:
 		return nil
 	}
@@ -1230,7 +1233,7 @@ func (m ConfigModel) viewEcosystems() string {
 			activeCount++
 		}
 	}
-	header := fmt.Sprintf("18 ecossistemas configurados (%d ativos):", activeCount)
+	header := fmt.Sprintf("%d ecossistemas configurados (%d ativos):", len(ecosystemMetas), activeCount)
 	b.WriteString("  " + groupHeaderStyle.Render(header) + "\n\n")
 
 	visibleHeight := m.height - 8

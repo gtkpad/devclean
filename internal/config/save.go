@@ -31,7 +31,7 @@ safety:
   max_size_mb: 10240       # Max trash size in megabytes (10 GB)
   trash_dir: ""            # Custom trash directory (empty = platform default)
 
-# Ecosystem-specific cleanup rules (18 ecosystems)
+# Ecosystem-specific cleanup rules (19 ecosystems)
 ecosystems:
   # Docker containers, images, build cache, volumes
   docker:
@@ -156,6 +156,13 @@ ecosystems:
   elixir:
     enabled: true
     max_age_days: 14
+    fail_mode: continue
+    exclude_paths: []
+
+  # Shell and CLI tool caches (mise, gh, pre-commit, omz, zcompdump)
+  shell:
+    enabled: true
+    max_age_days: 30
     fail_mode: continue
     exclude_paths: []
 

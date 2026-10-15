@@ -79,6 +79,9 @@ func TestLoad_NoFile_ReturnsDefaults(t *testing.T) {
 	if cfg.Ecosystems.Elixir.MaxAgeDays != 14 {
 		t.Errorf("Elixir.MaxAgeDays = %d, want 14", cfg.Ecosystems.Elixir.MaxAgeDays)
 	}
+	if cfg.Ecosystems.Shell.MaxAgeDays != 30 {
+		t.Errorf("Shell.MaxAgeDays = %d, want 30", cfg.Ecosystems.Shell.MaxAgeDays)
+	}
 	if cfg.Hooks.NextJS.Timeout != "30s" {
 		t.Errorf("Hooks.NextJS.Timeout = %q, want 30s", cfg.Hooks.NextJS.Timeout)
 	}
@@ -100,10 +103,13 @@ func TestLoad_NoFile_ReturnsDefaults(t *testing.T) {
 	if cfg.Hooks.Elixir.Timeout != "30s" {
 		t.Errorf("Hooks.Elixir.Timeout = %q, want 30s", cfg.Hooks.Elixir.Timeout)
 	}
+	if cfg.Hooks.Shell.Timeout != "30s" {
+		t.Errorf("Hooks.Shell.Timeout = %q, want 30s", cfg.Hooks.Shell.Timeout)
+	}
 	if !cfg.Ecosystems.Docker.Enabled {
 		t.Error("Docker.Enabled should be true by default")
 	}
-	if !cfg.Ecosystems.CPP.Enabled || !cfg.Ecosystems.Flutter.Enabled || !cfg.Ecosystems.Terraform.Enabled || !cfg.Ecosystems.CocoaPods.Enabled || !cfg.Ecosystems.Elixir.Enabled {
+	if !cfg.Ecosystems.CPP.Enabled || !cfg.Ecosystems.Flutter.Enabled || !cfg.Ecosystems.Terraform.Enabled || !cfg.Ecosystems.CocoaPods.Enabled || !cfg.Ecosystems.Elixir.Enabled || !cfg.Ecosystems.Shell.Enabled {
 		t.Error("New ecosystems should be enabled by default")
 	}
 	if len(cfg.ScanPaths) != 0 {
@@ -217,6 +223,7 @@ func TestDefaults_AllEcosystemsEnabled(t *testing.T) {
 		{"Terraform", d.Ecosystems.Terraform, 30},
 		{"CocoaPods", d.Ecosystems.CocoaPods, 14},
 		{"Elixir", d.Ecosystems.Elixir, 14},
+		{"Shell", d.Ecosystems.Shell, 30},
 	}
 
 	for _, ec := range ecosystems {
@@ -509,6 +516,43 @@ func TestConfig_EffectiveScanPaths_Immutability(t *testing.T) {
 
 	if len(cfg.ScanPaths) != 0 {
 		t.Errorf("cfg.ScanPaths must remain immutable after EffectiveScanPaths, got %v", cfg.ScanPaths)
+	}
+}
+
+func TestLoad_ShellEcosystemConfig(t *testing.T) {
+	yaml := `
+ecosystems:
+  shell:
+    enabled: true
+    max_age_days: 15
+    exclude_paths:
+      - /tmp/keep-shell
+hooks:
+  shell:
+    timeout: 45s
+`
+	path := writeTestConfig(t, yaml)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	if cfg.Ecosystems.Shell.MaxAgeDays != 15 {
+		t.Errorf("Shell.MaxAgeDays = %d, want 15", cfg.Ecosystems.Shell.MaxAgeDays)
+	}
+	if len(cfg.Ecosystems.Shell.ExcludePaths) != 1 || cfg.Ecosystems.Shell.ExcludePaths[0] != "/tmp/keep-shell" {
+		t.Errorf("Shell.ExcludePaths = %v, want [/tmp/keep-shell]", cfg.Ecosystems.Shell.ExcludePaths)
+	}
+	if cfg.Hooks.Shell.Timeout != "45s" {
+		t.Errorf("Hooks.Shell.Timeout = %q, want 45s", cfg.Hooks.Shell.Timeout)
+	}
+}
+
+func TestValidate_ShellEcosystem(t *testing.T) {
+	cfg := Defaults()
+	cfg.Scheduler.Args = []string{"--ecosystem", "shell"}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("expected valid scheduler args with shell ecosystem, got error: %v", err)
 	}
 }
 

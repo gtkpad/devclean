@@ -18,13 +18,14 @@ import (
 	"github.com/gtkpad/devclean/internal/cleaner/pnpm"
 	"github.com/gtkpad/devclean/internal/cleaner/python"
 	"github.com/gtkpad/devclean/internal/cleaner/rust"
+	"github.com/gtkpad/devclean/internal/cleaner/shell"
 	"github.com/gtkpad/devclean/internal/cleaner/terraform"
 	"github.com/gtkpad/devclean/internal/cleaner/xcode"
 	"github.com/gtkpad/devclean/internal/config"
 	"github.com/gtkpad/devclean/internal/platform"
 )
 
-// RegisterDefaultCleaners registra todos os 18 ecossistemas suportados no motor.
+// RegisterDefaultCleaners registra todos os 19 ecossistemas suportados no motor.
 func RegisterDefaultCleaners(eng *Engine, cfg *config.Config, resolver platform.Resolver) {
 	RegisterDefaultCleanersWithExecutor(eng, cfg, resolver, &cleaner.DefaultExecutor{})
 }
@@ -54,6 +55,7 @@ func RegisterDefaultCleanersWithExecutor(eng *Engine, cfg *config.Config, resolv
 	eng.Register(nextjs.New(effectivePaths))
 	eng.Register(xcode.NewWithExecutor(exec))
 	eng.Register(homebrew.NewWithExecutor(exec))
+	eng.Register(shell.NewWithExecutor(exec))
 
 	// Ecossistemas de compilação, infraestrutura e mobile
 	eng.Register(cpp.New(effectivePaths))

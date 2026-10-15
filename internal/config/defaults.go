@@ -25,6 +25,7 @@ func Defaults() Config {
 			Terraform: EcosystemConfig{Enabled: true, MaxAgeDays: 30, FailMode: "continue", ExcludePaths: []string{}},
 			CocoaPods: EcosystemConfig{Enabled: true, MaxAgeDays: 14, FailMode: "continue", ExcludePaths: []string{}},
 			Elixir:    EcosystemConfig{Enabled: true, MaxAgeDays: 14, FailMode: "continue", ExcludePaths: []string{}},
+			Shell:     EcosystemConfig{Enabled: true, MaxAgeDays: 30, FailMode: "continue", ExcludePaths: []string{}},
 		},
 		Safety: SafetyConfig{
 			TrashEnabled:  true,
@@ -54,6 +55,7 @@ func Defaults() Config {
 			Terraform: HookConfig{Timeout: "30s"},
 			CocoaPods: HookConfig{Timeout: "30s"},
 			Elixir:    HookConfig{Timeout: "30s"},
+			Shell:     HookConfig{Timeout: "30s"},
 		},
 		History: HistoryConfig{
 			RetentionDays: 90,
