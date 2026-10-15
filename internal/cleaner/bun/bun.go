@@ -52,14 +52,19 @@ func (c *bunCleaner) Scan(_ context.Context, rules domain.EcosystemRules) ([]dom
 		return nil, nil
 	}
 
-	cutoff := time.Now().AddDate(0, 0, -rules.MaxAgeDays)
-	if rules.MaxAgeDays > 0 && info.ModTime().After(cutoff) {
-		return nil, nil
-	}
-
 	size, _ := devfs.CalcDirSize(c.cachePath)
 	if size == 0 {
 		return nil, nil
+	}
+
+	cutoff := time.Now().AddDate(0, 0, -rules.MaxAgeDays)
+	lastAccessed := info.ModTime()
+
+	eligibleBytes := int64(0)
+	ttlEligible := false
+	if rules.MaxAgeDays == 0 || lastAccessed.Before(cutoff) {
+		eligibleBytes = size
+		ttlEligible = true
 	}
 
 	sum := sha256.Sum256([]byte(c.cachePath))
@@ -67,13 +72,15 @@ func (c *bunCleaner) Scan(_ context.Context, rules domain.EcosystemRules) ([]dom
 
 	return []domain.Target{
 		{
-			ID:           id,
-			Name:         "Bun package cache",
-			Path:         c.cachePath,
-			SizeBytes:    size,
-			Risk:         domain.RiskLow,
-			LastAccessed: info.ModTime(),
-			Category:     "bun-cache",
+			ID:            id,
+			Name:          "Bun package cache",
+			Path:          c.cachePath,
+			SizeBytes:     size,
+			EligibleBytes: eligibleBytes,
+			TTLEligible:   ttlEligible,
+			Risk:          domain.RiskLow,
+			LastAccessed:  lastAccessed,
+			Category:      "bun-cache",
 		},
 	}, nil
 }

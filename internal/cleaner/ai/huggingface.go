@@ -45,20 +45,25 @@ func scanHuggingFace(hfRoot string, rules domain.EcosystemRules) ([]domain.Targe
 				continue
 			}
 
-			if rules.MaxAgeDays > 0 && info.ModTime().After(cutoff) {
-				continue
-			}
-
 			size, _ := devfs.CalcDirSize(itemPath)
 			if size > 0 {
+				eligibleBytes := int64(0)
+				ttlEligible := false
+				if rules.MaxAgeDays == 0 || info.ModTime().Before(cutoff) {
+					eligibleBytes = size
+					ttlEligible = true
+				}
+
 				targets = append(targets, domain.Target{
-					ID:           hashPath(itemPath),
-					Name:         s.label + ": " + entry.Name(),
-					Path:         itemPath,
-					SizeBytes:    size,
-					Risk:         domain.RiskMedium, // D-03: Re-download possível sob demanda
-					LastAccessed: info.ModTime(),
-					Category:     s.category,
+					ID:            hashPath(itemPath),
+					Name:          s.label + ": " + entry.Name(),
+					Path:          itemPath,
+					SizeBytes:     size,
+					EligibleBytes: eligibleBytes,
+					TTLEligible:   ttlEligible,
+					Risk:          domain.RiskMedium, // D-03: Re-download possível sob demanda
+					LastAccessed:  info.ModTime(),
+					Category:      s.category,
 				})
 			}
 		}

@@ -108,21 +108,26 @@ func (c *xcodeCleaner) Scan(ctx context.Context, rules domain.EcosystemRules) ([
 				continue
 			}
 
-			if rules.MaxAgeDays > 0 && info.ModTime().After(cutoff) {
-				continue
-			}
-
 			size, _ := devfs.CalcDirSize(projDir)
 			if size > 0 {
+				eligibleBytes := int64(0)
+				ttlEligible := false
+				if rules.MaxAgeDays == 0 || info.ModTime().Before(cutoff) {
+					eligibleBytes = size
+					ttlEligible = true
+				}
+
 				sum := sha256.Sum256([]byte(projDir))
 				targets = append(targets, domain.Target{
-					ID:           fmt.Sprintf("%x", sum[:6]),
-					Name:         "Xcode DerivedData: " + e.Name(),
-					Path:         projDir,
-					SizeBytes:    size,
-					Risk:         domain.RiskLow,
-					LastAccessed: info.ModTime(),
-					Category:     "xcode-derived-data",
+					ID:            fmt.Sprintf("%x", sum[:6]),
+					Name:          "Xcode DerivedData: " + e.Name(),
+					Path:          projDir,
+					SizeBytes:     size,
+					EligibleBytes: eligibleBytes,
+					TTLEligible:   ttlEligible,
+					Risk:          domain.RiskLow,
+					LastAccessed:  info.ModTime(),
+					Category:      "xcode-derived-data",
 				})
 			}
 		}
@@ -130,12 +135,14 @@ func (c *xcodeCleaner) Scan(ctx context.Context, rules domain.EcosystemRules) ([
 
 	// 2. Alvo virtual para simuladores iOS indisponíveis (D-10)
 	targets = append(targets, domain.Target{
-		ID:        "xcode-simulators-unavailable",
-		Name:      "iOS Simulators (unavailable runtimes)",
-		Path:      "xcode://simulators/unavailable",
-		SizeBytes: 0,
-		Risk:      domain.RiskLow,
-		Category:  "virtual-xcode-simulators",
+		ID:            "xcode-simulators-unavailable",
+		Name:          "iOS Simulators (unavailable runtimes)",
+		Path:          "xcode://simulators/unavailable",
+		SizeBytes:     0,
+		EligibleBytes: 0,
+		TTLEligible:   true,
+		Risk:          domain.RiskLow,
+		Category:      "virtual-xcode-simulators",
 	})
 
 	return targets, nil

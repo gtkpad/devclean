@@ -44,13 +44,15 @@ func scanOllama(modelsDir string, rules domain.EcosystemRules) ([]domain.Target,
 		if err != nil || len(data) == 0 {
 			// Manifesto corrompido
 			targets = append(targets, domain.Target{
-				ID:           hashPath(path),
-				Name:         "Ollama: corrupted manifest " + filepath.Base(path),
-				Path:         path,
-				SizeBytes:    info.Size(),
-				Risk:         domain.RiskMedium,
-				LastAccessed: info.ModTime(),
-				Category:     "ai-ollama-corrupted",
+				ID:            hashPath(path),
+				Name:          "Ollama: corrupted manifest " + filepath.Base(path),
+				Path:          path,
+				SizeBytes:     info.Size(),
+				EligibleBytes: info.Size(),
+				TTLEligible:   true,
+				Risk:          domain.RiskMedium,
+				LastAccessed:  info.ModTime(),
+				Category:      "ai-ollama-corrupted",
 			})
 			return nil
 		}
@@ -58,13 +60,15 @@ func scanOllama(modelsDir string, rules domain.EcosystemRules) ([]domain.Target,
 		var mf ollamaManifest
 		if err := json.Unmarshal(data, &mf); err != nil {
 			targets = append(targets, domain.Target{
-				ID:           hashPath(path),
-				Name:         "Ollama: invalid manifest JSON " + filepath.Base(path),
-				Path:         path,
-				SizeBytes:    info.Size(),
-				Risk:         domain.RiskMedium,
-				LastAccessed: info.ModTime(),
-				Category:     "ai-ollama-corrupted",
+				ID:            hashPath(path),
+				Name:          "Ollama: invalid manifest JSON " + filepath.Base(path),
+				Path:          path,
+				SizeBytes:     info.Size(),
+				EligibleBytes: info.Size(),
+				TTLEligible:   true,
+				Risk:          domain.RiskMedium,
+				LastAccessed:  info.ModTime(),
+				Category:      "ai-ollama-corrupted",
 			})
 			return nil
 		}
@@ -85,13 +89,15 @@ func scanOllama(modelsDir string, rules domain.EcosystemRules) ([]domain.Target,
 				modelSize = info.Size()
 			}
 			targets = append(targets, domain.Target{
-				ID:           hashPath(path),
-				Name:         "Ollama model (stale): " + filepath.Base(path),
-				Path:         path,
-				SizeBytes:    modelSize,
-				Risk:         domain.RiskHigh, // D-01: Modelos intactos exigem confirmação explícita
-				LastAccessed: info.ModTime(),
-				Category:     "ai-ollama-model-stale",
+				ID:            hashPath(path),
+				Name:          "Ollama model (stale): " + filepath.Base(path),
+				Path:          path,
+				SizeBytes:     modelSize,
+				EligibleBytes: modelSize,
+				TTLEligible:   true,
+				Risk:          domain.RiskHigh, // D-01: Modelos intactos exigem confirmação explícita
+				LastAccessed:  info.ModTime(),
+				Category:      "ai-ollama-model-stale",
 			})
 		}
 
@@ -114,13 +120,15 @@ func scanOllama(modelsDir string, rules domain.EcosystemRules) ([]domain.Target,
 				}
 
 				targets = append(targets, domain.Target{
-					ID:           hashPath(blobPath),
-					Name:         "Ollama orphan blob: " + fname[:min(len(fname), 16)],
-					Path:         blobPath,
-					SizeBytes:    info.Size(),
-					Risk:         domain.RiskLow,
-					LastAccessed: info.ModTime(),
-					Category:     "ai-ollama-orphan",
+					ID:            hashPath(blobPath),
+					Name:          "Ollama orphan blob: " + fname[:min(len(fname), 16)],
+					Path:          blobPath,
+					SizeBytes:     info.Size(),
+					EligibleBytes: info.Size(),
+					TTLEligible:   true,
+					Risk:          domain.RiskLow,
+					LastAccessed:  info.ModTime(),
+					Category:      "ai-ollama-orphan",
 				})
 			}
 		}

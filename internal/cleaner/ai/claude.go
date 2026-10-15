@@ -35,20 +35,24 @@ func scanClaude(claudeDir string, rules domain.EcosystemRules) ([]domain.Target,
 			continue
 		}
 
-		if rules.MaxAgeDays > 0 && info.ModTime().After(cutoff) {
-			continue
-		}
-
 		size, _ := devfs.CalcDirSize(p)
 		if size > 0 {
+			eligibleBytes := int64(0)
+			ttlEligible := false
+			if rules.MaxAgeDays == 0 || info.ModTime().Before(cutoff) {
+				eligibleBytes = size
+				ttlEligible = true
+			}
 			targets = append(targets, domain.Target{
-				ID:           hashPath(p),
-				Name:         "Claude Code: " + sub + " cache",
-				Path:         p,
-				SizeBytes:    size,
-				Risk:         domain.RiskLow,
-				LastAccessed: info.ModTime(),
-				Category:     "ai-claude-cache",
+				ID:            hashPath(p),
+				Name:          "Claude Code: " + sub + " cache",
+				Path:          p,
+				SizeBytes:     size,
+				EligibleBytes: eligibleBytes,
+				TTLEligible:   ttlEligible,
+				Risk:          domain.RiskLow,
+				LastAccessed:  info.ModTime(),
+				Category:      "ai-claude-cache",
 			})
 		}
 	}
@@ -70,18 +74,23 @@ func scanClaude(claudeDir string, rules domain.EcosystemRules) ([]domain.Target,
 				continue
 			}
 
-			if rules.MaxAgeDays > 0 && info.ModTime().After(cutoff) {
-				continue
+			eligibleBytes := int64(0)
+			ttlEligible := false
+			if rules.MaxAgeDays == 0 || info.ModTime().Before(cutoff) {
+				eligibleBytes = info.Size()
+				ttlEligible = true
 			}
 
 			targets = append(targets, domain.Target{
-				ID:           hashPath(p),
-				Name:         "Claude Code log: " + e.Name(),
-				Path:         p,
-				SizeBytes:    info.Size(),
-				Risk:         domain.RiskLow,
-				LastAccessed: info.ModTime(),
-				Category:     "ai-claude-logs",
+				ID:            hashPath(p),
+				Name:          "Claude Code log: " + e.Name(),
+				Path:          p,
+				SizeBytes:     info.Size(),
+				EligibleBytes: eligibleBytes,
+				TTLEligible:   ttlEligible,
+				Risk:          domain.RiskLow,
+				LastAccessed:  info.ModTime(),
+				Category:      "ai-claude-logs",
 			})
 		}
 	}
