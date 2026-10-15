@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
+	"time"
 
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/gtkpad/devclean/internal/domain"
@@ -74,7 +75,7 @@ func (c *flutterCleaner) Scan(ctx context.Context, rules domain.EcosystemRules) 
 	}
 	targets = append(targets, localTargets...)
 
-	globalTargets := c.scanGlobalCaches()
+	globalTargets := c.scanGlobalCaches(rules)
 	targets = append(targets, globalTargets...)
 
 	return targets, nil
@@ -150,6 +151,7 @@ func (c *flutterCleaner) scanLocalTargets(ctx context.Context, rules domain.Ecos
 		return nil, err
 	}
 
+	cutoff := time.Now().AddDate(0, 0, -rules.MaxAgeDays)
 	targets := make([]domain.Target, 0, len(uniqueFound))
 	for _, f := range uniqueFound {
 		info, err := os.Stat(f.path)
@@ -163,23 +165,34 @@ func (c *flutterCleaner) scanLocalTargets(ctx context.Context, rules domain.Ecos
 		hash := sha256.Sum256([]byte(f.path))
 		id := fmt.Sprintf("%x", hash[:6])
 
+		size := sizes[f.path]
+		ttlEligible := false
+		eligibleBytes := int64(0)
+		if rules.MaxAgeDays == 0 || info.ModTime().Before(cutoff) {
+			ttlEligible = true
+			eligibleBytes = size
+		}
+
 		targets = append(targets, domain.Target{
-			ID:           id,
-			Name:         filepath.Base(parentDir) + "/" + base,
-			Path:         f.path,
-			SizeBytes:    sizes[f.path],
-			Risk:         f.risk,
-			LastAccessed: info.ModTime(),
-			Category:     f.category,
+			ID:            id,
+			Name:          filepath.Base(parentDir) + "/" + base,
+			Path:          f.path,
+			SizeBytes:     size,
+			EligibleBytes: eligibleBytes,
+			TTLEligible:   ttlEligible,
+			Risk:          f.risk,
+			LastAccessed:  info.ModTime(),
+			Category:      f.category,
 		})
 	}
 
 	return targets, nil
 }
 
-func (c *flutterCleaner) scanGlobalCaches() []domain.Target {
+func (c *flutterCleaner) scanGlobalCaches(rules domain.EcosystemRules) []domain.Target {
 	var targets []domain.Target
 	seen := make(map[string]bool)
+	cutoff := time.Now().AddDate(0, 0, -rules.MaxAgeDays)
 
 	home, _ := os.UserHomeDir()
 
@@ -202,14 +215,23 @@ func (c *flutterCleaner) scanGlobalCaches() []domain.Target {
 			hash := sha256.Sum256([]byte(p))
 			id := fmt.Sprintf("%x", hash[:6])
 
+			ttlEligible := false
+			eligibleBytes := int64(0)
+			if rules.MaxAgeDays == 0 || info.ModTime().Before(cutoff) {
+				ttlEligible = true
+				eligibleBytes = size
+			}
+
 			targets = append(targets, domain.Target{
-				ID:           id,
-				Name:         "Pub Cache",
-				Path:         p,
-				SizeBytes:    size,
-				Risk:         domain.RiskLow,
-				LastAccessed: info.ModTime(),
-				Category:     "pub-cache",
+				ID:            id,
+				Name:          "Pub Cache",
+				Path:          p,
+				SizeBytes:     size,
+				EligibleBytes: eligibleBytes,
+				TTLEligible:   ttlEligible,
+				Risk:          domain.RiskLow,
+				LastAccessed:  info.ModTime(),
+				Category:      "pub-cache",
 			})
 		}
 	}

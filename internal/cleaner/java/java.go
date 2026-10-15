@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
+	"time"
 
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/gtkpad/devclean/internal/cleaner"
@@ -58,7 +59,7 @@ func (c *javaCleaner) Scan(ctx context.Context, rules domain.EcosystemRules) ([]
 	}
 	targets = append(targets, localTargets...)
 
-	globalTargets := c.scanGlobalCaches()
+	globalTargets := c.scanGlobalCaches(rules)
 	targets = append(targets, globalTargets...)
 
 	return targets, nil
@@ -117,6 +118,7 @@ func (c *javaCleaner) scanLocalTargets(rules domain.EcosystemRules) ([]domain.Ta
 		return nil, err
 	}
 
+	cutoff := time.Now().AddDate(0, 0, -rules.MaxAgeDays)
 	targets := make([]domain.Target, 0, len(allFound))
 	for _, f := range allFound {
 		info, err := os.Stat(f.path)
@@ -127,14 +129,24 @@ func (c *javaCleaner) scanLocalTargets(rules domain.EcosystemRules) ([]domain.Ta
 		hash := sha256.Sum256([]byte(f.path))
 		id := fmt.Sprintf("%x", hash[:6])
 
+		size := sizes[f.path]
+		ttlEligible := false
+		eligibleBytes := int64(0)
+		if rules.MaxAgeDays == 0 || info.ModTime().Before(cutoff) {
+			ttlEligible = true
+			eligibleBytes = size
+		}
+
 		targets = append(targets, domain.Target{
-			ID:           id,
-			Name:         filepath.Base(filepath.Dir(f.path)) + "/" + filepath.Base(f.path),
-			Path:         f.path,
-			SizeBytes:    sizes[f.path],
-			Risk:         cleaner.ClassifyLocalArtifactRisk(f.path, f.manifests, rules.MaxAgeDays),
-			LastAccessed: info.ModTime(),
-			Category:     f.category,
+			ID:            id,
+			Name:          filepath.Base(filepath.Dir(f.path)) + "/" + filepath.Base(f.path),
+			Path:          f.path,
+			SizeBytes:     size,
+			EligibleBytes: eligibleBytes,
+			TTLEligible:   ttlEligible,
+			Risk:          cleaner.ClassifyLocalArtifactRisk(f.path, f.manifests, rules.MaxAgeDays),
+			LastAccessed:  info.ModTime(),
+			Category:      f.category,
 		})
 	}
 
@@ -147,8 +159,9 @@ type localTarget struct {
 	category  string
 }
 
-func (c *javaCleaner) scanGlobalCaches() []domain.Target {
+func (c *javaCleaner) scanGlobalCaches(rules domain.EcosystemRules) []domain.Target {
 	var targets []domain.Target
+	cutoff := time.Now().AddDate(0, 0, -rules.MaxAgeDays)
 
 	caches := []struct {
 		name     string
@@ -170,14 +183,23 @@ func (c *javaCleaner) scanGlobalCaches() []domain.Target {
 		hash := sha256.Sum256([]byte(cache.path))
 		id := fmt.Sprintf("%x", hash[:6])
 
+		ttlEligible := false
+		eligibleBytes := int64(0)
+		if rules.MaxAgeDays == 0 || info.ModTime().Before(cutoff) {
+			ttlEligible = true
+			eligibleBytes = size
+		}
+
 		targets = append(targets, domain.Target{
-			ID:           id,
-			Name:         cache.name,
-			Path:         cache.path,
-			SizeBytes:    size,
-			Risk:         domain.RiskLow,
-			LastAccessed: info.ModTime(),
-			Category:     cache.category,
+			ID:            id,
+			Name:          cache.name,
+			Path:          cache.path,
+			SizeBytes:     size,
+			EligibleBytes: eligibleBytes,
+			TTLEligible:   ttlEligible,
+			Risk:          domain.RiskLow,
+			LastAccessed:  info.ModTime(),
+			Category:      cache.category,
 		})
 	}
 

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/gtkpad/devclean/internal/cleaner"
@@ -64,14 +65,25 @@ func (c *homebrewCleaner) Scan(ctx context.Context, rules domain.EcosystemRules)
 		return nil, nil
 	}
 
+	cutoff := time.Now().AddDate(0, 0, -rules.MaxAgeDays)
+	ttlEligible := false
+	eligibleBytes := int64(0)
+	if rules.MaxAgeDays == 0 || info.ModTime().Before(cutoff) {
+		ttlEligible = true
+		eligibleBytes = size
+	}
+
 	return []domain.Target{
 		{
-			ID:        "homebrew-cleanup-cache",
-			Name:      "Homebrew cache (stale bottles & downloads)",
-			Path:      "brew://cleanup",
-			SizeBytes: size,
-			Risk:      domain.RiskLow,
-			Category:  "virtual-homebrew-cache",
+			ID:            "homebrew-cleanup-cache",
+			Name:          "Homebrew cache (stale bottles & downloads)",
+			Path:          "brew://cleanup",
+			SizeBytes:     size,
+			EligibleBytes: eligibleBytes,
+			TTLEligible:   ttlEligible,
+			Risk:          domain.RiskLow,
+			LastAccessed:  info.ModTime(),
+			Category:      "virtual-homebrew-cache",
 		},
 	}, nil
 }

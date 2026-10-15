@@ -129,8 +129,14 @@ func TestNextJSCleaner_Scan_TTLAndFiltering(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Scan error: %v", err)
 		}
-		if len(targets) != 0 {
-			t.Errorf("expected 0 targets for recent cache, got %d", len(targets))
+		if len(targets) != 1 {
+			t.Fatalf("expected 1 target discovered, got %d", len(targets))
+		}
+		if targets[0].TTLEligible {
+			t.Errorf("expected TTLEligible=false for recent cache, got true")
+		}
+		if targets[0].EligibleBytes != 0 {
+			t.Errorf("expected EligibleBytes=0 for recent cache, got %d", targets[0].EligibleBytes)
 		}
 	})
 
@@ -140,7 +146,13 @@ func TestNextJSCleaner_Scan_TTLAndFiltering(t *testing.T) {
 			t.Fatalf("Scan error: %v", err)
 		}
 		if len(targets) != 1 {
-			t.Errorf("expected 1 target when MaxAgeDays=0, got %d", len(targets))
+			t.Fatalf("expected 1 target when MaxAgeDays=0, got %d", len(targets))
+		}
+		if !targets[0].TTLEligible {
+			t.Errorf("expected TTLEligible=true when MaxAgeDays=0")
+		}
+		if targets[0].EligibleBytes != targets[0].SizeBytes {
+			t.Errorf("expected EligibleBytes == SizeBytes (%d), got %d", targets[0].SizeBytes, targets[0].EligibleBytes)
 		}
 	})
 
