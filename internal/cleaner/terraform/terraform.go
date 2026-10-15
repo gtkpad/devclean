@@ -14,10 +14,12 @@ import (
 	"time"
 
 	"github.com/bmatcuk/doublestar/v4"
+	"github.com/gtkpad/devclean/internal/cleaner"
 	"github.com/gtkpad/devclean/internal/domain"
 	devfs "github.com/gtkpad/devclean/internal/fs"
 	"github.com/gtkpad/devclean/internal/safety"
 )
+
 
 type terraformCleaner struct {
 	scanPaths []string
@@ -43,14 +45,13 @@ func (c *terraformCleaner) IsInstalled() bool {
 		}
 	}
 
-	// 2. Presence of .tf files in scanPaths
-	for _, root := range c.scanPaths {
-		if hasAnyTfFiles(root) {
-			return true
-		}
+	// 2. Presence of .tf files in scanPaths (shallow D-16)
+	if cleaner.HasShallowManifest(c.scanPaths, "*.tf", "*.tofu", ".terraform") {
+		return true
 	}
 
 	// 3. Global plugin cache
+
 	home, _ := os.UserHomeDir()
 	candidateDirs := []string{}
 	if v := os.Getenv("TF_PLUGIN_CACHE_DIR"); v != "" {
@@ -356,24 +357,3 @@ func hasActiveLockOrLocalState(terraformDir string) bool {
 	return false
 }
 
-// hasAnyTfFiles checks recursively if any .tf file exists under root.
-func hasAnyTfFiles(root string) bool {
-	found := false
-	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if d.IsDir() {
-			if d.Name() == ".git" {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if strings.HasSuffix(d.Name(), ".tf") {
-			found = true
-			return fs.SkipAll
-		}
-		return nil
-	})
-	return found
-}

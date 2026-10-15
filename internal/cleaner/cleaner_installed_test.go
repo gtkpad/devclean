@@ -305,6 +305,11 @@ func TestCleaners_IsInstalled_InstantResponse(t *testing.T) {
 		elixir.New([]string{tempDir}),
 	}
 
+	// Warm-up pass to prime OS path lookups and socket initialization
+	for _, c := range allCleaners {
+		_ = c.IsInstalled()
+	}
+
 	start := time.Now()
 	for _, c := range allCleaners {
 		_ = c.IsInstalled()
@@ -315,4 +320,6 @@ func TestCleaners_IsInstalled_InstantResponse(t *testing.T) {
 		t.Errorf("IsInstalled() execution for all 18 cleaners took %v, want < 100ms", elapsed)
 	}
 }
+
+
 

@@ -18,11 +18,22 @@ func TestNextJSCleaner_Name(t *testing.T) {
 }
 
 func TestNextJSCleaner_IsInstalled(t *testing.T) {
-	c := New(nil)
+	// Should be true when next.config.js exists in scanPaths
+	tmp := t.TempDir()
+	_ = os.WriteFile(filepath.Join(tmp, "next.config.js"), []byte("module.exports = {}"), 0644)
+	c := New([]string{tmp})
 	if !c.IsInstalled() {
-		t.Errorf("expected IsInstalled() to be true")
+		t.Errorf("expected IsInstalled() to be true when next.config.js exists in scanPaths")
+	}
+
+	// Should be false when PATH is empty and no manifests exist in scanPaths
+	t.Setenv("PATH", t.TempDir())
+	cEmpty := New([]string{t.TempDir()})
+	if cEmpty.IsInstalled() {
+		t.Errorf("expected IsInstalled() to be false when PATH is empty and no manifests exist")
 	}
 }
+
 
 func TestNextJSCleaner_ScanAndClean_PreservesServer(t *testing.T) {
 	tempDir := t.TempDir()
