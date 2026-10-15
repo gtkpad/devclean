@@ -100,8 +100,17 @@ func TestDockerCleaner_Scan_MaxAgeDaysFilter(t *testing.T) {
 	}
 
 	imageTargets := filterByCategory(targets, "dangling-image")
-	if len(imageTargets) != 0 {
-		t.Errorf("recent image should be filtered, got %d targets", len(imageTargets))
+	if len(imageTargets) != 1 {
+		t.Fatalf("recent image should be reported in scan, got %d targets", len(imageTargets))
+	}
+	if imageTargets[0].TTLEligible {
+		t.Errorf("recent image should have TTLEligible = false")
+	}
+	if imageTargets[0].EligibleBytes != 0 {
+		t.Errorf("recent image should have EligibleBytes = 0, got %d", imageTargets[0].EligibleBytes)
+	}
+	if imageTargets[0].SizeBytes != 100_000_000 {
+		t.Errorf("recent image should have SizeBytes = 100_000_000, got %d", imageTargets[0].SizeBytes)
 	}
 }
 

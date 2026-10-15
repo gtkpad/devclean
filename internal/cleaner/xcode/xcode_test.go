@@ -95,12 +95,13 @@ func TestXcodeCleaner_Scan_GranularDerivedDataAndSimulators(t *testing.T) {
 		t.Fatalf("unexpected scan error: %v", err)
 	}
 
-	// Expect 2 targets: ProjectA (filesystem) and simulators (virtual)
-	if len(targets) != 2 {
-		t.Fatalf("expected 2 targets, got %d: %+v", len(targets), targets)
+	// Expect 3 targets: ProjectA (filesystem, eligible), ProjectB (filesystem, not eligible), and simulators (virtual)
+	if len(targets) != 3 {
+		t.Fatalf("expected 3 targets, got %d: %+v", len(targets), targets)
 	}
 
 	var foundProjA bool
+	var foundProjB bool
 	var foundSimulators bool
 
 	for _, target := range targets {
@@ -115,11 +116,30 @@ func TestXcodeCleaner_Scan_GranularDerivedDataAndSimulators(t *testing.T) {
 			if target.SizeBytes <= 0 {
 				t.Errorf("expected SizeBytes > 0, got %d", target.SizeBytes)
 			}
+			if !target.TTLEligible {
+				t.Errorf("expected TTLEligible = true for ProjectA")
+			}
+			if target.EligibleBytes != target.SizeBytes {
+				t.Errorf("expected EligibleBytes == SizeBytes for ProjectA, got %d vs %d", target.EligibleBytes, target.SizeBytes)
+			}
 			if len(target.ID) != 12 {
 				t.Errorf("expected ID length 12 (hex of sha256[:6]), got %q (%d)", target.ID, len(target.ID))
 			}
 			if target.Name != "Xcode DerivedData: ProjectA-abc123" {
 				t.Errorf("expected Name 'Xcode DerivedData: ProjectA-abc123', got %q", target.Name)
+			}
+		}
+
+		if target.Path == projB {
+			foundProjB = true
+			if target.TTLEligible {
+				t.Errorf("ProjectB is within TTL (recent) and should have TTLEligible = false")
+			}
+			if target.EligibleBytes != 0 {
+				t.Errorf("ProjectB should have EligibleBytes = 0, got %d", target.EligibleBytes)
+			}
+			if target.SizeBytes <= 0 {
+				t.Errorf("ProjectB should have SizeBytes > 0, got %d", target.SizeBytes)
 			}
 		}
 
@@ -136,9 +156,6 @@ func TestXcodeCleaner_Scan_GranularDerivedDataAndSimulators(t *testing.T) {
 			}
 		}
 
-		if target.Path == projB {
-			t.Errorf("ProjectB is within TTL (recent) and should not be returned as target")
-		}
 		if target.Path == moduleCache {
 			t.Errorf("ModuleCache.noindex should be skipped")
 		}
@@ -146,6 +163,9 @@ func TestXcodeCleaner_Scan_GranularDerivedDataAndSimulators(t *testing.T) {
 
 	if !foundProjA {
 		t.Errorf("expected ProjectA to be found in targets")
+	}
+	if !foundProjB {
+		t.Errorf("expected ProjectB to be found in targets")
 	}
 	if !foundSimulators {
 		t.Errorf("expected unavailable simulators virtual target to be found")

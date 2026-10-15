@@ -249,18 +249,32 @@ func TestClaude(t *testing.T) {
 		t.Fatalf("unexpected scan error: %v", err)
 	}
 
-	agedFound := make(map[string]bool)
+	agedFound := make(map[string]domain.Target)
 	for _, t := range agedTargets {
-		agedFound[filepath.Base(t.Path)] = true
+		agedFound[filepath.Base(t.Path)] = t
 	}
-	if !agedFound["debug"] {
+	debugTgt, ok := agedFound["debug"]
+	if !ok {
 		t.Errorf("expected old debug dir to be detected")
+	} else if !debugTgt.TTLEligible {
+		t.Errorf("expected old debug dir to have TTLEligible=true")
 	}
-	if !agedFound["mcp.log"] {
+	logTgt, ok := agedFound["mcp.log"]
+	if !ok {
 		t.Errorf("expected old mcp.log to be detected")
+	} else if !logTgt.TTLEligible {
+		t.Errorf("expected old mcp.log to have TTLEligible=true")
 	}
-	if agedFound["cache"] {
-		t.Errorf("expected recent cache dir NOT to be detected")
+	cacheTgt, ok := agedFound["cache"]
+	if !ok {
+		t.Errorf("expected recent cache dir to be reported in scan")
+	} else {
+		if cacheTgt.TTLEligible {
+			t.Errorf("expected recent cache dir to have TTLEligible=false")
+		}
+		if cacheTgt.EligibleBytes != 0 {
+			t.Errorf("expected recent cache dir to have EligibleBytes=0")
+		}
 	}
 
 	// Test 3: Non-existent directory returns nil, nil
@@ -410,10 +424,32 @@ func TestEditors(t *testing.T) {
 		t.Fatalf("unexpected scan error with TTL: %v", err)
 	}
 
+	var foundRecentCodeCachedData, foundOldCursorCachedData bool
 	for _, target := range agedTargets {
 		if target.Path == filepath.Join(codeDir, "CachedData") {
-			t.Errorf("recent Code CachedData should NOT be returned when MaxAgeDays=30")
+			foundRecentCodeCachedData = true
+			if target.TTLEligible {
+				t.Errorf("recent Code CachedData should have TTLEligible=false")
+			}
+			if target.EligibleBytes != 0 {
+				t.Errorf("recent Code CachedData should have EligibleBytes=0, got %d", target.EligibleBytes)
+			}
 		}
+		if target.Path == filepath.Join(cursorDir, "CachedData") {
+			foundOldCursorCachedData = true
+			if !target.TTLEligible {
+				t.Errorf("old Cursor CachedData should have TTLEligible=true")
+			}
+			if target.EligibleBytes != target.SizeBytes {
+				t.Errorf("old Cursor CachedData should have EligibleBytes == SizeBytes")
+			}
+		}
+	}
+	if !foundRecentCodeCachedData {
+		t.Errorf("recent Code CachedData should be reported in scan")
+	}
+	if !foundOldCursorCachedData {
+		t.Errorf("old Cursor CachedData should be reported in scan")
 	}
 }
 
@@ -463,15 +499,27 @@ func TestHuggingFace(t *testing.T) {
 			if target.Category != "ai-huggingface-hub" {
 				t.Errorf("expected category ai-huggingface-hub, got %s", target.Category)
 			}
+			if !target.TTLEligible {
+				t.Errorf("expected TTLEligible=true for old bert")
+			}
 		}
 		if target.Path == glueDir {
 			foundGlue = true
 			if target.Category != "ai-huggingface-datasets" {
 				t.Errorf("expected category ai-huggingface-datasets, got %s", target.Category)
 			}
+			if !target.TTLEligible {
+				t.Errorf("expected TTLEligible=true for old glue")
+			}
 		}
 		if target.Path == llamaDir {
 			foundLlama = true
+			if target.TTLEligible {
+				t.Errorf("recent llama-3-8b should have TTLEligible=false when MaxAgeDays=30")
+			}
+			if target.EligibleBytes != 0 {
+				t.Errorf("recent llama-3-8b should have EligibleBytes=0, got %d", target.EligibleBytes)
+			}
 		}
 	}
 
@@ -481,8 +529,8 @@ func TestHuggingFace(t *testing.T) {
 	if !foundGlue {
 		t.Error("expected old glue dataset to be detected")
 	}
-	if foundLlama {
-		t.Error("recent llama-3-8b should NOT be detected when MaxAgeDays=30")
+	if !foundLlama {
+		t.Error("recent llama-3-8b should be detected in scan")
 	}
 
 	// Test with MaxAgeDays = 0 (all detected)

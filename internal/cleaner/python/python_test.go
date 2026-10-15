@@ -67,7 +67,7 @@ func TestPythonCleaner_Scan_NonExistent(t *testing.T) {
 	}
 }
 
-func TestPythonCleaner_Scan_RecentCacheFiltered(t *testing.T) {
+func TestPythonCleaner_Scan_RecentCacheReportedNotEligible(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "data"), 100)
 
@@ -82,8 +82,17 @@ func TestPythonCleaner_Scan_RecentCacheFiltered(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
-	if len(targets) != 0 {
-		t.Errorf("expected 0 targets for recent cache, got %d", len(targets))
+	if len(targets) != 1 {
+		t.Fatalf("expected 1 target for recent cache, got %d", len(targets))
+	}
+	if targets[0].TTLEligible {
+		t.Errorf("expected TTLEligible = false for recent uv cache")
+	}
+	if targets[0].EligibleBytes != 0 {
+		t.Errorf("expected EligibleBytes = 0 for recent uv cache, got %d", targets[0].EligibleBytes)
+	}
+	if targets[0].SizeBytes <= 0 {
+		t.Errorf("expected SizeBytes > 0, got %d", targets[0].SizeBytes)
 	}
 }
 

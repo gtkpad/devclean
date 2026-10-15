@@ -85,7 +85,7 @@ func TestBunCleaner_Scan(t *testing.T) {
 		}
 	})
 
-	t.Run("recent cache skipped", func(t *testing.T) {
+	t.Run("recent cache reported but not ttl eligible", func(t *testing.T) {
 		tempDir := t.TempDir()
 		cachePath := filepath.Join(tempDir, "install", "cache")
 		if err := os.MkdirAll(cachePath, 0o755); err != nil {
@@ -107,8 +107,17 @@ func TestBunCleaner_Scan(t *testing.T) {
 			t.Fatalf("Scan() unexpected error: %v", err)
 		}
 
-		if len(targets) != 0 {
-			t.Errorf("expected 0 targets for recent cache, got %d", len(targets))
+		if len(targets) != 1 {
+			t.Fatalf("expected 1 target for recent cache, got %d", len(targets))
+		}
+		if targets[0].TTLEligible {
+			t.Errorf("expected TTLEligible = false for recent cache, got true")
+		}
+		if targets[0].EligibleBytes != 0 {
+			t.Errorf("expected EligibleBytes = 0 for recent cache, got %d", targets[0].EligibleBytes)
+		}
+		if targets[0].SizeBytes <= 0 {
+			t.Errorf("expected SizeBytes > 0, got %d", targets[0].SizeBytes)
 		}
 	})
 
@@ -131,6 +140,12 @@ func TestBunCleaner_Scan(t *testing.T) {
 
 		if len(targets) != 1 {
 			t.Fatalf("expected 1 target when MaxAgeDays=0, got %d", len(targets))
+		}
+		if !targets[0].TTLEligible {
+			t.Errorf("expected TTLEligible = true when MaxAgeDays=0")
+		}
+		if targets[0].EligibleBytes != targets[0].SizeBytes {
+			t.Errorf("expected EligibleBytes == SizeBytes (%d), got %d", targets[0].SizeBytes, targets[0].EligibleBytes)
 		}
 	})
 
