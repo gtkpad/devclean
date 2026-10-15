@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/gtkpad/devclean/internal/domain"
 )
+
+var reviewStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
 
 func viewScanning(m model) string {
 	var b strings.Builder
@@ -122,6 +125,9 @@ func viewSelecting(m model) string {
 		filterLine := fmt.Sprintf("  filter: %s", m.filter.fuzzyText)
 		b.WriteString(helpStyle.Render(filterLine))
 		b.WriteString("\n")
+	} else if m.statusMessage != "" {
+		b.WriteString(reviewStyle.Render("  " + m.statusMessage))
+		b.WriteString("\n")
 	}
 
 	// Footer
@@ -163,7 +169,9 @@ func renderTargetLine(m model, idx int, ft flatTarget) string {
 
 	// Checkbox
 	checkbox := "[ ]"
-	if m.selected[ft.target.ID] {
+	if ft.target.ReviewOnly {
+		checkbox = reviewStyle.Render("[⊙]")
+	} else if m.selected[ft.target.ID] {
 		checkbox = "[x]"
 	}
 

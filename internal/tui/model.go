@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -251,13 +252,15 @@ func (m model) updateSelecting(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case msg.Type == tea.KeyRunes && string(msg.Runes) == "m":
 		threshold := m.cfg.TUI.MassSelectThresholdMB * 1024 * 1024
 		for _, idx := range m.visibleTargets {
-			if m.flatTargets[idx].target.SizeBytes >= threshold {
-				m.selected[m.flatTargets[idx].target.ID] = true
+			t := m.flatTargets[idx].target
+			if t.SizeBytes >= threshold && !t.ReviewOnly {
+				m.selected[t.ID] = true
 			}
 		}
 
 	case msg.Type == tea.KeyEsc:
 		m.filter = filterState{sort: sortSize}
+		m.statusMessage = ""
 		m.recompute()
 
 	case msg.Type == tea.KeyUp || (msg.Type == tea.KeyRunes && string(msg.Runes) == "k"):
@@ -278,7 +281,17 @@ func (m model) updateSelecting(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case msg.Type == tea.KeySpace:
 		if m.cursor < len(m.visibleTargets) {
-			id := m.flatTargets[m.visibleTargets[m.cursor]].target.ID
+			ft := m.flatTargets[m.visibleTargets[m.cursor]]
+			if ft.target.ReviewOnly {
+				reason := ft.target.ReviewReason
+				if reason == "" {
+					reason = domain.ReviewReasonSharedStore
+				}
+				m.statusMessage = fmt.Sprintf("Item de revisão [%s]: não pode ser selecionado para exclusão", reason)
+				return m, nil
+			}
+			m.statusMessage = ""
+			id := ft.target.ID
 			m.selected[id] = !m.selected[id]
 			if !m.selected[id] {
 				delete(m.selected, id)
@@ -287,17 +300,22 @@ func (m model) updateSelecting(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case msg.Type == tea.KeyRunes && string(msg.Runes) == "a":
 		for _, idx := range m.visibleTargets {
-			m.selected[m.flatTargets[idx].target.ID] = true
+			t := m.flatTargets[idx].target
+			if !t.ReviewOnly {
+				m.selected[t.ID] = true
+			}
 		}
 
 	case msg.Type == tea.KeyRunes && string(msg.Runes) == "n":
 		m.selected = make(map[string]bool)
+		m.statusMessage = ""
 
 	case msg.Type == tea.KeyRunes && string(msg.Runes) == "l":
 		m.selected = make(map[string]bool)
 		for _, idx := range m.visibleTargets {
-			if m.flatTargets[idx].target.Risk == domain.RiskLow {
-				m.selected[m.flatTargets[idx].target.ID] = true
+			t := m.flatTargets[idx].target
+			if t.Risk == domain.RiskLow && !t.ReviewOnly {
+				m.selected[t.ID] = true
 			}
 		}
 
