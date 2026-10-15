@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"time"
 
@@ -37,14 +38,15 @@ func (c *bunCleaner) Name() string {
 }
 
 func (c *bunCleaner) IsInstalled() bool {
-	if c.cachePath == "" {
-		return false
+	if _, err := exec.LookPath("bun"); err == nil {
+		return true
 	}
-	if _, err := os.Stat(c.cachePath); err == nil {
+	if c.cachePath != "" && devfs.DirExists(c.cachePath) {
 		return true
 	}
 	return false
 }
+
 
 func (c *bunCleaner) Scan(_ context.Context, rules domain.EcosystemRules) ([]domain.Target, error) {
 	info, err := os.Stat(c.cachePath)

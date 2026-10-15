@@ -21,11 +21,18 @@ func TestXcodeCleaner_IsInstalled(t *testing.T) {
 		t.Errorf("expected IsInstalled() = true on darwin when xcrun is present")
 	}
 
-	// On Darwin without xcrun
+	// On Darwin without xcrun, but with DerivedData existing: should be true (D-13)
 	mockExec.Errors["lookpath:xcrun"] = errors.New("executable file not found in $PATH")
-	if cDarwin.IsInstalled() {
-		t.Errorf("expected IsInstalled() = false when xcrun is missing")
+	if !cDarwin.IsInstalled() {
+		t.Errorf("expected IsInstalled() = true when xcrun is missing but DerivedData exists")
 	}
+
+	// On Darwin without xcrun and without DerivedData: should be false
+	cDarwinNoDir := NewWithDirExecutorAndOS(filepath.Join(t.TempDir(), "nonexistent"), mockExec, "darwin")
+	if cDarwinNoDir.IsInstalled() {
+		t.Errorf("expected IsInstalled() = false when xcrun is missing and DerivedData does not exist")
+	}
+
 
 	// On Linux
 	mockExec2 := cleaner.NewMockExecutor()

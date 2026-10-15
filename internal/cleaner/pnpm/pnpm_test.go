@@ -5,7 +5,9 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
+
 
 	"github.com/gtkpad/devclean/internal/cleaner"
 	"github.com/gtkpad/devclean/internal/domain"
@@ -19,6 +21,9 @@ func TestPnpmCleaner_Name(t *testing.T) {
 }
 
 func TestPnpmCleaner_IsInstalled(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+
 	mock := cleaner.NewMockExecutor()
 	c := NewWithExecutor(mock)
 
@@ -28,9 +33,20 @@ func TestPnpmCleaner_IsInstalled(t *testing.T) {
 
 	mock.Errors["lookpath:pnpm"] = errors.New("not found")
 	if c.IsInstalled() {
-		t.Errorf("expected IsInstalled() to be false when LookPath fails")
+		t.Errorf("expected IsInstalled() to be false when LookPath fails and cache is absent")
+	}
+
+	// Verify hybrid detection: LookPath fails but store exists on disk
+	storeDir := filepath.Join(tempHome, "Library", "pnpm", "store")
+	if runtime.GOOS != "darwin" {
+		storeDir = filepath.Join(tempHome, ".local", "share", "pnpm", "store")
+	}
+	_ = os.MkdirAll(storeDir, 0755)
+	if !c.IsInstalled() {
+		t.Errorf("expected IsInstalled() to be true when LookPath fails but store exists on disk")
 	}
 }
+
 
 func TestPnpmCleaner_Scan_Success(t *testing.T) {
 	tempDir := t.TempDir()

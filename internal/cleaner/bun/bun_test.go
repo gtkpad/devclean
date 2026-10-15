@@ -21,11 +21,13 @@ func TestBunCleaner_Name(t *testing.T) {
 
 func TestBunCleaner_IsInstalled(t *testing.T) {
 	tempDir := t.TempDir()
+	t.Setenv("PATH", tempDir) // empty bin dir, no bun in PATH
+
 	cachePath := filepath.Join(tempDir, "bun-cache")
 
 	c := NewWithPath(cachePath)
 	if c.IsInstalled() {
-		t.Errorf("expected IsInstalled() = false when dir does not exist")
+		t.Errorf("expected IsInstalled() = false when dir does not exist and bun not in PATH")
 	}
 
 	if err := os.MkdirAll(cachePath, 0o755); err != nil {
@@ -33,9 +35,10 @@ func TestBunCleaner_IsInstalled(t *testing.T) {
 	}
 
 	if !c.IsInstalled() {
-		t.Errorf("expected IsInstalled() = true when dir exists")
+		t.Errorf("expected IsInstalled() = true when cache dir exists on disk")
 	}
 }
+
 
 func TestBunCleaner_Scan(t *testing.T) {
 	t.Run("stale cache scanned", func(t *testing.T) {
