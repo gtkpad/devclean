@@ -135,15 +135,8 @@ func (c *Coordinator) Delete(
 		// Stage 1: Safety Validation, Blacklist & ReviewOnly filtering
 		var safeTargets []domain.Target
 		for _, t := range rawTargets {
-			if c.blacklist != nil {
-				if c.blacklist.IsBlacklisted(t.Path) {
-					continue
-				}
-				if resolved, err := filepath.EvalSymlinks(t.Path); err == nil && resolved != t.Path {
-					if c.blacklist.IsBlacklisted(resolved) {
-						continue
-					}
-				}
+			if c.blacklist != nil && (c.blacklist.IsBlacklisted(t.Path) || isSymlinkToBlacklist(t.Path, c.blacklist)) {
+				continue
 			}
 
 			if t.ReviewOnly {
@@ -402,3 +395,15 @@ func humanSize(bytes int64) string {
 	}
 	return fmt.Sprintf("%.1f %s", size, units[i])
 }
+
+func isSymlinkToBlacklist(path string, bl *safety.Blacklist) bool {
+	if bl == nil {
+		return false
+	}
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return false
+	}
+	return resolved != path && bl.IsBlacklisted(resolved)
+}
+

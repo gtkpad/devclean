@@ -28,10 +28,8 @@ func SystemRoots() []string {
 	return cp
 }
 
-// IsCoreBlacklisted checks whether the path, any of its path components, or system root matches an immutable blacklist item.
-func IsCoreBlacklisted(path string) bool {
-	clean := filepath.Clean(path)
-
+// isCoreBlacklistedDirect checks whether clean path, its components, or system root matches immutable blacklist.
+func isCoreBlacklistedDirect(clean string) bool {
 	for _, root := range systemRoots {
 		if clean == filepath.Clean(root) {
 			return true
@@ -51,6 +49,21 @@ func IsCoreBlacklisted(path string) bool {
 	return false
 }
 
+// IsCoreBlacklisted checks whether the path, any of its path components, system root,
+// or its canonical symlink target matches an immutable blacklist item (POL-04, D-16).
+func IsCoreBlacklisted(path string) bool {
+	clean := filepath.Clean(path)
+	if isCoreBlacklistedDirect(clean) {
+		return true
+	}
+	if resolved, err := filepath.EvalSymlinks(path); err == nil && resolved != clean {
+		if isCoreBlacklistedDirect(filepath.Clean(resolved)) {
+			return true
+		}
+	}
+	return false
+}
+
 type Blacklist struct {
 	patterns []string
 }
@@ -59,7 +72,7 @@ func NewBlacklist(extraPatterns []string) *Blacklist {
 	return &Blacklist{patterns: extraPatterns}
 }
 
-func (b *Blacklist) IsBlacklisted(path string) bool {
+func (b *Blacklist) isBlacklistedDirect(path string) bool {
 	if IsCoreBlacklisted(path) {
 		return true
 	}
@@ -69,6 +82,19 @@ func (b *Blacklist) IsBlacklisted(path string) bool {
 			return true
 		}
 		if matched, _ := filepath.Match(pattern, path); matched {
+			return true
+		}
+	}
+	return false
+}
+
+// IsBlacklisted reports whether path or its canonical symlink target matches core or configured patterns (POL-04, D-16).
+func (b *Blacklist) IsBlacklisted(path string) bool {
+	if b.isBlacklistedDirect(path) {
+		return true
+	}
+	if resolved, err := filepath.EvalSymlinks(path); err == nil && resolved != path {
+		if b.isBlacklistedDirect(resolved) {
 			return true
 		}
 	}
