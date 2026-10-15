@@ -663,6 +663,18 @@ ecosystems:
     enabled: false
   homebrew:
     enabled: false
+  cpp:
+    enabled: false
+  flutter:
+    enabled: false
+  terraform:
+    enabled: false
+  cocoapods:
+    enabled: false
+  elixir:
+    enabled: false
+  shell:
+    enabled: false
 `, tmpDir)
 	cfgPath := filepath.Join(tmpDir, "config.yaml")
 	if err := os.WriteFile(cfgPath, []byte(content), 0o644); err != nil {
@@ -872,6 +884,18 @@ ecosystems:
   xcode:
     enabled: false
   homebrew:
+    enabled: false
+  cpp:
+    enabled: false
+  flutter:
+    enabled: false
+  terraform:
+    enabled: false
+  cocoapods:
+    enabled: false
+  elixir:
+    enabled: false
+  shell:
     enabled: false
 `, tmpDir)
 	cfgPath := filepath.Join(tmpDir, "config.yaml")

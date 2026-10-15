@@ -51,6 +51,8 @@ func createEmptyConfig(t *testing.T) string {
     enabled: false
   elixir:
     enabled: false
+  shell:
+    enabled: false
 `
 	tmpDir := t.TempDir()
 	cfgPath := filepath.Join(tmpDir, "config.yaml")
@@ -105,6 +107,18 @@ ecosystems:
   xcode:
     enabled: false
   homebrew:
+    enabled: false
+  cpp:
+    enabled: false
+  flutter:
+    enabled: false
+  terraform:
+    enabled: false
+  cocoapods:
+    enabled: false
+  elixir:
+    enabled: false
+  shell:
     enabled: false
 `, tmpDir)
 	if err := os.WriteFile(cfgPath, []byte(cfgContent), 0644); err != nil {
