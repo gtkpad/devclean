@@ -5,18 +5,30 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 
+	"github.com/gtkpad/devclean/internal/cleaner/ai"
 	"github.com/gtkpad/devclean/internal/cleaner/bun"
+	"github.com/gtkpad/devclean/internal/cleaner/cocoapods"
+	"github.com/gtkpad/devclean/internal/cleaner/cpp"
+	"github.com/gtkpad/devclean/internal/cleaner/docker"
 	"github.com/gtkpad/devclean/internal/cleaner/dotnet"
+	"github.com/gtkpad/devclean/internal/cleaner/elixir"
+	"github.com/gtkpad/devclean/internal/cleaner/flutter"
 	"github.com/gtkpad/devclean/internal/cleaner/golang"
 	"github.com/gtkpad/devclean/internal/cleaner/homebrew"
 	"github.com/gtkpad/devclean/internal/cleaner/java"
+	"github.com/gtkpad/devclean/internal/cleaner/nextjs"
+	"github.com/gtkpad/devclean/internal/cleaner/node"
 	"github.com/gtkpad/devclean/internal/cleaner/pnpm"
 	"github.com/gtkpad/devclean/internal/cleaner/python"
 	"github.com/gtkpad/devclean/internal/cleaner/rust"
+	"github.com/gtkpad/devclean/internal/cleaner/terraform"
 	"github.com/gtkpad/devclean/internal/cleaner/xcode"
+	"github.com/gtkpad/devclean/internal/domain"
 	"github.com/gtkpad/devclean/internal/platform"
 )
+
 
 func TestCleaners_IsInstalled_NoBinaryInPath_CacheOnDisk(t *testing.T) {
 	// Isolate PATH so no toolchain binaries are found
@@ -157,3 +169,150 @@ func TestCleaners_IsInstalled_NoBinaryInPath_CacheOnDisk(t *testing.T) {
 		}
 	})
 }
+
+func TestCleaners_IsInstalled_ManifestInScanPaths(t *testing.T) {
+	// Isolate PATH and HOME so no toolchains or global caches are found
+	emptyDir := t.TempDir()
+	t.Setenv("PATH", emptyDir)
+	t.Setenv("HOME", emptyDir)
+	t.Setenv("CONAN_HOME", filepath.Join(emptyDir, "nonexistent"))
+	t.Setenv("CONAN_USER_HOME", filepath.Join(emptyDir, "nonexistent"))
+	t.Setenv("PUB_CACHE", filepath.Join(emptyDir, "nonexistent"))
+	t.Setenv("TF_PLUGIN_CACHE_DIR", filepath.Join(emptyDir, "nonexistent"))
+
+	scanRoot := t.TempDir()
+
+	t.Run("cpp with CMakeLists.txt", func(t *testing.T) {
+		projDir := filepath.Join(scanRoot, "cpp_proj")
+		_ = os.MkdirAll(projDir, 0755)
+		_ = os.WriteFile(filepath.Join(projDir, "CMakeLists.txt"), []byte("cmake_minimum_required(VERSION 3.10)"), 0644)
+
+		c := cpp.New([]string{scanRoot})
+		if !c.IsInstalled() {
+			t.Errorf("cpp cleaner should report IsInstalled() == true when CMakeLists.txt exists in scanPaths")
+		}
+
+		cEmpty := cpp.New([]string{emptyDir})
+		if cEmpty.IsInstalled() {
+			t.Errorf("cpp cleaner should report IsInstalled() == false when no tools, caches, or manifests exist")
+		}
+	})
+
+	t.Run("flutter with pubspec.yaml", func(t *testing.T) {
+		projDir := filepath.Join(scanRoot, "flutter_proj")
+		_ = os.MkdirAll(projDir, 0755)
+		_ = os.WriteFile(filepath.Join(projDir, "pubspec.yaml"), []byte("name: test_app"), 0644)
+
+		c := flutter.New([]string{scanRoot})
+		if !c.IsInstalled() {
+			t.Errorf("flutter cleaner should report IsInstalled() == true when pubspec.yaml exists in scanPaths")
+		}
+
+		cEmpty := flutter.New([]string{emptyDir})
+		if cEmpty.IsInstalled() {
+			t.Errorf("flutter cleaner should report IsInstalled() == false when no tools, caches, or manifests exist")
+		}
+	})
+
+	t.Run("terraform with main.tf", func(t *testing.T) {
+		projDir := filepath.Join(scanRoot, "tf_proj")
+		_ = os.MkdirAll(projDir, 0755)
+		_ = os.WriteFile(filepath.Join(projDir, "main.tf"), []byte("terraform {}"), 0644)
+
+		c := terraform.New([]string{scanRoot})
+		if !c.IsInstalled() {
+			t.Errorf("terraform cleaner should report IsInstalled() == true when .tf exists in scanPaths")
+		}
+
+		cEmpty := terraform.New([]string{emptyDir})
+		if cEmpty.IsInstalled() {
+			t.Errorf("terraform cleaner should report IsInstalled() == false when no tools, caches, or manifests exist")
+		}
+	})
+
+	t.Run("cocoapods with Podfile", func(t *testing.T) {
+		projDir := filepath.Join(scanRoot, "ios_proj")
+		_ = os.MkdirAll(projDir, 0755)
+		_ = os.WriteFile(filepath.Join(projDir, "Podfile"), []byte("target 'App' do\nend"), 0644)
+
+		c := cocoapods.New([]string{scanRoot})
+		if !c.IsInstalled() {
+			t.Errorf("cocoapods cleaner should report IsInstalled() == true when Podfile exists in scanPaths")
+		}
+
+		cEmpty := cocoapods.New([]string{emptyDir})
+		if cEmpty.IsInstalled() {
+			t.Errorf("cocoapods cleaner should report IsInstalled() == false when no tools, caches, or manifests exist")
+		}
+	})
+
+	t.Run("elixir with mix.exs", func(t *testing.T) {
+		projDir := filepath.Join(scanRoot, "ex_proj")
+		_ = os.MkdirAll(projDir, 0755)
+		_ = os.WriteFile(filepath.Join(projDir, "mix.exs"), []byte("defmodule Test.MixProject do\nend"), 0644)
+
+		c := elixir.New([]string{scanRoot})
+		if !c.IsInstalled() {
+			t.Errorf("elixir cleaner should report IsInstalled() == true when mix.exs exists in scanPaths")
+		}
+
+		cEmpty := elixir.New([]string{emptyDir})
+		if cEmpty.IsInstalled() {
+			t.Errorf("elixir cleaner should report IsInstalled() == false when no tools, caches, or manifests exist")
+		}
+	})
+
+	t.Run("nextjs with next.config.js", func(t *testing.T) {
+		projDir := filepath.Join(scanRoot, "web_proj")
+		_ = os.MkdirAll(projDir, 0755)
+		_ = os.WriteFile(filepath.Join(projDir, "next.config.js"), []byte("module.exports = {}"), 0644)
+
+		c := nextjs.New([]string{scanRoot})
+		if !c.IsInstalled() {
+			t.Errorf("nextjs cleaner should report IsInstalled() == true when next.config.js exists in scanPaths")
+		}
+
+		cEmpty := nextjs.New([]string{emptyDir})
+		if cEmpty.IsInstalled() {
+			t.Errorf("nextjs cleaner should report IsInstalled() == false when no tools or manifests exist")
+		}
+	})
+}
+
+func TestCleaners_IsInstalled_InstantResponse(t *testing.T) {
+	tempDir := t.TempDir()
+	resolver := platform.New()
+	paths := resolver.Resolve()
+
+	allCleaners := []domain.Cleaner{
+		docker.New(),
+		golang.New(),
+		node.New([]string{tempDir}),
+		dotnet.New(paths, []string{tempDir}),
+		python.New(paths.PythonUVCache, []string{tempDir}),
+		rust.New([]string{tempDir}),
+		java.New([]string{tempDir}),
+		ai.New([]string{tempDir}),
+		pnpm.New(),
+		bun.New(),
+		nextjs.New([]string{tempDir}),
+		xcode.New(),
+		homebrew.New(),
+		cpp.New([]string{tempDir}),
+		flutter.New([]string{tempDir}),
+		terraform.New([]string{tempDir}),
+		cocoapods.New([]string{tempDir}),
+		elixir.New([]string{tempDir}),
+	}
+
+	start := time.Now()
+	for _, c := range allCleaners {
+		_ = c.IsInstalled()
+	}
+	elapsed := time.Since(start)
+
+	if elapsed > 100*time.Millisecond {
+		t.Errorf("IsInstalled() execution for all 18 cleaners took %v, want < 100ms", elapsed)
+	}
+}
+
