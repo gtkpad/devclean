@@ -1210,6 +1210,25 @@ func TestCleanCmd_PresetRespectsBlacklist(t *testing.T) {
 	}
 }
 
+func TestCleanCmd_DryRun_NoSideEffects(t *testing.T) {
+	// Invariant POL-04, D-13: cmd/clean.go must contain zero external calls to
+	// trashMgr.EnforceRetention or trashMgr.EnforceMaxSize.
+	// All side-effecting operations are strictly encapsulated inside Coordinator.
+	cleanGoBytes, err := os.ReadFile("clean.go")
+	if err != nil {
+		t.Fatalf("reading clean.go: %v", err)
+	}
+	content := string(cleanGoBytes)
+
+	if strings.Contains(content, "EnforceRetention") {
+		t.Errorf("cmd/clean.go still contains external call to EnforceRetention; all trash maintenance must be encapsulated inside Coordinator")
+	}
+	if strings.Contains(content, "EnforceMaxSize") {
+		t.Errorf("cmd/clean.go still contains external call to EnforceMaxSize; all trash maintenance must be encapsulated inside Coordinator")
+	}
+}
+
+
 
 
 
