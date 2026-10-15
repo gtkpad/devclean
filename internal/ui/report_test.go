@@ -284,3 +284,64 @@ func TestReport_ZeroEcosystemsAndNilDisk(t *testing.T) {
 		t.Errorf("should not display ecosystem section when empty")
 	}
 }
+
+func TestReport_ReviewNotice(t *testing.T) {
+	data := ReportData{
+		Title:              "Post-Clean Report",
+		TotalFreed:         1048576,
+		TotalCount:         2,
+		TrashCount:         2,
+		PermanentCount:     0,
+		Duration:           100 * time.Millisecond,
+		SkippedReviewCount: 3,
+		SkippedReviewBytes: 5368709120, // 5.0 GB
+	}
+
+	var buf bytes.Buffer
+	RenderReport(&buf, data)
+	output := buf.String()
+
+	expectedNotice := "⊙ 3 itens mantidos para revisão (5.0 GB) — execute 'devclean scan' para detalhes"
+	if !strings.Contains(output, expectedNotice) {
+		t.Errorf("expected report to contain review notice banner %q, got:\n%s", expectedNotice, output)
+	}
+
+	// Also verify JSON output contains skipped_review_count and skipped_review_bytes
+	var jsonBuf bytes.Buffer
+	if err := FormatReportJSON(&jsonBuf, data); err != nil {
+		t.Fatalf("FormatReportJSON failed: %v", err)
+	}
+
+	var parsed CleanReportJSON
+	if err := json.Unmarshal(jsonBuf.Bytes(), &parsed); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if parsed.SkippedReviewCount != 3 {
+		t.Errorf("expected SkippedReviewCount 3, got %d", parsed.SkippedReviewCount)
+	}
+	if parsed.SkippedReviewBytes != 5368709120 {
+		t.Errorf("expected SkippedReviewBytes 5368709120, got %d", parsed.SkippedReviewBytes)
+	}
+}
+
+func TestReport_NoReviewNoticeWhenZero(t *testing.T) {
+	data := ReportData{
+		Title:              "Post-Clean Report",
+		TotalFreed:         1048576,
+		TotalCount:         2,
+		TrashCount:         2,
+		PermanentCount:     0,
+		Duration:           100 * time.Millisecond,
+		SkippedReviewCount: 0,
+		SkippedReviewBytes: 0,
+	}
+
+	var buf bytes.Buffer
+	RenderReport(&buf, data)
+	output := buf.String()
+
+	if strings.Contains(output, "itens mantidos para revisão") {
+		t.Errorf("expected report NOT to contain review notice when SkippedReviewCount is 0, got:\n%s", output)
+	}
+}
+
