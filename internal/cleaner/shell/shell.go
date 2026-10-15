@@ -251,6 +251,79 @@ func isExcluded(path string, excludes []string) bool {
 	return false
 }
 
+func scanZshCompdumps(home string, rules domain.EcosystemRules) *domain.Target {
+	if isExcluded("shell://zsh/compdump", rules.ExcludePaths) {
+		return nil
+	}
+
+	var files []string
+
+	// Check $HOME
+	if matches, err := filepath.Glob(filepath.Join(home, ".zcompdump*")); err == nil {
+		files = append(files, matches...)
+	}
+
+	// Check $ZDOTDIR if set and distinct from $HOME
+	if zdotdir := os.Getenv("ZDOTDIR"); zdotdir != "" && zdotdir != home {
+		if matches, err := filepath.Glob(filepath.Join(zdotdir, ".zcompdump*")); err == nil {
+			files = append(files, matches...)
+		}
+	}
+
+	if len(files) == 0 {
+		return nil
+	}
+
+	var totalSize int64
+	var mostRecent time.Time
+	cutoff := time.Now().AddDate(0, 0, -rules.MaxAgeDays)
+	seen := make(map[string]bool)
+
+	for _, f := range files {
+		if seen[f] {
+			continue
+		}
+		seen[f] = true
+
+		if isExcluded(f, rules.ExcludePaths) {
+			continue
+		}
+
+		info, err := os.Stat(f)
+		if err != nil || info.IsDir() {
+			continue
+		}
+
+		totalSize += info.Size()
+		if info.ModTime().After(mostRecent) {
+			mostRecent = info.ModTime()
+		}
+	}
+
+	if totalSize == 0 {
+		return nil
+	}
+
+	ttlEligible := false
+	eligibleBytes := int64(0)
+	if rules.MaxAgeDays == 0 || mostRecent.Before(cutoff) {
+		ttlEligible = true
+		eligibleBytes = totalSize
+	}
+
+	return &domain.Target{
+		ID:            "shell-zsh-compdump",
+		Name:          "Zsh completion cache",
+		Path:          "shell://zsh/compdump",
+		SizeBytes:     totalSize,
+		EligibleBytes: eligibleBytes,
+		TTLEligible:   ttlEligible,
+		Risk:          domain.RiskLow,
+		LastAccessed:  mostRecent,
+		Category:      "shell-zsh-compdump",
+	}
+}
+
 // Scan inventories shell and CLI tool caches.
 func (c *shellCleaner) Scan(ctx context.Context, rules domain.EcosystemRules) ([]domain.Target, error) {
 	home, err := os.UserHomeDir()
@@ -258,12 +331,49 @@ func (c *shellCleaner) Scan(ctx context.Context, rules domain.EcosystemRules) ([
 		return nil, nil
 	}
 
-	return scanDirectoryCaches(home, rules), nil
+	targets := scanDirectoryCaches(home, rules)
+	if zshTarget := scanZshCompdumps(home, rules); zshTarget != nil {
+		targets = append(targets, *zshTarget)
+	}
+
+	return targets, nil
 }
 
 // Clean deletes shell and CLI tool caches.
 func (c *shellCleaner) Clean(ctx context.Context, targets []domain.Target) error {
+	home, _ := os.UserHomeDir()
+
 	for _, t := range targets {
+		if t.Path == "shell://zsh/compdump" {
+			var patterns []string
+			if home != "" {
+				patterns = append(patterns, filepath.Join(home, ".zcompdump*"))
+			}
+			if zdotdir := os.Getenv("ZDOTDIR"); zdotdir != "" && zdotdir != home {
+				patterns = append(patterns, filepath.Join(zdotdir, ".zcompdump*"))
+			}
+
+			for _, pat := range patterns {
+				matches, err := filepath.Glob(pat)
+				if err != nil {
+					continue
+				}
+				for _, f := range matches {
+					if safety.IsCoreBlacklisted(f) {
+						continue
+					}
+					info, err := os.Lstat(f)
+					if err != nil || info.IsDir() {
+						continue
+					}
+					if err := os.Remove(f); err != nil && !os.IsNotExist(err) {
+						return err
+					}
+				}
+			}
+			continue
+		}
+
 		if safety.IsCoreBlacklisted(t.Path) {
 			continue
 		}
@@ -276,3 +386,4 @@ func (c *shellCleaner) Clean(ctx context.Context, targets []domain.Target) error
 	}
 	return nil
 }
+
