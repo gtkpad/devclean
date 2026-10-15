@@ -178,24 +178,7 @@ Run 'devclean scan' to preview what would be cleaned.`)
 				trashActive = false
 			}
 
-			var trashMgr *trash.Manager
-			if trashActive {
-				trashMgr = trash.New(cfg.Safety)
-				if !dryRun {
-					if err := trashMgr.EnforceRetention(ctx); err != nil {
-						if !quiet {
-							fmt.Fprintf(os.Stderr, "Warning: trash retention enforcement failed: %v\n", err)
-						}
-					}
-					if err := trashMgr.EnforceMaxSize(ctx); err != nil {
-						if !quiet {
-							fmt.Fprintf(os.Stderr, "Warning: trash max size enforcement failed: %v\n", err)
-						}
-					}
-				}
-			} else {
-				trashMgr = trash.New(cfg.Safety)
-			}
+			trashMgr := trash.New(cfg.Safety)
 
 			hookRunner := hooks.New(cfg.Hooks)
 			coord := deleter.New(eng, cfg, bl, trashMgr, hookRunner, paths.ConfigDir, dataDir)
