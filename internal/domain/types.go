@@ -21,15 +21,17 @@ type AIAssessment struct {
 }
 
 type Target struct {
-	ID           string        `json:"id"`
-	Name         string        `json:"name"`
-	Path         string        `json:"path"`
-	SizeBytes    int64         `json:"size_bytes"`
-	Risk         RiskLevel     `json:"risk"`
-	LastAccessed time.Time     `json:"last_accessed"`
-	Category     string        `json:"category"`
-	AI           *AIAssessment `json:"ai_assessment,omitempty"`
-	SmartScore   float64       `json:"smart_score,omitempty"`
+	ID            string        `json:"id"`
+	Name          string        `json:"name"`
+	Path          string        `json:"path"`
+	SizeBytes     int64         `json:"size_bytes"`
+	EligibleBytes int64         `json:"eligible_bytes"`
+	TTLEligible   bool          `json:"ttl_eligible"`
+	Risk          RiskLevel     `json:"risk"`
+	LastAccessed  time.Time     `json:"last_accessed"`
+	Category      string        `json:"category"`
+	AI            *AIAssessment `json:"ai_assessment,omitempty"`
+	SmartScore    float64       `json:"smart_score,omitempty"`
 }
 
 // IsVirtual returns true if the target represents a virtual resource (e.g. Docker images,
