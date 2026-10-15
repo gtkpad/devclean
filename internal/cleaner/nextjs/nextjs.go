@@ -71,20 +71,26 @@ func (c *nextjsCleaner) Scan(ctx context.Context, rules domain.EcosystemRules) (
 			if d.Name() == ".next" {
 				cacheDir := filepath.Join(path, "cache")
 				if info, err := os.Stat(cacheDir); err == nil && info.IsDir() {
-					if rules.MaxAgeDays == 0 || info.ModTime().Before(cutoff) {
-						size, _ := devfs.CalcDirSize(cacheDir)
-						if size > 0 {
-							sum := sha256.Sum256([]byte(cacheDir))
-							targets = append(targets, domain.Target{
-								ID:           fmt.Sprintf("%x", sum[:6]),
-								Name:         filepath.Base(filepath.Dir(path)) + "/.next/cache",
-								Path:         cacheDir,
-								SizeBytes:    size,
-								Risk:         domain.RiskLow,
-								LastAccessed: info.ModTime(),
-								Category:     "nextjs-cache",
-							})
+					size, _ := devfs.CalcDirSize(cacheDir)
+					if size > 0 {
+						eligibleBytes := int64(0)
+						ttlEligible := false
+						if rules.MaxAgeDays == 0 || info.ModTime().Before(cutoff) {
+							eligibleBytes = size
+							ttlEligible = true
 						}
+						sum := sha256.Sum256([]byte(cacheDir))
+						targets = append(targets, domain.Target{
+							ID:            fmt.Sprintf("%x", sum[:6]),
+							Name:          filepath.Base(filepath.Dir(path)) + "/.next/cache",
+							Path:          cacheDir,
+							SizeBytes:     size,
+							EligibleBytes: eligibleBytes,
+							TTLEligible:   ttlEligible,
+							Risk:          domain.RiskLow,
+							LastAccessed:  info.ModTime(),
+							Category:      "nextjs-cache",
+						})
 					}
 				}
 				return filepath.SkipDir

@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/gtkpad/devclean/internal/domain"
@@ -73,7 +74,7 @@ func (c *cppCleaner) Scan(ctx context.Context, rules domain.EcosystemRules) ([]d
 	}
 	targets = append(targets, localTargets...)
 
-	globalTargets := c.scanGlobalCaches()
+	globalTargets := c.scanGlobalCaches(rules)
 	targets = append(targets, globalTargets...)
 
 	return targets, nil
@@ -148,6 +149,7 @@ func (c *cppCleaner) scanLocalTargets(ctx context.Context, rules domain.Ecosyste
 		return nil, err
 	}
 
+	cutoff := time.Now().AddDate(0, 0, -rules.MaxAgeDays)
 	targets := make([]domain.Target, 0, len(uniquePaths))
 	for _, p := range uniquePaths {
 		info, err := os.Stat(p)
@@ -166,23 +168,34 @@ func (c *cppCleaner) scanLocalTargets(ctx context.Context, rules domain.Ecosyste
 		hash := sha256.Sum256([]byte(p))
 		id := fmt.Sprintf("%x", hash[:6])
 
+		size := sizes[p]
+		ttlEligible := false
+		eligibleBytes := int64(0)
+		if rules.MaxAgeDays == 0 || info.ModTime().Before(cutoff) {
+			ttlEligible = true
+			eligibleBytes = size
+		}
+
 		targets = append(targets, domain.Target{
-			ID:           id,
-			Name:         filepath.Base(parentDir) + "/" + base,
-			Path:         p,
-			SizeBytes:    sizes[p],
-			Risk:         domain.RiskMedium,
-			LastAccessed: info.ModTime(),
-			Category:     category,
+			ID:            id,
+			Name:          filepath.Base(parentDir) + "/" + base,
+			Path:          p,
+			SizeBytes:     size,
+			EligibleBytes: eligibleBytes,
+			TTLEligible:   ttlEligible,
+			Risk:          domain.RiskMedium,
+			LastAccessed:  info.ModTime(),
+			Category:      category,
 		})
 	}
 
 	return targets, nil
 }
 
-func (c *cppCleaner) scanGlobalCaches() []domain.Target {
+func (c *cppCleaner) scanGlobalCaches(rules domain.EcosystemRules) []domain.Target {
 	var targets []domain.Target
 	seen := make(map[string]bool)
+	cutoff := time.Now().AddDate(0, 0, -rules.MaxAgeDays)
 
 	home, _ := os.UserHomeDir()
 
@@ -201,14 +214,22 @@ func (c *cppCleaner) scanGlobalCaches() []domain.Target {
 			size, _ := devfs.CalcDirSize(p)
 			hash := sha256.Sum256([]byte(p))
 			id := fmt.Sprintf("%x", hash[:6])
+			ttlEligible := false
+			eligibleBytes := int64(0)
+			if rules.MaxAgeDays == 0 || info.ModTime().Before(cutoff) {
+				ttlEligible = true
+				eligibleBytes = size
+			}
 			targets = append(targets, domain.Target{
-				ID:           id,
-				Name:         "Conan 1 Cache",
-				Path:         p,
-				SizeBytes:    size,
-				Risk:         domain.RiskLow,
-				LastAccessed: info.ModTime(),
-				Category:     "conan-cache",
+				ID:            id,
+				Name:          "Conan 1 Cache",
+				Path:          p,
+				SizeBytes:     size,
+				EligibleBytes: eligibleBytes,
+				TTLEligible:   ttlEligible,
+				Risk:          domain.RiskLow,
+				LastAccessed:  info.ModTime(),
+				Category:      "conan-cache",
 			})
 		}
 	}
@@ -228,14 +249,22 @@ func (c *cppCleaner) scanGlobalCaches() []domain.Target {
 			size, _ := devfs.CalcDirSize(p)
 			hash := sha256.Sum256([]byte(p))
 			id := fmt.Sprintf("%x", hash[:6])
+			ttlEligible := false
+			eligibleBytes := int64(0)
+			if rules.MaxAgeDays == 0 || info.ModTime().Before(cutoff) {
+				ttlEligible = true
+				eligibleBytes = size
+			}
 			targets = append(targets, domain.Target{
-				ID:           id,
-				Name:         "Conan 2 Cache",
-				Path:         p,
-				SizeBytes:    size,
-				Risk:         domain.RiskLow,
-				LastAccessed: info.ModTime(),
-				Category:     "conan2-cache",
+				ID:            id,
+				Name:          "Conan 2 Cache",
+				Path:          p,
+				SizeBytes:     size,
+				EligibleBytes: eligibleBytes,
+				TTLEligible:   ttlEligible,
+				Risk:          domain.RiskLow,
+				LastAccessed:  info.ModTime(),
+				Category:      "conan2-cache",
 			})
 		}
 	}
@@ -262,14 +291,22 @@ func (c *cppCleaner) scanGlobalCaches() []domain.Target {
 			size, _ := devfs.CalcDirSize(p)
 			hash := sha256.Sum256([]byte(p))
 			id := fmt.Sprintf("%x", hash[:6])
+			ttlEligible := false
+			eligibleBytes := int64(0)
+			if rules.MaxAgeDays == 0 || info.ModTime().Before(cutoff) {
+				ttlEligible = true
+				eligibleBytes = size
+			}
 			targets = append(targets, domain.Target{
-				ID:           id,
-				Name:         "vcpkg Cache",
-				Path:         p,
-				SizeBytes:    size,
-				Risk:         domain.RiskLow,
-				LastAccessed: info.ModTime(),
-				Category:     "vcpkg-cache",
+				ID:            id,
+				Name:          "vcpkg Cache",
+				Path:          p,
+				SizeBytes:     size,
+				EligibleBytes: eligibleBytes,
+				TTLEligible:   ttlEligible,
+				Risk:          domain.RiskLow,
+				LastAccessed:  info.ModTime(),
+				Category:      "vcpkg-cache",
 			})
 		}
 	}

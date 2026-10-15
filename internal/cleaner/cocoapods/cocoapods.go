@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
+	"time"
 
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/gtkpad/devclean/internal/domain"
@@ -67,7 +68,7 @@ func (c *cocoapodsCleaner) Scan(ctx context.Context, rules domain.EcosystemRules
 	}
 	targets = append(targets, localTargets...)
 
-	globalTargets := c.scanGlobalCaches()
+	globalTargets := c.scanGlobalCaches(rules)
 	targets = append(targets, globalTargets...)
 
 	return targets, nil
@@ -141,6 +142,7 @@ func (c *cocoapodsCleaner) scanLocalTargets(ctx context.Context, rules domain.Ec
 		return nil, err
 	}
 
+	cutoff := time.Now().AddDate(0, 0, -rules.MaxAgeDays)
 	targets := make([]domain.Target, 0, len(uniquePaths))
 	for _, p := range uniquePaths {
 		info, err := os.Stat(p)
@@ -154,23 +156,33 @@ func (c *cocoapodsCleaner) scanLocalTargets(ctx context.Context, rules domain.Ec
 		hash := sha256.Sum256([]byte(p))
 		id := fmt.Sprintf("%x", hash[:6])
 
+		size := sizes[p]
+		ttlEligible := rules.MaxAgeDays == 0 || info.ModTime().Before(cutoff)
+		eligibleBytes := int64(0)
+		if ttlEligible {
+			eligibleBytes = size
+		}
+
 		targets = append(targets, domain.Target{
-			ID:           id,
-			Name:         filepath.Base(parentDir) + "/" + base,
-			Path:         p,
-			SizeBytes:    sizes[p],
-			Risk:         domain.RiskMedium,
-			LastAccessed: info.ModTime(),
-			Category:     "cocoapods-pods",
+			ID:            id,
+			Name:          filepath.Base(parentDir) + "/" + base,
+			Path:          p,
+			SizeBytes:     size,
+			EligibleBytes: eligibleBytes,
+			Risk:          domain.RiskMedium,
+			LastAccessed:  info.ModTime(),
+			TTLEligible:   ttlEligible,
+			Category:      "cocoapods-pods",
 		})
 	}
 
 	return targets, nil
 }
 
-func (c *cocoapodsCleaner) scanGlobalCaches() []domain.Target {
+func (c *cocoapodsCleaner) scanGlobalCaches(rules domain.EcosystemRules) []domain.Target {
 	var targets []domain.Target
 	seen := make(map[string]bool)
+	cutoff := time.Now().AddDate(0, 0, -rules.MaxAgeDays)
 
 	for _, p := range globalCacheCandidateDirs() {
 		if seen[p] {
@@ -183,14 +195,22 @@ func (c *cocoapodsCleaner) scanGlobalCaches() []domain.Target {
 			hash := sha256.Sum256([]byte(p))
 			id := fmt.Sprintf("%x", hash[:6])
 
+			ttlEligible := rules.MaxAgeDays == 0 || info.ModTime().Before(cutoff)
+			eligibleBytes := int64(0)
+			if ttlEligible {
+				eligibleBytes = size
+			}
+
 			targets = append(targets, domain.Target{
-				ID:           id,
-				Name:         "CocoaPods Cache",
-				Path:         p,
-				SizeBytes:    size,
-				Risk:         domain.RiskLow,
-				LastAccessed: info.ModTime(),
-				Category:     "cocoapods-cache",
+				ID:            id,
+				Name:          "CocoaPods Cache",
+				Path:          p,
+				SizeBytes:     size,
+				EligibleBytes: eligibleBytes,
+				Risk:          domain.RiskLow,
+				LastAccessed:  info.ModTime(),
+				TTLEligible:   ttlEligible,
+				Category:      "cocoapods-cache",
 			})
 		}
 	}

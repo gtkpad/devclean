@@ -64,7 +64,7 @@ func (c *nodeCleaner) Scan(_ context.Context, rules domain.EcosystemRules) ([]do
 
 	if len(allFound) == 0 {
 		// Still check global caches even with no local results
-		return c.scanGlobalCaches(), nil
+		return c.scanGlobalCaches(rules), nil
 	}
 
 	paths := make([]string, len(allFound))
@@ -108,19 +108,30 @@ func (c *nodeCleaner) Scan(_ context.Context, rules domain.EcosystemRules) ([]do
 			risk = domain.RiskLow
 		}
 
+		cutoff := time.Now().AddDate(0, 0, -rules.MaxAgeDays)
+		size := sizes[f.path]
+		ttlEligible := false
+		eligibleBytes := int64(0)
+		if rules.MaxAgeDays == 0 || info.ModTime().Before(cutoff) {
+			ttlEligible = true
+			eligibleBytes = size
+		}
+
 		targets = append(targets, domain.Target{
-			ID:           id,
-			Name:         name,
-			Path:         f.path,
-			SizeBytes:    sizes[f.path],
-			Risk:         risk,
-			LastAccessed: info.ModTime(),
-			Category:     f.category,
+			ID:            id,
+			Name:          name,
+			Path:          f.path,
+			SizeBytes:     size,
+			EligibleBytes: eligibleBytes,
+			TTLEligible:   ttlEligible,
+			Risk:          risk,
+			LastAccessed:  info.ModTime(),
+			Category:      f.category,
 		})
 	}
 
 	// Append global caches
-	targets = append(targets, c.scanGlobalCaches()...)
+	targets = append(targets, c.scanGlobalCaches(rules)...)
 
 	return targets, nil
 }
@@ -140,13 +151,14 @@ type foundTarget struct {
 	manifests []string
 }
 
-func (c *nodeCleaner) scanGlobalCaches() []domain.Target {
+func (c *nodeCleaner) scanGlobalCaches(rules domain.EcosystemRules) []domain.Target {
 	home, _ := os.UserHomeDir()
 	if home == "" {
 		return nil
 	}
 
 	var targets []domain.Target
+	cutoff := time.Now().AddDate(0, 0, -rules.MaxAgeDays)
 
 	caches := []struct {
 		path     string
@@ -167,14 +179,23 @@ func (c *nodeCleaner) scanGlobalCaches() []domain.Target {
 		hash := sha256.Sum256([]byte(cache.path))
 		id := fmt.Sprintf("%x", hash[:6])
 
+		ttlEligible := false
+		eligibleBytes := int64(0)
+		if rules.MaxAgeDays == 0 || info.ModTime().Before(cutoff) {
+			ttlEligible = true
+			eligibleBytes = size
+		}
+
 		targets = append(targets, domain.Target{
-			ID:           id,
-			Name:         cache.name,
-			Path:         cache.path,
-			SizeBytes:    size,
-			Risk:         domain.RiskLow,
-			LastAccessed: info.ModTime(),
-			Category:     cache.category,
+			ID:            id,
+			Name:          cache.name,
+			Path:          cache.path,
+			SizeBytes:     size,
+			EligibleBytes: eligibleBytes,
+			TTLEligible:   ttlEligible,
+			Risk:          domain.RiskLow,
+			LastAccessed:  info.ModTime(),
+			Category:      cache.category,
 		})
 	}
 

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
+	"time"
 
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/gtkpad/devclean/internal/domain"
@@ -75,7 +76,7 @@ func (c *elixirCleaner) Scan(ctx context.Context, rules domain.EcosystemRules) (
 	}
 	targets = append(targets, localTargets...)
 
-	globalTargets := c.scanGlobalCaches()
+	globalTargets := c.scanGlobalCaches(rules)
 	targets = append(targets, globalTargets...)
 
 	return targets, nil
@@ -151,6 +152,7 @@ func (c *elixirCleaner) scanLocalTargets(ctx context.Context, rules domain.Ecosy
 		return nil, err
 	}
 
+	cutoff := time.Now().AddDate(0, 0, -rules.MaxAgeDays)
 	targets := make([]domain.Target, 0, len(uniqueFound))
 	for _, f := range uniqueFound {
 		info, err := os.Stat(f.path)
@@ -164,23 +166,33 @@ func (c *elixirCleaner) scanLocalTargets(ctx context.Context, rules domain.Ecosy
 		hash := sha256.Sum256([]byte(f.path))
 		id := fmt.Sprintf("%x", hash[:6])
 
+		size := sizes[f.path]
+		ttlEligible := rules.MaxAgeDays == 0 || info.ModTime().Before(cutoff)
+		eligibleBytes := int64(0)
+		if ttlEligible {
+			eligibleBytes = size
+		}
+
 		targets = append(targets, domain.Target{
-			ID:           id,
-			Name:         filepath.Base(parentDir) + "/" + base,
-			Path:         f.path,
-			SizeBytes:    sizes[f.path],
-			Risk:         f.risk,
-			LastAccessed: info.ModTime(),
-			Category:     f.category,
+			ID:            id,
+			Name:          filepath.Base(parentDir) + "/" + base,
+			Path:          f.path,
+			SizeBytes:     size,
+			EligibleBytes: eligibleBytes,
+			Risk:          f.risk,
+			LastAccessed:  info.ModTime(),
+			TTLEligible:   ttlEligible,
+			Category:      f.category,
 		})
 	}
 
 	return targets, nil
 }
 
-func (c *elixirCleaner) scanGlobalCaches() []domain.Target {
+func (c *elixirCleaner) scanGlobalCaches(rules domain.EcosystemRules) []domain.Target {
 	var targets []domain.Target
 	seen := make(map[string]bool)
+	cutoff := time.Now().AddDate(0, 0, -rules.MaxAgeDays)
 
 	for _, p := range globalHexCacheCandidateDirs() {
 		if seen[p] {
@@ -193,14 +205,22 @@ func (c *elixirCleaner) scanGlobalCaches() []domain.Target {
 			hash := sha256.Sum256([]byte(p))
 			id := fmt.Sprintf("%x", hash[:6])
 
+			ttlEligible := rules.MaxAgeDays == 0 || info.ModTime().Before(cutoff)
+			eligibleBytes := int64(0)
+			if ttlEligible {
+				eligibleBytes = size
+			}
+
 			targets = append(targets, domain.Target{
-				ID:           id,
-				Name:         "Hex Packages Cache",
-				Path:         p,
-				SizeBytes:    size,
-				Risk:         domain.RiskLow,
-				LastAccessed: info.ModTime(),
-				Category:     "hex-packages",
+				ID:            id,
+				Name:          "Hex Packages Cache",
+				Path:          p,
+				SizeBytes:     size,
+				EligibleBytes: eligibleBytes,
+				Risk:          domain.RiskLow,
+				LastAccessed:  info.ModTime(),
+				TTLEligible:   ttlEligible,
+				Category:      "hex-packages",
 			})
 		}
 	}

@@ -51,12 +51,14 @@ func (c *pnpmCleaner) Scan(ctx context.Context, _ domain.EcosystemRules) ([]doma
 
 	return []domain.Target{
 		{
-			ID:        "pnpm-store-prune",
-			Name:      "pnpm store (unreferenced packages)",
-			Path:      "pnpm://store/prune",
-			SizeBytes: size,
-			Risk:      domain.RiskLow,
-			Category:  "virtual-pnpm-store",
+			ID:            "pnpm-store-prune",
+			Name:          "pnpm store (unreferenced packages)",
+			Path:          "pnpm://store/prune",
+			SizeBytes:     size,
+			EligibleBytes: size,
+			TTLEligible:   true,
+			Risk:          domain.RiskLow,
+			Category:      "virtual-pnpm-store",
 		},
 	}, nil
 }

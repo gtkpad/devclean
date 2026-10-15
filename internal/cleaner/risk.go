@@ -47,3 +47,26 @@ func ClassifyLocalArtifactRisk(artifactPath string, manifestPaths []string, maxA
 
 	return domain.RiskMedium
 }
+
+// IsLocalArtifactTTLEligible determines whether a local build artifact qualifies for TTL cleanup.
+// When maxAgeDays == 0, returns true (D-06).
+// When maxAgeDays > 0, returns true if both the artifact and all existing manifests were modified before cutoff (D-08).
+func IsLocalArtifactTTLEligible(artifactPath string, manifestPaths []string, maxAgeDays int) bool {
+	if maxAgeDays == 0 {
+		return true
+	}
+	cutoff := time.Now().AddDate(0, 0, -maxAgeDays)
+	info, err := os.Stat(artifactPath)
+	if err != nil || info.ModTime().After(cutoff) {
+		return false
+	}
+	for _, mp := range manifestPaths {
+		if minfo, err := os.Stat(mp); err == nil {
+			if minfo.ModTime().After(cutoff) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
