@@ -2,12 +2,18 @@ package shell
 
 import (
 	"context"
+	"crypto/sha256"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
+	"github.com/bmatcuk/doublestar/v4"
 	"github.com/gtkpad/devclean/internal/cleaner"
 	"github.com/gtkpad/devclean/internal/domain"
 	devfs "github.com/gtkpad/devclean/internal/fs"
+	"github.com/gtkpad/devclean/internal/safety"
 )
 
 type shellCleaner struct {
@@ -93,12 +99,180 @@ func (c *shellCleaner) IsInstalled() bool {
 	return false
 }
 
-// Scan inventories shell and CLI tool caches. Implemented in Task 08-02-02 & Task 08-02-03.
-func (c *shellCleaner) Scan(ctx context.Context, rules domain.EcosystemRules) ([]domain.Target, error) {
-	return nil, nil
+type directoryCacheDef struct {
+	category string
+	name     string
+	risk     domain.RiskLevel
+	paths    []string
 }
 
-// Clean deletes shell and CLI tool caches. Implemented in Task 08-02-03.
+func getDirectoryCacheCandidates(home string) []directoryCacheDef {
+	darwinCaches := filepath.Join(home, "Library", "Caches")
+	xdgCaches := filepath.Join(home, ".cache")
+
+	miseCachePaths := []string{
+		filepath.Join(darwinCaches, "mise"),
+		filepath.Join(xdgCaches, "mise"),
+	}
+	if env := os.Getenv("XDG_CACHE_HOME"); env != "" {
+		miseCachePaths = append(miseCachePaths, filepath.Join(env, "mise"))
+	}
+
+	miseDownloadPaths := []string{
+		filepath.Join(home, ".local", "share", "mise", "downloads"),
+	}
+	if env := os.Getenv("XDG_DATA_HOME"); env != "" {
+		miseDownloadPaths = append(miseDownloadPaths, filepath.Join(env, "mise", "downloads"))
+	}
+
+	ghCachePaths := []string{
+		filepath.Join(darwinCaches, "gh"),
+		filepath.Join(xdgCaches, "gh"),
+	}
+	if env := os.Getenv("XDG_CACHE_HOME"); env != "" {
+		ghCachePaths = append(ghCachePaths, filepath.Join(env, "gh"))
+	}
+
+	preCommitPaths := []string{}
+	if env := os.Getenv("PRE_COMMIT_HOME"); env != "" {
+		preCommitPaths = append(preCommitPaths, env)
+	}
+	preCommitPaths = append(preCommitPaths, filepath.Join(xdgCaches, "pre-commit"))
+	if env := os.Getenv("XDG_CACHE_HOME"); env != "" {
+		preCommitPaths = append(preCommitPaths, filepath.Join(env, "pre-commit"))
+	}
+
+	omzPaths := []string{}
+	if env := os.Getenv("ZSH_CACHE_DIR"); env != "" {
+		omzPaths = append(omzPaths, env)
+	}
+	omzPaths = append(omzPaths, filepath.Join(home, ".oh-my-zsh", "cache"))
+
+	return []directoryCacheDef{
+		{
+			category: "shell-mise-cache",
+			name:     "mise cache",
+			risk:     domain.RiskLow,
+			paths:    miseCachePaths,
+		},
+		{
+			category: "shell-mise-downloads",
+			name:     "mise downloads",
+			risk:     domain.RiskLow,
+			paths:    miseDownloadPaths,
+		},
+		{
+			category: "shell-gh-cache",
+			name:     "GitHub CLI cache",
+			risk:     domain.RiskLow,
+			paths:    ghCachePaths,
+		},
+		{
+			category: "shell-pre-commit-cache",
+			name:     "pre-commit cache",
+			risk:     domain.RiskMedium,
+			paths:    preCommitPaths,
+		},
+		{
+			category: "shell-omz-cache",
+			name:     "Oh My Zsh cache",
+			risk:     domain.RiskLow,
+			paths:    omzPaths,
+		},
+	}
+}
+
+func scanDirectoryCaches(home string, rules domain.EcosystemRules) []domain.Target {
+	var targets []domain.Target
+	cutoff := time.Now().AddDate(0, 0, -rules.MaxAgeDays)
+	seenPaths := make(map[string]bool)
+
+	for _, def := range getDirectoryCacheCandidates(home) {
+		for _, path := range def.paths {
+			if path == "" || seenPaths[path] {
+				continue
+			}
+			seenPaths[path] = true
+
+			if isExcluded(path, rules.ExcludePaths) {
+				continue
+			}
+
+			info, err := os.Stat(path)
+			if err != nil || !info.IsDir() {
+				continue
+			}
+
+			size, _ := devfs.CalcDirSize(path)
+			if size == 0 {
+				continue
+			}
+
+			hash := sha256.Sum256([]byte(path))
+			id := fmt.Sprintf("%x", hash[:6])
+
+			ttlEligible := false
+			eligibleBytes := int64(0)
+			if rules.MaxAgeDays == 0 || info.ModTime().Before(cutoff) {
+				ttlEligible = true
+				eligibleBytes = size
+			}
+
+			targets = append(targets, domain.Target{
+				ID:            id,
+				Name:          def.name,
+				Path:          path,
+				SizeBytes:     size,
+				EligibleBytes: eligibleBytes,
+				TTLEligible:   ttlEligible,
+				Risk:          def.risk,
+				LastAccessed:  info.ModTime(),
+				Category:      def.category,
+			})
+		}
+	}
+
+	return targets
+}
+
+func isExcluded(path string, excludes []string) bool {
+	base := filepath.Base(path)
+	for _, exc := range excludes {
+		if strings.HasPrefix(path, exc) {
+			return true
+		}
+		if matched, _ := doublestar.Match(exc, path); matched {
+			return true
+		}
+		if matched, _ := doublestar.Match(exc, base); matched {
+			return true
+		}
+	}
+	return false
+}
+
+// Scan inventories shell and CLI tool caches.
+func (c *shellCleaner) Scan(ctx context.Context, rules domain.EcosystemRules) ([]domain.Target, error) {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return nil, nil
+	}
+
+	return scanDirectoryCaches(home, rules), nil
+}
+
+// Clean deletes shell and CLI tool caches.
 func (c *shellCleaner) Clean(ctx context.Context, targets []domain.Target) error {
+	for _, t := range targets {
+		if safety.IsCoreBlacklisted(t.Path) {
+			continue
+		}
+		if isLink, err := safety.IsSymlink(t.Path); err == nil && isLink {
+			continue
+		}
+		if err := os.RemoveAll(t.Path); err != nil {
+			return err
+		}
+	}
 	return nil
 }
