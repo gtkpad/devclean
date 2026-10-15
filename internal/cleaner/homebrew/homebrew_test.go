@@ -20,6 +20,7 @@ func TestHomebrewCleaner_Name(t *testing.T) {
 }
 
 func TestHomebrewCleaner_IsInstalled(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	mockExec := cleaner.NewMockExecutor()
 	c := NewWithExecutor(mockExec)
 
