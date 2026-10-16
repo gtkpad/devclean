@@ -54,6 +54,7 @@ type EcosystemsConfig struct {
 	CocoaPods EcosystemConfig `mapstructure:"cocoapods"`
 	Elixir    EcosystemConfig `mapstructure:"elixir"`
 	Shell     EcosystemConfig `mapstructure:"shell"`
+	MacOS     EcosystemConfig `mapstructure:"macos"`
 }
 
 type SafetyConfig struct {
@@ -94,6 +95,7 @@ type HooksConfig struct {
 	CocoaPods HookConfig `mapstructure:"cocoapods"`
 	Elixir    HookConfig `mapstructure:"elixir"`
 	Shell     HookConfig `mapstructure:"shell"`
+	MacOS     HookConfig `mapstructure:"macos"`
 }
 
 type HistoryConfig struct {

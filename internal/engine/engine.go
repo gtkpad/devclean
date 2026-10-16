@@ -195,6 +195,8 @@ func (e *Engine) ecosystemConfig(name string) config.EcosystemConfig {
 		return e.config.Ecosystems.Elixir
 	case "shell":
 		return e.config.Ecosystems.Shell
+	case "macos":
+		return e.config.Ecosystems.MacOS
 	default:
 		return config.EcosystemConfig{Enabled: true, FailMode: "continue"}
 	}

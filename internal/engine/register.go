@@ -13,6 +13,7 @@ import (
 	"github.com/gtkpad/devclean/internal/cleaner/golang"
 	"github.com/gtkpad/devclean/internal/cleaner/homebrew"
 	"github.com/gtkpad/devclean/internal/cleaner/java"
+	"github.com/gtkpad/devclean/internal/cleaner/macos"
 	"github.com/gtkpad/devclean/internal/cleaner/nextjs"
 	"github.com/gtkpad/devclean/internal/cleaner/node"
 	"github.com/gtkpad/devclean/internal/cleaner/pnpm"
@@ -63,5 +64,8 @@ func RegisterDefaultCleanersWithExecutor(eng *Engine, cfg *config.Config, resolv
 	eng.Register(terraform.New(effectivePaths))
 	eng.Register(cocoapods.New(effectivePaths))
 	eng.Register(elixir.New(effectivePaths))
+
+	// Ecossistema do sistema operacional
+	eng.Register(macos.NewWithExecutor(exec))
 }
 

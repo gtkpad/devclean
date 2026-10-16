@@ -128,12 +128,26 @@ Run 'devclean scan' to preview what would be cleaned.`)
 					continue
 				}
 
+				candidates := r.Targets
+				if useTrash {
+					candidates = make([]domain.Target, len(r.Targets))
+					copy(candidates, r.Targets)
+					for i := range candidates {
+						if candidates[i].Category == "macos-trash" || candidates[i].ID == "macos-trash" {
+							candidates[i].ReviewOnly = false
+							candidates[i].EligibleBytes = candidates[i].SizeBytes
+							candidates[i].TTLEligible = true
+							candidates[i].ReviewReason = ""
+						}
+					}
+				}
+
 				var targets []domain.Target
 				if auto {
 					maxAge := getMaxAgeDays(cfg, r.Ecosystem)
-					targets = filterByTTL(r.Targets, maxAge)
+					targets = filterByTTL(candidates, maxAge)
 				} else {
-					targets = r.Targets
+					targets = candidates
 				}
 
 				if preset == "safe" {
@@ -412,6 +426,8 @@ func getMaxAgeDays(cfg *config.Config, ecosystem string) int {
 		return cfg.Ecosystems.CocoaPods.MaxAgeDays
 	case "elixir":
 		return cfg.Ecosystems.Elixir.MaxAgeDays
+	case "macos":
+		return cfg.Ecosystems.MacOS.MaxAgeDays
 	default:
 		return 0
 	}
