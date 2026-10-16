@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/gtkpad/devclean/internal/cleaner"
 	"github.com/gtkpad/devclean/internal/domain"
@@ -93,6 +94,11 @@ func scanSystemLogsAndReportsWithPaths(ctx context.Context, exec cleaner.Command
 		})
 	}
 
+	// 4. Code Sign Clones in Darwin User Cache Dir (D-11)
+	if cloneTarget, ok := scanCodeSignClones(ctx, exec); ok {
+		targets = append(targets, cloneTarget)
+	}
+
 	return targets, nil
 }
 
@@ -137,4 +143,70 @@ func scanDirectoryWithTCCFallback(ctx context.Context, root string) (totalSize i
 		note = "permission denied (TCC / root required)"
 	}
 	return totalSize, partial, note
+}
+
+// scanCodeSignClones isolates search to current user's Darwin cache directory (D-11).
+func scanCodeSignClones(ctx context.Context, exec cleaner.CommandExecutor) (domain.Target, bool) {
+	userTmp := os.Getenv("TMPDIR")
+	if userTmp == "" {
+		return domain.Target{}, false
+	}
+
+	cleanTmp := filepath.Clean(userTmp)
+	parent := filepath.Dir(cleanTmp)
+	cDir := filepath.Join(parent, "C")
+
+	info, err := os.Stat(cDir)
+	if err != nil || !info.IsDir() {
+		return domain.Target{}, false
+	}
+
+	var cloneSize int64
+	var cloneCount int
+
+	_ = filepath.WalkDir(cDir, func(path string, d fs.DirEntry, err error) error {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		if strings.HasSuffix(d.Name(), ".code_sign_clone") {
+			if fInfo, err := d.Info(); err == nil {
+				cloneSize += fInfo.Size()
+				cloneCount++
+			}
+		}
+		return nil
+	})
+
+	if cloneCount == 0 {
+		return domain.Target{}, false
+	}
+
+	// Process guard: Chrome or Chromium running? (D-14)
+	running, uncertain := CheckProcessStatus(ctx, exec, "Google Chrome", "Chromium")
+	isActive := running || uncertain
+
+	reviewOnly := isActive
+	reason := ""
+	eligible := cloneSize
+	if isActive {
+		reviewOnly = true
+		reason = domain.ReviewReasonActiveProcess
+		eligible = 0
+	}
+
+	return domain.Target{
+		ID:            "macos-code-sign-clones",
+		Name:          "macOS Code-Signature Clones",
+		Path:          cDir,
+		SizeBytes:     cloneSize,
+		EligibleBytes: eligible,
+		TTLEligible:   !reviewOnly,
+		ReviewOnly:    reviewOnly,
+		ReviewReason:  reason,
+		Risk:          domain.RiskLow,
+		Category:      "macos-system-clones",
+	}, true
 }
