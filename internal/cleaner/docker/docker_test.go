@@ -1,235 +1,158 @@
-package docker
+package docker_test
 
 import (
 	"context"
-	"errors"
+	"strings"
 	"testing"
-	"time"
 
+	"github.com/gtkpad/devclean/internal/cleaner"
+	"github.com/gtkpad/devclean/internal/cleaner/docker"
 	"github.com/gtkpad/devclean/internal/domain"
 )
 
-type fakeDockerAPI struct {
-	pingErr    error
-	images     []imageInfo
-	imagesErr  error
-	volumes    []volumeInfo
-	volumesErr error
-	cacheSize  int64
-	cacheErr   error
-	ctxName    string
-	ctxEndpt   string
-}
+func TestDockerCleaner_SystemDF_CategorizedReviewOnly(t *testing.T) {
+	mockExec := cleaner.NewMockExecutor()
 
-func (f *fakeDockerAPI) ping(_ context.Context) error { return f.pingErr }
-func (f *fakeDockerAPI) listImages(_ context.Context, _ bool) ([]imageInfo, error) {
-	return f.images, f.imagesErr
-}
-func (f *fakeDockerAPI) listVolumes(_ context.Context) ([]volumeInfo, error) {
-	return f.volumes, f.volumesErr
-}
-func (f *fakeDockerAPI) diskUsage(_ context.Context) (int64, error) {
-	return f.cacheSize, f.cacheErr
-}
-func (f *fakeDockerAPI) contextInfo(_ context.Context) (string, string) {
-	return f.ctxName, f.ctxEndpt
+	dfOutput := `{"Type":"Images","TotalCount":5,"Active":2,"Size":"2.4GB","Reclaimable":"1.1GB (45%)"}
+{"Type":"Containers","TotalCount":"3","Active":"1","Size":"120MB","Reclaimable":"40MB (33%)"}
+{"Type":"Local Volumes","TotalCount":4,"Active":"2","Size":"500MB","Reclaimable":"200MB (40%)"}
+{"Type":"Build Cache","TotalCount":"18","Active":0,"Size":"1.5GB","Reclaimable":"1.5GB (100%)"}
+`
+	mockExec.Outputs["docker system df --format {{json .}}"] = []byte(dfOutput)
+
+	c := docker.NewWithExecutor(mockExec)
+
+	targets, err := c.Scan(context.Background(), domain.EcosystemRules{})
+	if err != nil {
+		t.Fatalf("unexpected Scan error: %v", err)
+	}
+
+	if len(targets) != 4 {
+		t.Fatalf("expected 4 targets, got %d", len(targets))
+	}
+
+	expected := map[string]struct {
+		id          string
+		path        string
+		category    string
+		total       int
+		active      int
+		size        int64
+		reclaimable int64
+	}{
+		"docker-images": {
+			id:          "docker-images",
+			path:        "docker://system-df/images",
+			category:    "docker-images",
+			total:       5,
+			active:      2,
+			size:        2_400_000_000,
+			reclaimable: 1_100_000_000,
+		},
+		"docker-containers": {
+			id:          "docker-containers",
+			path:        "docker://system-df/containers",
+			category:    "docker-containers",
+			total:       3,
+			active:      1,
+			size:        120_000_000,
+			reclaimable: 40_000_000,
+		},
+		"docker-volumes": {
+			id:          "docker-volumes",
+			path:        "docker://system-df/volumes",
+			category:    "docker-volumes",
+			total:       4,
+			active:      2,
+			size:        500_000_000,
+			reclaimable: 200_000_000,
+		},
+		"docker-build-cache": {
+			id:          "docker-build-cache",
+			path:        "docker://system-df/build-cache",
+			category:    "docker-build-cache",
+			total:       18,
+			active:      0,
+			size:        1_500_000_000,
+			reclaimable: 1_500_000_000,
+		},
+	}
+
+	for _, tgt := range targets {
+		exp, ok := expected[tgt.ID]
+		if !ok {
+			t.Errorf("unexpected target ID: %q", tgt.ID)
+			continue
+		}
+
+		if tgt.Path != exp.path {
+			t.Errorf("target %s: expected Path %q, got %q", tgt.ID, exp.path, tgt.Path)
+		}
+		if tgt.Category != exp.category {
+			t.Errorf("target %s: expected Category %q, got %q", tgt.ID, exp.category, tgt.Category)
+		}
+		if !tgt.ReviewOnly {
+			t.Errorf("target %s: expected ReviewOnly=true", tgt.ID)
+		}
+		if tgt.ReviewReason != domain.ReviewReasonSharedStore {
+			t.Errorf("target %s: expected ReviewReason=%q, got %q", tgt.ID, domain.ReviewReasonSharedStore, tgt.ReviewReason)
+		}
+		if tgt.EligibleBytes != 0 {
+			t.Errorf("target %s: expected EligibleBytes=0, got %d", tgt.ID, tgt.EligibleBytes)
+		}
+		if tgt.TTLEligible {
+			t.Errorf("target %s: expected TTLEligible=false", tgt.ID)
+		}
+		if tgt.SizeBytes != exp.size {
+			t.Errorf("target %s: expected SizeBytes=%d, got %d", tgt.ID, exp.size, tgt.SizeBytes)
+		}
+		if tgt.ProviderMetrics == nil {
+			t.Fatalf("target %s: ProviderMetrics is nil", tgt.ID)
+		}
+		if tgt.ProviderMetrics.TotalCount != exp.total {
+			t.Errorf("target %s: expected TotalCount=%d, got %d", tgt.ID, exp.total, tgt.ProviderMetrics.TotalCount)
+		}
+		if tgt.ProviderMetrics.ActiveCount != exp.active {
+			t.Errorf("target %s: expected ActiveCount=%d, got %d", tgt.ID, exp.active, tgt.ProviderMetrics.ActiveCount)
+		}
+		if tgt.ProviderMetrics.SizeBytes != exp.size {
+			t.Errorf("target %s: expected ProviderMetrics.SizeBytes=%d, got %d", tgt.ID, exp.size, tgt.ProviderMetrics.SizeBytes)
+		}
+		if tgt.ProviderMetrics.ReclaimableBytes != exp.reclaimable {
+			t.Errorf("target %s: expected ReclaimableBytes=%d, got %d", tgt.ID, exp.reclaimable, tgt.ProviderMetrics.ReclaimableBytes)
+		}
+		if !strings.HasPrefix(tgt.Name, "Docker ") {
+			t.Errorf("target %s: expected Name to start with 'Docker ', got %q", tgt.ID, tgt.Name)
+		}
+	}
+
+	// Verify command was called without shell interpolation
+	if len(mockExec.Calls) != 1 {
+		t.Fatalf("expected 1 exec call, got %d", len(mockExec.Calls))
+	}
+	expectedCall := []string{"docker", "system", "df", "--format", "{{json .}}"}
+	call := mockExec.Calls[0]
+	if len(call) != len(expectedCall) {
+		t.Fatalf("expected call %v, got %v", expectedCall, call)
+	}
+	for i := range expectedCall {
+		if call[i] != expectedCall[i] {
+			t.Errorf("call arg %d: expected %q, got %q", i, expectedCall[i], call[i])
+		}
+	}
 }
 
 func TestDockerCleaner_Name(t *testing.T) {
-	c := &dockerCleaner{api: &fakeDockerAPI{}}
+	c := docker.New()
 	if c.Name() != "docker" {
 		t.Errorf("expected 'docker', got %q", c.Name())
 	}
 }
 
-func TestDockerCleaner_IsInstalled_True(t *testing.T) {
-	c := &dockerCleaner{api: &fakeDockerAPI{}}
-	if !c.IsInstalled() {
-		t.Error("expected IsInstalled to be true")
+func TestDockerCleaner_DefaultConstructor(t *testing.T) {
+	c := docker.New()
+	if c == nil {
+		t.Fatal("expected non-nil Cleaner from New()")
 	}
 }
 
-func TestDockerCleaner_IsInstalled_False(t *testing.T) {
-	c := &dockerCleaner{api: &fakeDockerAPI{pingErr: errors.New("connection refused")}}
-	if c.IsInstalled() {
-		t.Error("expected IsInstalled to be false")
-	}
-}
-
-func TestDockerCleaner_Scan_DanglingImages(t *testing.T) {
-	oldTime := time.Now().AddDate(0, 0, -60)
-	api := &fakeDockerAPI{
-		ctxName:  "default",
-		ctxEndpt: "unix:///var/run/docker.sock",
-		images: []imageInfo{
-			{ID: "sha256:abc123", Size: 500_000_000, Created: oldTime, Tags: []string{"<none>:<none>"}},
-			{ID: "sha256:def456", Size: 200_000_000, Created: oldTime, Tags: []string{"myapp:latest"}},
-		},
-	}
-	c := &dockerCleaner{api: api}
-	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 30}
-
-	targets, err := c.Scan(context.Background(), rules)
-	if err != nil {
-		t.Fatalf("Scan: %v", err)
-	}
-
-	imageTargets := filterByCategory(targets, "dangling-image")
-	if len(imageTargets) != 2 {
-		t.Fatalf("expected 2 dangling images, got %d", len(imageTargets))
-	}
-	if imageTargets[0].Risk != domain.RiskLow {
-		t.Errorf("old image should be low risk, got %s", imageTargets[0].Risk)
-	}
-}
-
-func TestDockerCleaner_Scan_MaxAgeDaysFilter(t *testing.T) {
-	recentTime := time.Now().Add(-24 * time.Hour) // 1 day ago
-	api := &fakeDockerAPI{
-		ctxName: "default",
-		images: []imageInfo{
-			{ID: "sha256:recent", Size: 100_000_000, Created: recentTime, Tags: nil},
-		},
-	}
-	c := &dockerCleaner{api: api}
-	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 30}
-
-	targets, err := c.Scan(context.Background(), rules)
-	if err != nil {
-		t.Fatalf("Scan: %v", err)
-	}
-
-	imageTargets := filterByCategory(targets, "dangling-image")
-	if len(imageTargets) != 1 {
-		t.Fatalf("recent image should be reported in scan, got %d targets", len(imageTargets))
-	}
-	if imageTargets[0].TTLEligible {
-		t.Errorf("recent image should have TTLEligible = false")
-	}
-	if imageTargets[0].EligibleBytes != 0 {
-		t.Errorf("recent image should have EligibleBytes = 0, got %d", imageTargets[0].EligibleBytes)
-	}
-	if imageTargets[0].SizeBytes != 100_000_000 {
-		t.Errorf("recent image should have SizeBytes = 100_000_000, got %d", imageTargets[0].SizeBytes)
-	}
-}
-
-func TestDockerCleaner_Scan_OrphanVolumes(t *testing.T) {
-	oldTime := time.Now().AddDate(0, 0, -60)
-	api := &fakeDockerAPI{
-		ctxName: "default",
-		volumes: []volumeInfo{
-			{Name: "old-vol", Created: oldTime},
-		},
-	}
-	c := &dockerCleaner{api: api}
-	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 30}
-
-	targets, err := c.Scan(context.Background(), rules)
-	if err != nil {
-		t.Fatalf("Scan: %v", err)
-	}
-
-	volTargets := filterByCategory(targets, "orphan-volume")
-	if len(volTargets) != 1 {
-		t.Fatalf("expected 1 orphan volume, got %d", len(volTargets))
-	}
-	if volTargets[0].Risk != domain.RiskMedium {
-		t.Errorf("old volume should be medium risk, got %s", volTargets[0].Risk)
-	}
-}
-
-func TestDockerCleaner_Scan_BuildCache(t *testing.T) {
-	api := &fakeDockerAPI{
-		ctxName:   "default",
-		cacheSize: 2_000_000_000,
-	}
-	c := &dockerCleaner{api: api}
-	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 30}
-
-	targets, err := c.Scan(context.Background(), rules)
-	if err != nil {
-		t.Fatalf("Scan: %v", err)
-	}
-
-	cacheTargets := filterByCategory(targets, "build-cache")
-	if len(cacheTargets) != 1 {
-		t.Fatalf("expected 1 build-cache target, got %d", len(cacheTargets))
-	}
-	if cacheTargets[0].SizeBytes != 2_000_000_000 {
-		t.Errorf("expected 2GB, got %d", cacheTargets[0].SizeBytes)
-	}
-}
-
-func TestDockerCleaner_Scan_SDKFailureTriggersFallback(t *testing.T) {
-	api := &fakeDockerAPI{
-		ctxName:   "default",
-		imagesErr: errors.New("SDK connection failed"),
-	}
-	c := &dockerCleaner{api: api}
-	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 30}
-
-	// This will attempt CLI fallback which may fail in test env — that's ok
-	_, _ = c.Scan(context.Background(), rules)
-	// Just verify no panic occurs
-}
-
-func TestDockerCleaner_Scan_ContextInfo(t *testing.T) {
-	api := &fakeDockerAPI{
-		ctxName:  "prod-context",
-		ctxEndpt: "tcp://192.168.1.1:2376",
-	}
-	c := &dockerCleaner{api: api}
-	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 30}
-
-	_, _ = c.Scan(context.Background(), rules)
-
-	if c.contextName != "prod-context" {
-		t.Errorf("expected context 'prod-context', got %q", c.contextName)
-	}
-	if c.endpoint != "tcp://192.168.1.1:2376" {
-		t.Errorf("expected endpoint 'tcp://192.168.1.1:2376', got %q", c.endpoint)
-	}
-}
-
-func TestParseDockerSize(t *testing.T) {
-	tests := []struct {
-		input string
-		want  int64
-	}{
-		{"500MB", 500_000_000},
-		{"1.5GB", 1_500_000_000},
-		{"100KB", 100_000},
-		{"0B", 0},
-		{"", 0},
-	}
-	for _, tt := range tests {
-		got := parseDockerSize(tt.input)
-		if got != tt.want {
-			t.Errorf("parseDockerSize(%q) = %d, want %d", tt.input, got, tt.want)
-		}
-	}
-}
-
-func TestClassifyImageRisk(t *testing.T) {
-	cutoff := time.Now().AddDate(0, 0, -30)
-	old := time.Now().AddDate(0, 0, -60)
-	recent := time.Now().Add(-24 * time.Hour)
-
-	if classifyImageRisk(old, cutoff) != domain.RiskLow {
-		t.Error("old image should be low risk")
-	}
-	if classifyImageRisk(recent, cutoff) != domain.RiskMedium {
-		t.Error("recent image should be medium risk")
-	}
-}
-
-func filterByCategory(targets []domain.Target, cat string) []domain.Target {
-	var result []domain.Target
-	for _, t := range targets {
-		if t.Category == cat {
-			result = append(result, t)
-		}
-	}
-	return result
-}
