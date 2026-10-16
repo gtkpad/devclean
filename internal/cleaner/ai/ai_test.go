@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gtkpad/devclean/internal/cleaner"
 	"github.com/gtkpad/devclean/internal/domain"
 )
 
@@ -344,7 +345,7 @@ func TestEditors(t *testing.T) {
 
 	// Scan with MaxAgeDays = 0
 	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 0}
-	targets, err := scanEditors(home, rules)
+	targets, err := scanEditors(context.Background(), &cleaner.DefaultExecutor{}, home, rules)
 	if err != nil {
 		t.Fatalf("unexpected scan error: %v", err)
 	}
@@ -419,7 +420,7 @@ func TestEditors(t *testing.T) {
 	_ = os.Chtimes(filepath.Join(vscodeExt, "publisher.ext-1.0.0"), oldTime, oldTime)
 
 	rulesAge := domain.EcosystemRules{Enabled: true, MaxAgeDays: 30}
-	agedTargets, err := scanEditors(home, rulesAge)
+	agedTargets, err := scanEditors(context.Background(), &cleaner.DefaultExecutor{}, home, rulesAge)
 	if err != nil {
 		t.Fatalf("unexpected scan error with TTL: %v", err)
 	}
