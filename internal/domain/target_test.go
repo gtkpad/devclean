@@ -27,6 +27,15 @@ func TestTarget_ReviewOnly_Constants(t *testing.T) {
 	}
 }
 
+func TestTarget_ReviewReasons(t *testing.T) {
+	if domain.ReviewReasonActiveVersion != "active_version" {
+		t.Errorf("ReviewReasonActiveVersion = %q, want %q", domain.ReviewReasonActiveVersion, "active_version")
+	}
+	if domain.ReviewReasonAmbiguous != "ambiguous_state" {
+		t.Errorf("ReviewReasonAmbiguous = %q, want %q", domain.ReviewReasonAmbiguous, "ambiguous_state")
+	}
+}
+
 func TestTarget_ReviewOnly_IsReviewOnly(t *testing.T) {
 	targetReview := domain.Target{
 		ID:         "rev-1",
