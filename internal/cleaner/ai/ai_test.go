@@ -199,7 +199,7 @@ func TestClaude(t *testing.T) {
 
 	// Test 1: Scan with MaxAgeDays = 0
 	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 0}
-	targets, err := scanClaude(claudeDir, rules)
+	targets, err := scanClaude(context.Background(), &cleaner.DefaultExecutor{}, tmpDir, rules)
 	if err != nil {
 		t.Fatalf("unexpected scan error: %v", err)
 	}
@@ -245,7 +245,7 @@ func TestClaude(t *testing.T) {
 	_ = os.Chtimes(filepath.Join(claudeDir, "mcp.log"), oldTime, oldTime)
 
 	rulesWithAge := domain.EcosystemRules{Enabled: true, MaxAgeDays: 30}
-	agedTargets, err := scanClaude(claudeDir, rulesWithAge)
+	agedTargets, err := scanClaude(context.Background(), &cleaner.DefaultExecutor{}, tmpDir, rulesWithAge)
 	if err != nil {
 		t.Fatalf("unexpected scan error: %v", err)
 	}
@@ -279,7 +279,7 @@ func TestClaude(t *testing.T) {
 	}
 
 	// Test 3: Non-existent directory returns nil, nil
-	missing, err := scanClaude(filepath.Join(tmpDir, "nonexistent"), rules)
+	missing, err := scanClaude(context.Background(), &cleaner.DefaultExecutor{}, filepath.Join(tmpDir, "nonexistent"), rules)
 	if err != nil {
 		t.Fatalf("expected nil error for missing directory, got %v", err)
 	}

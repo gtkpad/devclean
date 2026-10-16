@@ -1,11 +1,13 @@
 package ai
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/gtkpad/devclean/internal/cleaner"
 	"github.com/gtkpad/devclean/internal/domain"
 	devfs "github.com/gtkpad/devclean/internal/fs"
 )
@@ -18,8 +20,11 @@ var protectedClaudeFiles = map[string]bool{
 	"credentials.json": true,
 }
 
-func scanClaude(claudeDir string, rules domain.EcosystemRules) ([]domain.Target, error) {
-	cleanClaudeDir := filepath.Clean(claudeDir)
+func scanClaude(ctx context.Context, exec cleaner.CommandExecutor, home string, rules domain.EcosystemRules) ([]domain.Target, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	cleanClaudeDir := filepath.Clean(filepath.Join(home, ".claude"))
 	if _, err := os.Stat(cleanClaudeDir); os.IsNotExist(err) {
 		return nil, nil
 	}
