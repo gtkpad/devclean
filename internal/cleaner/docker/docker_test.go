@@ -2,6 +2,9 @@ package docker_test
 
 import (
 	"context"
+	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -155,4 +158,126 @@ func TestDockerCleaner_DefaultConstructor(t *testing.T) {
 		t.Fatal("expected non-nil Cleaner from New()")
 	}
 }
+
+func TestDockerCleaner_DaemonOffline_StatusTarget(t *testing.T) {
+	mockExec := cleaner.NewMockExecutor()
+	mockExec.Errors["docker system df --format {{json .}}"] = errors.New("Cannot connect to the Docker daemon at unix:///var/run/docker.sock")
+	mockExec.Outputs["lookpath:docker"] = []byte("/usr/local/bin/docker")
+
+	c := docker.NewWithExecutor(mockExec)
+	targets, err := c.Scan(context.Background(), domain.EcosystemRules{})
+	if err != nil {
+		t.Fatalf("Scan returned unexpected error: %v", err)
+	}
+
+	if len(targets) != 1 {
+		t.Fatalf("expected 1 target on daemon offline, got %d", len(targets))
+	}
+	tgt := targets[0]
+	if tgt.ID != "docker-daemon-status" {
+		t.Errorf("expected ID 'docker-daemon-status', got %q", tgt.ID)
+	}
+	if tgt.Path != "docker://daemon/status" {
+		t.Errorf("expected Path 'docker://daemon/status', got %q", tgt.Path)
+	}
+	if !tgt.ReviewOnly {
+		t.Error("expected ReviewOnly == true")
+	}
+	if tgt.ReviewReason != domain.ReviewReasonAmbiguous {
+		t.Errorf("expected ReviewReason %q, got %q", domain.ReviewReasonAmbiguous, tgt.ReviewReason)
+	}
+	if tgt.EligibleBytes != 0 {
+		t.Errorf("expected EligibleBytes == 0, got %d", tgt.EligibleBytes)
+	}
+	if tgt.ProviderMetrics == nil || !tgt.ProviderMetrics.Partial {
+		t.Error("expected ProviderMetrics.Partial == true")
+	}
+}
+
+func TestDockerCleaner_MalformedJSON_PartialTolerance(t *testing.T) {
+	mockExec := cleaner.NewMockExecutor()
+	dfOutput := `{"Type":"Images","TotalCount":5,"Active":2,"Size":"2.4GB","Reclaimable":"1.1GB (45%)"}
+{"Type": "broken json line...
+`
+	mockExec.Outputs["docker system df --format {{json .}}"] = []byte(dfOutput)
+
+	c := docker.NewWithExecutor(mockExec)
+	targets, err := c.Scan(context.Background(), domain.EcosystemRules{})
+	if err != nil {
+		t.Fatalf("unexpected Scan error: %v", err)
+	}
+
+	if len(targets) != 2 {
+		t.Fatalf("expected 2 targets (1 valid + 1 parse error), got %d", len(targets))
+	}
+
+	var hasImage, hasParseError bool
+	for _, tgt := range targets {
+		if tgt.ID == "docker-images" {
+			hasImage = true
+		}
+		if tgt.ID == "docker-daemon-parse-error" {
+			hasParseError = true
+			if !tgt.ReviewOnly {
+				t.Error("expected ReviewOnly == true for parse error")
+			}
+			if tgt.ReviewReason != domain.ReviewReasonAmbiguous {
+				t.Errorf("expected ReviewReason %q, got %q", domain.ReviewReasonAmbiguous, tgt.ReviewReason)
+			}
+			if tgt.ProviderMetrics == nil || !tgt.ProviderMetrics.Partial {
+				t.Error("expected ProviderMetrics.Partial == true")
+			}
+		}
+	}
+	if !hasImage {
+		t.Error("expected docker-images target to be parsed successfully")
+	}
+	if !hasParseError {
+		t.Error("expected docker-daemon-parse-error target")
+	}
+}
+
+func TestDockerCleaner_IsInstalled_HybridDiscovery(t *testing.T) {
+	t.Run("CLI in PATH", func(t *testing.T) {
+		mockExec := cleaner.NewMockExecutor()
+		mockExec.Outputs["lookpath:docker"] = []byte("/usr/local/bin/docker")
+		c := docker.NewWithExecutor(mockExec)
+		if !c.IsInstalled() {
+			t.Error("expected IsInstalled == true when docker is in PATH")
+		}
+	})
+
+	t.Run("Disk directory present without CLI in PATH", func(t *testing.T) {
+		fakeHome := t.TempDir()
+		t.Setenv("HOME", fakeHome)
+		dotDocker := filepath.Join(fakeHome, ".docker")
+		if err := os.MkdirAll(dotDocker, 0755); err != nil {
+			t.Fatal(err)
+		}
+
+		mockExec := cleaner.NewMockExecutor()
+		mockExec.Errors["lookpath:docker"] = errors.New("not found")
+		mockExec.Errors["lookpath:orb"] = errors.New("not found")
+
+		c := docker.NewWithExecutor(mockExec)
+		if !c.IsInstalled() {
+			t.Error("expected IsInstalled == true when ~/.docker exists on disk")
+		}
+	})
+
+	t.Run("Neither CLI nor disk candidate", func(t *testing.T) {
+		fakeHome := t.TempDir()
+		t.Setenv("HOME", fakeHome)
+
+		mockExec := cleaner.NewMockExecutor()
+		mockExec.Errors["lookpath:docker"] = errors.New("not found")
+		mockExec.Errors["lookpath:orb"] = errors.New("not found")
+
+		c := docker.NewWithExecutor(mockExec)
+		if c.IsInstalled() {
+			t.Error("expected IsInstalled == false when neither CLI nor candidate dirs exist")
+		}
+	})
+}
+
 

@@ -72,12 +72,53 @@ type rawSystemDFEntry struct {
 }
 
 func (c *dockerCleaner) Scan(ctx context.Context, rules domain.EcosystemRules) ([]domain.Target, error) {
+	var targets []domain.Target
+
 	out, err := c.exec.Output(ctx, "docker", "system", "df", "--format", "{{json .}}")
 	if err != nil {
-		return nil, err
+		if c.IsInstalled() {
+			targets = append(targets, domain.Target{
+				ID:            "docker-daemon-status",
+				Name:          "Docker daemon (unavailable / stopped)",
+				Path:          "docker://daemon/status",
+				SizeBytes:     0,
+				EligibleBytes: 0,
+				TTLEligible:   false,
+				ReviewOnly:    true,
+				ReviewReason:  domain.ReviewReasonAmbiguous,
+				Risk:          domain.RiskLow,
+				Category:      "docker-daemon",
+				ProviderMetrics: &domain.ProviderMetrics{
+					Partial:    true,
+					StatusNote: fmt.Sprintf("docker system df failed: %v", err),
+				},
+			})
+		}
+		return targets, nil
 	}
 
-	targets, _ := parseSystemDFOutput(out)
+	parsedTargets, hasMalformed := parseSystemDFOutput(out)
+	targets = append(targets, parsedTargets...)
+
+	if hasMalformed {
+		targets = append(targets, domain.Target{
+			ID:            "docker-daemon-parse-error",
+			Name:          "Docker daemon (parse warning)",
+			Path:          "docker://daemon/status",
+			SizeBytes:     0,
+			EligibleBytes: 0,
+			TTLEligible:   false,
+			ReviewOnly:    true,
+			ReviewReason:  domain.ReviewReasonAmbiguous,
+			Risk:          domain.RiskLow,
+			Category:      "docker-daemon",
+			ProviderMetrics: &domain.ProviderMetrics{
+				Partial:    true,
+				StatusNote: "docker system df returned malformed or unrecognized JSON lines",
+			},
+		})
+	}
+
 	return targets, nil
 }
 
