@@ -205,3 +205,160 @@ func TestDotNetCleaner_LocalScan_FsprojManifest(t *testing.T) {
 		t.Errorf("expected category 'dotnet-build', got %q", targets[0].Category)
 	}
 }
+
+func TestDotNet_NuGetPackages_LockedToReviewOnly(t *testing.T) {
+	for _, maxAge := range []int{0, 30} {
+		t.Run(filepath.Join("MaxAge", string(rune('0'+maxAge))), func(t *testing.T) {
+			nugetDir := t.TempDir()
+			writeFile(t, filepath.Join(nugetDir, "Newtonsoft.Json", "13.0.1", "newtonsoft.json.13.0.1.nupkg"), 5000)
+
+			oldTime := time.Now().AddDate(0, 0, -60)
+			_ = os.Chtimes(nugetDir, oldTime, oldTime)
+
+			paths := platform.Paths{
+				DotNetNuGet: nugetDir,
+			}
+			c := New(paths, nil)
+			rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: maxAge}
+
+			targets, err := c.Scan(context.Background(), rules)
+			if err != nil {
+				t.Fatalf("Scan failed: %v", err)
+			}
+			if len(targets) != 1 {
+				t.Fatalf("expected 1 target, got %d", len(targets))
+			}
+
+			tgt := targets[0]
+			if tgt.Category != "nuget-packages" {
+				t.Fatalf("expected category 'nuget-packages', got %q", tgt.Category)
+			}
+			if !tgt.ReviewOnly {
+				t.Errorf("expected ReviewOnly == true, got false")
+			}
+			if tgt.ReviewReason != domain.ReviewReasonSharedStore {
+				t.Errorf("expected ReviewReason == %q, got %q", domain.ReviewReasonSharedStore, tgt.ReviewReason)
+			}
+			if tgt.EligibleBytes != 0 {
+				t.Errorf("expected EligibleBytes == 0, got %d", tgt.EligibleBytes)
+			}
+			if tgt.TTLEligible {
+				t.Errorf("expected TTLEligible == false, got true")
+			}
+			if tgt.SizeBytes != 5000 {
+				t.Errorf("expected SizeBytes == 5000, got %d", tgt.SizeBytes)
+			}
+		})
+	}
+}
+
+func TestDotNet_NuGetHttpAndTemp_RemainTTLEligible(t *testing.T) {
+	httpDir := t.TempDir()
+	tempDir := t.TempDir()
+
+	writeFile(t, filepath.Join(httpDir, "v3-cache", "item.dat"), 1200)
+	writeFile(t, filepath.Join(tempDir, "NuGetScratch", "temp.dat"), 800)
+
+	oldTime := time.Now().AddDate(0, 0, -45)
+	_ = os.Chtimes(httpDir, oldTime, oldTime)
+	_ = os.Chtimes(tempDir, oldTime, oldTime)
+
+	paths := platform.Paths{
+		DotNetHTTP: httpDir,
+		DotNetTemp: tempDir,
+	}
+	c := New(paths, nil)
+	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 30}
+
+	targets, err := c.Scan(context.Background(), rules)
+	if err != nil {
+		t.Fatalf("Scan failed: %v", err)
+	}
+	if len(targets) != 2 {
+		t.Fatalf("expected 2 targets, got %d", len(targets))
+	}
+
+	for _, tgt := range targets {
+		if tgt.ReviewOnly {
+			t.Errorf("target %s: expected ReviewOnly == false, got true", tgt.Category)
+		}
+		if !tgt.TTLEligible {
+			t.Errorf("target %s: expected TTLEligible == true, got false", tgt.Category)
+		}
+		if tgt.EligibleBytes != tgt.SizeBytes || tgt.EligibleBytes == 0 {
+			t.Errorf("target %s: expected EligibleBytes == SizeBytes (%d), got %d", tgt.Category, tgt.SizeBytes, tgt.EligibleBytes)
+		}
+	}
+}
+
+func TestDotNet_Clean_DefensiveGuard_PreservesNuGet(t *testing.T) {
+	testCases := []struct {
+		name   string
+		target func(nugetDir string) domain.Target
+	}{
+		{
+			name: "Target marked ReviewOnly",
+			target: func(nugetDir string) domain.Target {
+				return domain.Target{
+					ID:         "target-1",
+					Path:       nugetDir,
+					ReviewOnly: true,
+				}
+			},
+		},
+		{
+			name: "Target with category nuget-packages",
+			target: func(nugetDir string) domain.Target {
+				return domain.Target{
+					ID:       "target-2",
+					Path:     nugetDir,
+					Category: "nuget-packages",
+				}
+			},
+		},
+		{
+			name: "Target matching DotNetNuGet path without flags",
+			target: func(nugetDir string) domain.Target {
+				return domain.Target{
+					ID:   "target-3",
+					Path: nugetDir,
+				}
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			nugetDir := t.TempDir()
+			sentinelPath := filepath.Join(nugetDir, "PackageA", "1.0.0", "PackageA.nupkg")
+			writeFile(t, sentinelPath, 2048)
+
+			infoBefore, err := os.Stat(sentinelPath)
+			if err != nil {
+				t.Fatalf("failed to stat sentinel before: %v", err)
+			}
+
+			paths := platform.Paths{
+				DotNetNuGet: nugetDir,
+			}
+			c := New(paths, nil)
+
+			err = c.Clean(context.Background(), []domain.Target{tc.target(nugetDir)})
+			if err != nil {
+				t.Fatalf("Clean failed: %v", err)
+			}
+
+			infoAfter, err := os.Stat(sentinelPath)
+			if err != nil {
+				t.Fatalf("sentinel file was deleted or unreadable: %v", err)
+			}
+			if infoAfter.Size() != infoBefore.Size() {
+				t.Errorf("sentinel file size changed: before %d, after %d", infoBefore.Size(), infoAfter.Size())
+			}
+			if !infoAfter.ModTime().Equal(infoBefore.ModTime()) {
+				t.Errorf("sentinel file modTime changed: before %v, after %v", infoBefore.ModTime(), infoAfter.ModTime())
+			}
+		})
+	}
+}
+

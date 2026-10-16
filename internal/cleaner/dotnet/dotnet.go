@@ -93,24 +93,30 @@ func (c *dotnetCleaner) scanGlobalCaches(rules domain.EcosystemRules) ([]domain.
 			continue
 		}
 
-		eligibleBytes := int64(0)
-		ttlEligible := false
-		if rules.MaxAgeDays == 0 || lastAccessed.Before(cutoff) {
-			eligibleBytes = size
-			ttlEligible = true
+		target := domain.Target{
+			ID:           d.category + ":" + d.path,
+			Name:         d.category,
+			Path:         d.path,
+			SizeBytes:    size,
+			Risk:         domain.RiskLow,
+			LastAccessed: lastAccessed,
+			Category:     d.category,
 		}
 
-		targets = append(targets, domain.Target{
-			ID:            d.category + ":" + d.path,
-			Name:          d.category,
-			Path:          d.path,
-			SizeBytes:     size,
-			EligibleBytes: eligibleBytes,
-			TTLEligible:   ttlEligible,
-			Risk:          domain.RiskLow,
-			LastAccessed:  lastAccessed,
-			Category:      d.category,
-		})
+		// D-09: nuget-packages is strictly ReviewOnly (shared store)
+		if d.category == "nuget-packages" {
+			target.ReviewOnly = true
+			target.ReviewReason = domain.ReviewReasonSharedStore
+			target.EligibleBytes = 0
+			target.TTLEligible = false
+		} else {
+			if rules.MaxAgeDays == 0 || lastAccessed.Before(cutoff) {
+				target.EligibleBytes = size
+				target.TTLEligible = true
+			}
+		}
+
+		targets = append(targets, target)
 	}
 
 	return targets, nil
@@ -194,6 +200,15 @@ func (c *dotnetCleaner) scanLocalBuildOutputs(rules domain.EcosystemRules) ([]do
 
 func (c *dotnetCleaner) Clean(_ context.Context, targets []domain.Target) error {
 	for _, t := range targets {
+		if t.ReviewOnly || t.Category == "nuget-packages" || t.Path == c.paths.DotNetNuGet {
+			continue // Defensive guard: never delete shared package store (D-12)
+		}
+		if safety.IsCoreBlacklisted(t.Path) {
+			continue
+		}
+		if isLink, err := safety.IsSymlink(t.Path); err == nil && isLink {
+			continue
+		}
 		if err := os.RemoveAll(t.Path); err != nil {
 			return err
 		}
