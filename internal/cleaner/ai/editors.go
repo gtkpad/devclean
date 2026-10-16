@@ -450,6 +450,40 @@ func scanEditorLogs(ed editorDef, home string, cutoff time.Time, maxAgeDays int)
 	return totalSize, eligibleBytes, hasEligible, latestModTime, foundPaths
 }
 
+func scanWorkspaceBackups(appSupportDir string, cutoff time.Time, maxAgeDays int) (int64, int64, bool, []string) {
+	wsRoot := filepath.Join(appSupportDir, "User", "workspaceStorage")
+	entries, err := os.ReadDir(wsRoot)
+	if err != nil {
+		return 0, 0, false, nil
+	}
+
+	var totalSize, eligibleBytes int64
+	var foundFiles []string
+	hasEligible := false
+
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		backupPath := filepath.Join(wsRoot, e.Name(), "state.vscdb.backup")
+		info, err := os.Stat(backupPath)
+		if err != nil || info.IsDir() {
+			continue
+		}
+
+		sz := info.Size()
+		totalSize += sz
+		foundFiles = append(foundFiles, backupPath)
+
+		if maxAgeDays == 0 || info.ModTime().Before(cutoff) {
+			eligibleBytes += sz
+			hasEligible = true
+		}
+	}
+
+	return totalSize, eligibleBytes, hasEligible, foundFiles
+}
+
 func scanEditors(ctx context.Context, exec cleaner.CommandExecutor, home string, rules domain.EcosystemRules) ([]domain.Target, error) {
 	_ = exec
 	if home == "" {
@@ -502,6 +536,28 @@ func scanEditors(ctx context.Context, exec cleaner.CommandExecutor, home string,
 				LastAccessed:  logTime,
 				Category:      "editor-logs",
 			})
+		}
+
+		// 3. Workspace State Backups (Surgical state.vscdb.backup only)
+		if ed.hasWorkspaces && ed.appSupportDir != nil {
+			appSupport := ed.appSupportDir(home)
+			if appSupport != "" {
+				totalWsSize, eligibleWsBytes, hasEligibleWs, _ := scanWorkspaceBackups(appSupport, cutoff, rules.MaxAgeDays)
+				if totalWsSize > 0 {
+					vPath := "editor://" + ed.id + "/workspace-backups"
+					targets = append(targets, domain.Target{
+						ID:            hashPath(vPath),
+						Name:          ed.name + ": Workspace State Backups",
+						Path:          vPath,
+						SizeBytes:     totalWsSize,
+						EligibleBytes: eligibleWsBytes,
+						TTLEligible:   hasEligibleWs,
+						Risk:          domain.RiskMedium,
+						LastAccessed:  time.Now(),
+						Category:      "editor-workspace-backups",
+					})
+				}
+			}
 		}
 	}
 
