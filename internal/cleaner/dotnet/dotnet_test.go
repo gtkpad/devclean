@@ -362,3 +362,74 @@ func TestDotNet_Clean_DefensiveGuard_PreservesNuGet(t *testing.T) {
 	}
 }
 
+func TestDotNet_IsInstalled(t *testing.T) {
+	tempDir := t.TempDir()
+	nugetDir := filepath.Join(tempDir, "nuget")
+	_ = os.MkdirAll(nugetDir, 0o755)
+
+	paths := platform.Paths{
+		DotNetNuGet: nugetDir,
+	}
+	c := New(paths, nil)
+	if !c.IsInstalled() {
+		t.Errorf("expected IsInstalled == true when DotNetNuGet dir exists")
+	}
+
+	emptyPaths := platform.Paths{
+		DotNetNuGet: filepath.Join(tempDir, "nonexistent1"),
+		DotNetHTTP:  filepath.Join(tempDir, "nonexistent2"),
+		DotNetTemp:  filepath.Join(tempDir, "nonexistent3"),
+	}
+	cEmpty := New(emptyPaths, nil)
+	// If dotnet is in system path, it returns true, otherwise false without panic
+	_ = cEmpty.IsInstalled()
+}
+
+func TestDotNet_Clean_EligibleAndSafety(t *testing.T) {
+	tempDir := t.TempDir()
+	cleanDir := filepath.Join(tempDir, "to_delete")
+	writeFile(t, filepath.Join(cleanDir, "file.dll"), 512)
+
+	outsideDir := filepath.Join(tempDir, "outside")
+	writeFile(t, filepath.Join(outsideDir, "safe.dll"), 512)
+
+	symlinkDir := filepath.Join(tempDir, "symlink_dir")
+	_ = os.Symlink(outsideDir, symlinkDir)
+
+	c := New(platform.Paths{}, nil)
+
+	targets := []domain.Target{
+		{
+			ID:       "clean-me",
+			Path:     cleanDir,
+			Category: "dotnet-build",
+		},
+		{
+			ID:       "symlink-target",
+			Path:     symlinkDir,
+			Category: "dotnet-build",
+		},
+		{
+			ID:       "blacklisted-root",
+			Path:     "/",
+			Category: "dotnet-build",
+		},
+	}
+
+	err := c.Clean(context.Background(), targets)
+	if err != nil {
+		t.Fatalf("Clean failed: %v", err)
+	}
+
+	// cleanDir must be deleted
+	if _, err := os.Stat(cleanDir); !os.IsNotExist(err) {
+		t.Errorf("expected cleanDir to be deleted")
+	}
+
+	// symlink target outsideDir must remain intact
+	if _, err := os.Stat(filepath.Join(outsideDir, "safe.dll")); err != nil {
+		t.Errorf("expected outsideDir to remain intact: %v", err)
+	}
+}
+
+

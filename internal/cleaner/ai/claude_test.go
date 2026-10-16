@@ -44,7 +44,7 @@ func TestClaude_ActiveVersion_Preserved(t *testing.T) {
 
 	// 3. Scan Claude with MaxAgeDays = 0
 	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 0}
-	targets, err := scanClaude(context.Background(), &cleaner.DefaultExecutor{}, tmpDir, rules)
+	targets, err := scanClaude(context.Background(), newMockExecutor(), tmpDir, rules)
 	if err != nil {
 		t.Fatalf("unexpected scan error: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestClaude_MissingSymlink_FailClosed(t *testing.T) {
 
 	// Do NOT create any invocation symlink!
 	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 0}
-	targets, err := scanClaude(context.Background(), &cleaner.DefaultExecutor{}, tmpDir, rules)
+	targets, err := scanClaude(context.Background(), newMockExecutor(), tmpDir, rules)
 	if err != nil {
 		t.Fatalf("unexpected scan error: %v", err)
 	}
@@ -222,7 +222,7 @@ func TestClaude_BrokenSymlink_FailClosed(t *testing.T) {
 	}
 
 	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 0}
-	targets, err := scanClaude(context.Background(), &cleaner.DefaultExecutor{}, tmpDir, rules)
+	targets, err := scanClaude(context.Background(), newMockExecutor(), tmpDir, rules)
 	if err != nil {
 		t.Fatalf("unexpected scan error: %v", err)
 	}
@@ -288,7 +288,7 @@ func TestClaude_AmbiguousSymlink_FailClosed(t *testing.T) {
 	}
 
 	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 0}
-	targets, err := scanClaude(context.Background(), &cleaner.DefaultExecutor{}, tmpDir, rules)
+	targets, err := scanClaude(context.Background(), newMockExecutor(), tmpDir, rules)
 	if err != nil {
 		t.Fatalf("unexpected scan error: %v", err)
 	}

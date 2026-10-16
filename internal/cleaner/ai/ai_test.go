@@ -246,7 +246,7 @@ func TestClaude(t *testing.T) {
 	_ = os.Chtimes(filepath.Join(claudeDir, "mcp.log"), oldTime, oldTime)
 
 	rulesWithAge := domain.EcosystemRules{Enabled: true, MaxAgeDays: 30}
-	agedTargets, err := scanClaude(context.Background(), &cleaner.DefaultExecutor{}, tmpDir, rulesWithAge)
+	agedTargets, err := scanClaude(context.Background(), newMockExecutor(), tmpDir, rulesWithAge)
 	if err != nil {
 		t.Fatalf("unexpected scan error: %v", err)
 	}
@@ -458,7 +458,7 @@ func TestAICleaner_FullScanAndClean(t *testing.T) {
 	ctx := context.Background()
 	tmpHome := t.TempDir()
 
-	c := NewWithHome(nil, tmpHome)
+	c := NewWithExecutorAndHome(newMockExecutor(), nil, tmpHome)
 
 	// Verify metadata methods
 	if c.Name() != "ai" {
