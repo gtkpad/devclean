@@ -139,3 +139,180 @@ func TestClaude_ProtectedFiles_Untouched(t *testing.T) {
 		}
 	}
 }
+
+func TestClaude_MissingSymlink_FailClosed(t *testing.T) {
+	tmpDir := t.TempDir()
+	versionsDir := filepath.Join(tmpDir, ".local", "share", "claude", "versions")
+	v100 := filepath.Join(versionsDir, "1.0.0")
+	v200 := filepath.Join(versionsDir, "2.0.0")
+
+	if err := os.MkdirAll(v100, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(v100, "claude"), []byte("bin-1.0.0"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(v200, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(v200, "claude"), []byte("bin-2.0.0"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Do NOT create any invocation symlink!
+	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 0}
+	targets, err := scanClaude(context.Background(), &cleaner.DefaultExecutor{}, tmpDir, rules)
+	if err != nil {
+		t.Fatalf("unexpected scan error: %v", err)
+	}
+
+	foundMap := make(map[string]domain.Target)
+	for _, target := range targets {
+		foundMap[target.Path] = target
+	}
+
+	for _, v := range []string{v100, v200} {
+		tgt, ok := foundMap[v]
+		if !ok {
+			t.Fatalf("expected version %s to be returned as target", v)
+		}
+		if !tgt.ReviewOnly {
+			t.Errorf("expected ReviewOnly=true for missing symlink on %s", v)
+		}
+		if tgt.ReviewReason != domain.ReviewReasonActiveVersion {
+			t.Errorf("expected ReviewReason '%s', got '%s'", domain.ReviewReasonActiveVersion, tgt.ReviewReason)
+		}
+		if tgt.EligibleBytes != 0 {
+			t.Errorf("expected EligibleBytes=0, got %d", tgt.EligibleBytes)
+		}
+		if tgt.TTLEligible {
+			t.Errorf("expected TTLEligible=false")
+		}
+		if tgt.SizeBytes <= 0 {
+			t.Errorf("expected SizeBytes > 0, got %d", tgt.SizeBytes)
+		}
+		if tgt.Category != "ai-claude-versions" {
+			t.Errorf("expected category 'ai-claude-versions', got '%s'", tgt.Category)
+		}
+		if tgt.Risk != domain.RiskLow {
+			t.Errorf("expected RiskLow, got %v", tgt.Risk)
+		}
+	}
+}
+
+func TestClaude_BrokenSymlink_FailClosed(t *testing.T) {
+	tmpDir := t.TempDir()
+	versionsDir := filepath.Join(tmpDir, ".local", "share", "claude", "versions")
+	v100 := filepath.Join(versionsDir, "1.0.0")
+	if err := os.MkdirAll(v100, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(v100, "claude"), []byte("bin-1.0.0"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create symlink ~/.local/bin/claude pointing to non-existent ~/.local/share/claude/versions/9.9.9
+	binDir := filepath.Join(tmpDir, ".local", "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	nonExistentTarget := filepath.Join(versionsDir, "9.9.9")
+	if err := os.Symlink(nonExistentTarget, filepath.Join(binDir, "claude")); err != nil {
+		t.Fatal(err)
+	}
+
+	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 0}
+	targets, err := scanClaude(context.Background(), &cleaner.DefaultExecutor{}, tmpDir, rules)
+	if err != nil {
+		t.Fatalf("unexpected scan error: %v", err)
+	}
+
+	if len(targets) == 0 {
+		t.Fatalf("expected discovered versions to be reported even when symlink is broken")
+	}
+
+	for _, tgt := range targets {
+		if !tgt.ReviewOnly {
+			t.Errorf("expected ReviewOnly=true for broken symlink on %s", tgt.Path)
+		}
+		if tgt.ReviewReason != domain.ReviewReasonAmbiguous {
+			t.Errorf("expected ReviewReason '%s', got '%s'", domain.ReviewReasonAmbiguous, tgt.ReviewReason)
+		}
+		if tgt.EligibleBytes != 0 {
+			t.Errorf("expected EligibleBytes=0 for broken symlink, got %d", tgt.EligibleBytes)
+		}
+		if tgt.TTLEligible {
+			t.Errorf("expected TTLEligible=false for broken symlink")
+		}
+		if tgt.SizeBytes <= 0 {
+			t.Errorf("expected SizeBytes > 0, got %d", tgt.SizeBytes)
+		}
+	}
+}
+
+func TestClaude_AmbiguousSymlink_FailClosed(t *testing.T) {
+	tmpDir := t.TempDir()
+	versionsDir := filepath.Join(tmpDir, ".local", "share", "claude", "versions")
+	v100 := filepath.Join(versionsDir, "1.0.0")
+	v200 := filepath.Join(versionsDir, "2.0.0")
+
+	if err := os.MkdirAll(v100, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(v100, "claude"), []byte("bin-1.0.0"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(v200, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(v200, "claude"), []byte("bin-2.0.0"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create symlink 1: ~/.local/bin/claude -> v100
+	binDir := filepath.Join(tmpDir, ".local", "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(v100, filepath.Join(binDir, "claude")); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create symlink 2: ~/.local/share/claude/current -> v200
+	claudeShareDir := filepath.Join(tmpDir, ".local", "share", "claude")
+	if err := os.MkdirAll(claudeShareDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(v200, filepath.Join(claudeShareDir, "current")); err != nil {
+		t.Fatal(err)
+	}
+
+	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 0}
+	targets, err := scanClaude(context.Background(), &cleaner.DefaultExecutor{}, tmpDir, rules)
+	if err != nil {
+		t.Fatalf("unexpected scan error: %v", err)
+	}
+
+	if len(targets) != 2 {
+		t.Fatalf("expected 2 discovered versions reported, got %d", len(targets))
+	}
+
+	for _, tgt := range targets {
+		if !tgt.ReviewOnly {
+			t.Errorf("expected ReviewOnly=true for ambiguous symlinks on %s", tgt.Path)
+		}
+		if tgt.ReviewReason != domain.ReviewReasonAmbiguous {
+			t.Errorf("expected ReviewReason '%s', got '%s'", domain.ReviewReasonAmbiguous, tgt.ReviewReason)
+		}
+		if tgt.EligibleBytes != 0 {
+			t.Errorf("expected EligibleBytes=0 for ambiguous symlinks, got %d", tgt.EligibleBytes)
+		}
+		if tgt.TTLEligible {
+			t.Errorf("expected TTLEligible=false for ambiguous symlinks")
+		}
+		if tgt.SizeBytes <= 0 {
+			t.Errorf("expected SizeBytes > 0, got %d", tgt.SizeBytes)
+		}
+	}
+}
+
