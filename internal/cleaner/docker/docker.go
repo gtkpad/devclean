@@ -94,32 +94,85 @@ func (c *dockerCleaner) Scan(ctx context.Context, rules domain.EcosystemRules) (
 				},
 			})
 		}
-		return targets, nil
+	} else {
+		parsedTargets, hasMalformed := parseSystemDFOutput(out)
+		targets = append(targets, parsedTargets...)
+
+		if hasMalformed {
+			targets = append(targets, domain.Target{
+				ID:            "docker-daemon-parse-error",
+				Name:          "Docker daemon (parse warning)",
+				Path:          "docker://daemon/status",
+				SizeBytes:     0,
+				EligibleBytes: 0,
+				TTLEligible:   false,
+				ReviewOnly:    true,
+				ReviewReason:  domain.ReviewReasonAmbiguous,
+				Risk:          domain.RiskLow,
+				Category:      "docker-daemon",
+				ProviderMetrics: &domain.ProviderMetrics{
+					Partial:    true,
+					StatusNote: "docker system df returned malformed or unrecognized JSON lines",
+				},
+			})
+		}
 	}
 
-	parsedTargets, hasMalformed := parseSystemDFOutput(out)
-	targets = append(targets, parsedTargets...)
-
-	if hasMalformed {
-		targets = append(targets, domain.Target{
-			ID:            "docker-daemon-parse-error",
-			Name:          "Docker daemon (parse warning)",
-			Path:          "docker://daemon/status",
-			SizeBytes:     0,
-			EligibleBytes: 0,
-			TTLEligible:   false,
-			ReviewOnly:    true,
-			ReviewReason:  domain.ReviewReasonAmbiguous,
-			Risk:          domain.RiskLow,
-			Category:      "docker-daemon",
-			ProviderMetrics: &domain.ProviderMetrics{
-				Partial:    true,
-				StatusNote: "docker system df returned malformed or unrecognized JSON lines",
-			},
-		})
+	if vmTarget, ok := scanDockerVMDisk(); ok {
+		targets = append(targets, vmTarget)
 	}
 
 	return targets, nil
+}
+
+func scanDockerVMDisk() (domain.Target, bool) {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return domain.Target{}, false
+	}
+
+	candidates := []string{
+		filepath.Join(home, "Library", "Containers", "com.docker.docker", "Data", "vms", "0", "data", "Docker.raw"),
+		filepath.Join(home, ".docker", "desktop", "vms", "0", "data", "Docker.raw"),
+	}
+
+	for _, p := range candidates {
+		info, err := os.Stat(p)
+		if err == nil && !info.IsDir() {
+			usage, _ := fs.CalcUsage(p)
+			size := usage.AllocatedBytes
+			if size == 0 {
+				size = info.Size()
+			}
+			apparent := usage.ApparentBytes
+			if apparent == 0 {
+				apparent = info.Size()
+			}
+
+			target := domain.Target{
+				ID:            "docker-vm-disk",
+				Name:          fmt.Sprintf("Docker Desktop VM Disk (allocated: %s, apparent: %s)", formatBytes(size), formatBytes(apparent)),
+				Path:          p,
+				SizeBytes:     size,
+				EligibleBytes: 0, // D-02: 100% ReviewOnly
+				TTLEligible:   false,
+				ReviewOnly:    true,
+				ReviewReason:  domain.ReviewReasonSharedStore,
+				Risk:          domain.RiskLow,
+				LastAccessed:  info.ModTime(),
+				Category:      "docker-vm-disk",
+				ProviderMetrics: &domain.ProviderMetrics{
+					SizeBytes:      size,
+					AllocatedBytes: usage.AllocatedBytes,
+					ApparentBytes:  apparent,
+					StatusNote:     "physical host VM disk image",
+				},
+			}
+			return target, true
+		}
+	}
+
+	return domain.Target{}, false
 }
 
 func (c *dockerCleaner) Clean(ctx context.Context, targets []domain.Target) error {
