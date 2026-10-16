@@ -10,6 +10,7 @@ import (
 	"github.com/gtkpad/devclean/internal/cleaner"
 	"github.com/gtkpad/devclean/internal/domain"
 	devfs "github.com/gtkpad/devclean/internal/fs"
+	"github.com/gtkpad/devclean/internal/safety"
 )
 
 var protectedClaudeFiles = map[string]bool{
@@ -20,85 +21,243 @@ var protectedClaudeFiles = map[string]bool{
 	"credentials.json": true,
 }
 
-func scanClaude(ctx context.Context, exec cleaner.CommandExecutor, home string, rules domain.EcosystemRules) ([]domain.Target, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	cleanClaudeDir := filepath.Clean(filepath.Join(home, ".claude"))
-	if _, err := os.Stat(cleanClaudeDir); os.IsNotExist(err) {
-		return nil, nil
+type claudeVersionsResult struct {
+	activeVersionPath string
+	ambiguous         bool
+	missingSymlink    bool
+	brokenSymlink     bool
+	candidateVersions []string
+}
+
+func resolveActiveClaudeVersion(home string) claudeVersionsResult {
+	versionsDir := filepath.Join(home, ".local", "share", "claude", "versions")
+	localDir := filepath.Join(home, ".claude", "local")
+
+	var candidateVersions []string
+	if entries, err := os.ReadDir(versionsDir); err == nil {
+		for _, e := range entries {
+			p := filepath.Join(versionsDir, e.Name())
+			if isLink, err := safety.IsSymlink(p); err == nil && isLink {
+				continue
+			}
+			if _, err := os.Stat(p); err == nil {
+				candidateVersions = append(candidateVersions, p)
+			}
+		}
 	}
 
-	var targets []domain.Target
-	candidateDirs := []string{"debug", "tmp", "cache", "telemetry"}
-	cutoff := time.Now().AddDate(0, 0, -rules.MaxAgeDays)
+	if _, err := os.Stat(localDir); err == nil {
+		if isLink, err := safety.IsSymlink(localDir); err == nil && !isLink {
+			candidateVersions = append(candidateVersions, localDir)
+		}
+	}
 
-	for _, sub := range candidateDirs {
-		p := filepath.Join(cleanClaudeDir, sub)
-		info, err := os.Stat(p)
-		if err != nil || !info.IsDir() {
+	if len(candidateVersions) == 0 {
+		return claudeVersionsResult{}
+	}
+
+	symlinkCandidates := []string{
+		filepath.Join(home, ".local", "bin", "claude"),
+		filepath.Join(home, ".local", "share", "claude", "current"),
+		filepath.Join(home, ".local", "share", "claude", "versions", "current"),
+		filepath.Join(home, ".local", "share", "claude", "claude"),
+	}
+
+	foundSymlinks := 0
+	resolvedTargets := make(map[string]bool)
+	var activePath string
+
+	for _, link := range symlinkCandidates {
+		isLink, err := safety.IsSymlink(link)
+		if err != nil || !isLink {
 			continue
 		}
+		foundSymlinks++
 
-		size, _ := devfs.CalcDirSize(p)
-		if size > 0 {
-			eligibleBytes := int64(0)
-			ttlEligible := false
-			if rules.MaxAgeDays == 0 || info.ModTime().Before(cutoff) {
-				eligibleBytes = size
-				ttlEligible = true
+		dest, err := filepath.EvalSymlinks(link)
+		if err != nil {
+			return claudeVersionsResult{
+				brokenSymlink:     true,
+				candidateVersions: candidateVersions,
 			}
-			targets = append(targets, domain.Target{
-				ID:            hashPath(p),
-				Name:          "Claude Code: " + sub + " cache",
-				Path:          p,
-				SizeBytes:     size,
-				EligibleBytes: eligibleBytes,
-				TTLEligible:   ttlEligible,
-				Risk:          domain.RiskLow,
-				LastAccessed:  info.ModTime(),
-				Category:      "ai-claude-cache",
-			})
+		}
+
+		cleanDest := filepath.Clean(dest)
+		resolvedTargets[cleanDest] = true
+		activePath = cleanDest
+	}
+
+	if foundSymlinks == 0 {
+		return claudeVersionsResult{
+			missingSymlink:    true,
+			candidateVersions: candidateVersions,
 		}
 	}
 
-	// Logs soltos em ~/.claude/*.log
-	entries, err := os.ReadDir(cleanClaudeDir)
-	if err == nil {
-		for _, e := range entries {
-			if e.IsDir() || !strings.HasSuffix(e.Name(), ".log") {
-				continue
+	if len(resolvedTargets) > 1 {
+		return claudeVersionsResult{
+			ambiguous:         true,
+			candidateVersions: candidateVersions,
+		}
+	}
+
+	matched := false
+	for _, v := range candidateVersions {
+		cleanV := filepath.Clean(v)
+		if evalV, err := filepath.EvalSymlinks(v); err == nil {
+			cleanV = evalV
+		}
+		if cleanV == activePath || strings.HasPrefix(activePath, cleanV+string(filepath.Separator)) {
+			matched = true
+			break
+		}
+	}
+	if !matched {
+		return claudeVersionsResult{
+			ambiguous:         true,
+			candidateVersions: candidateVersions,
+		}
+	}
+
+	return claudeVersionsResult{
+		activeVersionPath: activePath,
+		candidateVersions: candidateVersions,
+	}
+}
+
+func scanClaudeVersions(home string, rules domain.EcosystemRules) []domain.Target {
+	res := resolveActiveClaudeVersion(home)
+	if len(res.candidateVersions) == 0 {
+		return nil
+	}
+
+	cutoff := time.Now().AddDate(0, 0, -rules.MaxAgeDays)
+	var targets []domain.Target
+
+	if !res.ambiguous && !res.missingSymlink && !res.brokenSymlink && res.activeVersionPath != "" {
+		for _, verPath := range res.candidateVersions {
+			cleanVer := filepath.Clean(verPath)
+			if evalVer, err := filepath.EvalSymlinks(verPath); err == nil {
+				cleanVer = evalVer
 			}
-			if protectedClaudeFiles[e.Name()] {
+			if cleanVer == res.activeVersionPath || strings.HasPrefix(res.activeVersionPath, cleanVer+string(filepath.Separator)) {
+				// PROTECTED: Active version is strictly preserved and never targeted
 				continue
 			}
 
-			p := filepath.Join(cleanClaudeDir, e.Name())
-			info, err := e.Info()
+			info, err := os.Stat(verPath)
 			if err != nil {
 				continue
 			}
 
-			eligibleBytes := int64(0)
-			ttlEligible := false
-			if rules.MaxAgeDays == 0 || info.ModTime().Before(cutoff) {
-				eligibleBytes = info.Size()
-				ttlEligible = true
+			sz, _ := devfs.CalcDirSize(verPath)
+			if sz == 0 {
+				sz = info.Size()
 			}
 
-			targets = append(targets, domain.Target{
-				ID:            hashPath(p),
-				Name:          "Claude Code log: " + e.Name(),
-				Path:          p,
-				SizeBytes:     info.Size(),
-				EligibleBytes: eligibleBytes,
-				TTLEligible:   ttlEligible,
-				Risk:          domain.RiskLow,
-				LastAccessed:  info.ModTime(),
-				Category:      "ai-claude-logs",
-			})
+			target := domain.Target{
+				ID:           hashPath(verPath),
+				Name:         "Claude CLI version: " + filepath.Base(verPath),
+				Path:         verPath,
+				SizeBytes:    sz,
+				Risk:         domain.RiskLow,
+				LastAccessed: info.ModTime(),
+				Category:     "ai-claude-versions",
+			}
+
+			if rules.MaxAgeDays == 0 || info.ModTime().Before(cutoff) {
+				target.TTLEligible = true
+				target.EligibleBytes = sz
+			}
+
+			targets = append(targets, target)
 		}
 	}
+
+	return targets
+}
+
+func scanClaude(ctx context.Context, exec cleaner.CommandExecutor, home string, rules domain.EcosystemRules) ([]domain.Target, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	var targets []domain.Target
+	cleanClaudeDir := filepath.Clean(filepath.Join(home, ".claude"))
+	if info, err := os.Stat(cleanClaudeDir); err == nil && info.IsDir() {
+		candidateDirs := []string{"debug", "tmp", "cache", "telemetry"}
+		cutoff := time.Now().AddDate(0, 0, -rules.MaxAgeDays)
+
+		for _, sub := range candidateDirs {
+			p := filepath.Join(cleanClaudeDir, sub)
+			info, err := os.Stat(p)
+			if err != nil || !info.IsDir() {
+				continue
+			}
+
+			size, _ := devfs.CalcDirSize(p)
+			if size > 0 {
+				eligibleBytes := int64(0)
+				ttlEligible := false
+				if rules.MaxAgeDays == 0 || info.ModTime().Before(cutoff) {
+					eligibleBytes = size
+					ttlEligible = true
+				}
+				targets = append(targets, domain.Target{
+					ID:            hashPath(p),
+					Name:          "Claude Code: " + sub + " cache",
+					Path:          p,
+					SizeBytes:     size,
+					EligibleBytes: eligibleBytes,
+					TTLEligible:   ttlEligible,
+					Risk:          domain.RiskLow,
+					LastAccessed:  info.ModTime(),
+					Category:      "ai-claude-cache",
+				})
+			}
+		}
+
+		// Logs soltos em ~/.claude/*.log
+		entries, err := os.ReadDir(cleanClaudeDir)
+		if err == nil {
+			for _, e := range entries {
+				if e.IsDir() || !strings.HasSuffix(e.Name(), ".log") {
+					continue
+				}
+				if protectedClaudeFiles[e.Name()] {
+					continue
+				}
+
+				p := filepath.Join(cleanClaudeDir, e.Name())
+				info, err := e.Info()
+				if err != nil {
+					continue
+				}
+
+				eligibleBytes := int64(0)
+				ttlEligible := false
+				if rules.MaxAgeDays == 0 || info.ModTime().Before(cutoff) {
+					eligibleBytes = info.Size()
+					ttlEligible = true
+				}
+
+				targets = append(targets, domain.Target{
+					ID:            hashPath(p),
+					Name:          "Claude Code log: " + e.Name(),
+					Path:          p,
+					SizeBytes:     info.Size(),
+					EligibleBytes: eligibleBytes,
+					TTLEligible:   ttlEligible,
+					Risk:          domain.RiskLow,
+					LastAccessed:  info.ModTime(),
+					Category:      "ai-claude-logs",
+				})
+			}
+		}
+	}
+
+	verTargets := scanClaudeVersions(home, rules)
+	targets = append(targets, verTargets...)
 
 	return targets, nil
 }
