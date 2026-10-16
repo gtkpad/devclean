@@ -1574,6 +1574,281 @@ func TestCoordinator_DryRun_ZeroMutation_Phase10(t *testing.T) {
 	}
 }
 
+func TestCoordinator_DryRun_ZeroMutation_Phase11(t *testing.T) {
+	tempDir := t.TempDir()
+	configDir := filepath.Join(tempDir, "config")
+	dataDir := filepath.Join(tempDir, "data")
+	trashDir := filepath.Join(tempDir, "trash")
+
+	cfg := &config.Config{
+		Safety: config.SafetyConfig{
+			TrashEnabled: true,
+			TrashDir:     trashDir,
+		},
+	}
+
+	bl := safety.NewBlacklist(nil)
+	trashMgr := trash.New(cfg.Safety)
+
+	cleaners := newFakeCleanerProvider()
+	macosCleaner := &fakeCleaner{name: "macos", installed: true}
+	cleaners.Register("macos", macosCleaner)
+
+	coord := deleter.New(cleaners, cfg, bl, trashMgr, nil, configDir, dataDir)
+
+	type fileState struct {
+		absPath string
+		hash    [32]byte
+		size    int64
+		mtime   time.Time
+	}
+
+	var preStates []fileState
+
+	recordFile := func(relPath string, payload []byte) string {
+		fullPath := filepath.Join(tempDir, relPath)
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
+			t.Fatalf("mkdir failed: %v", err)
+		}
+		if err := os.WriteFile(fullPath, payload, 0o644); err != nil {
+			t.Fatalf("write failed: %v", err)
+		}
+		info, err := os.Stat(fullPath)
+		if err != nil {
+			t.Fatalf("stat failed: %v", err)
+		}
+		preStates = append(preStates, fileState{
+			absPath: fullPath,
+			hash:    sha256.Sum256(payload),
+			size:    info.Size(),
+			mtime:   info.ModTime(),
+		})
+		return fullPath
+	}
+
+	makePayload := func(prefix string, totalSize int) []byte {
+		b := make([]byte, totalSize)
+		copy(b, []byte(prefix))
+		return b
+	}
+
+	// 1. Canary files in Trash, System Logs, Diagnostic Reports, and Whitelisted Vaults
+	trashFile := recordFile("user_trash/canary.txt", makePayload("TRASH-CANARY", 1024))
+	sysLogFile := recordFile("system_logs/system.log", makePayload("SYSLOG-CANARY", 2048))
+	diagFile := recordFile("diagnostic_reports/crash.ips", makePayload("DIAG-CANARY", 4096))
+	keychainFile := recordFile("keychain/login.keychain-db", makePayload("KEYCHAIN-CANARY", 4096))
+	onePasswordFile := recordFile("1password/vault.sqlite", makePayload("1PASSWORD-CANARY", 8192))
+
+	trashTarget := domain.Target{
+		ID:            "macos-trash",
+		Name:          "macOS Trash",
+		Path:          filepath.Dir(trashFile),
+		Category:      "macos-trash",
+		Risk:          domain.RiskLow,
+		SizeBytes:     1024,
+		EligibleBytes: 0,
+		TTLEligible:   false,
+		ReviewOnly:    true,
+		ReviewReason:  "trash_requires_flag",
+	}
+
+	sysLogTarget := domain.Target{
+		ID:            "macos-system-logs",
+		Name:          "macOS System Logs",
+		Path:          filepath.Dir(sysLogFile),
+		Category:      "macos-system-logs",
+		Risk:          domain.RiskLow,
+		SizeBytes:     2048,
+		EligibleBytes: 0,
+		TTLEligible:   false,
+		ReviewOnly:    true,
+		ReviewReason:  domain.ReviewReasonSystemProtected,
+	}
+
+	diagTarget := domain.Target{
+		ID:            "macos-system-diagnostic-reports",
+		Name:          "macOS System Diagnostic Reports",
+		Path:          filepath.Dir(diagFile),
+		Category:      "macos-diagnostic-reports",
+		Risk:          domain.RiskLow,
+		SizeBytes:     4096,
+		EligibleBytes: 0,
+		TTLEligible:   false,
+		ReviewOnly:    true,
+		ReviewReason:  domain.ReviewReasonSystemProtected,
+	}
+
+	keychainTarget := domain.Target{
+		ID:            "macos-keychain",
+		Name:          "macOS Keychain Vault",
+		Path:          filepath.Dir(keychainFile),
+		Category:      "macos-vault",
+		Risk:          domain.RiskLow,
+		SizeBytes:     4096,
+		EligibleBytes: 0,
+		TTLEligible:   false,
+		ReviewOnly:    true,
+		ReviewReason:  domain.ReviewReasonSystemProtected,
+	}
+
+	onePasswordTarget := domain.Target{
+		ID:            "macos-1password",
+		Name:          "1Password Vault",
+		Path:          filepath.Dir(onePasswordFile),
+		Category:      "macos-vault",
+		Risk:          domain.RiskLow,
+		SizeBytes:     8192,
+		EligibleBytes: 0,
+		TTLEligible:   false,
+		ReviewOnly:    true,
+		ReviewReason:  domain.ReviewReasonSystemProtected,
+	}
+
+	targetsByEco := map[string][]domain.Target{
+		"macos": {trashTarget, sysLogTarget, diagTarget, keychainTarget, onePasswordTarget},
+	}
+
+	opts := deleter.Options{
+		DryRun: true,
+		Auto:   true,
+		Mode:   "auto",
+	}
+
+	res, err := coord.Delete(context.Background(), targetsByEco, opts)
+	if err != nil {
+		t.Fatalf("DryRun Delete failed: %v", err)
+	}
+
+	// 1. Assert result metrics
+	if res.TotalCount != 0 {
+		t.Errorf("res.TotalCount = %d, want 0", res.TotalCount)
+	}
+	if res.TotalFreed != 0 {
+		t.Errorf("res.TotalFreed = %d, want 0", res.TotalFreed)
+	}
+	if len(res.SkippedReviewOnly) != 5 {
+		t.Fatalf("len(res.SkippedReviewOnly) = %d, want 5", len(res.SkippedReviewOnly))
+	}
+	if len(res.Errors) != 0 {
+		t.Errorf("expected 0 errors, got %d: %v", len(res.Errors), res.Errors)
+	}
+
+	// 2. Strict POL-04, VAL-02 zero-mutation assertion on EVERY canary file
+	for _, pre := range preStates {
+		postInfo, err := os.Stat(pre.absPath)
+		if err != nil {
+			t.Fatalf("canary file missing after DryRun: %s (err: %v)", pre.absPath, err)
+		}
+		data, err := os.ReadFile(pre.absPath)
+		if err != nil {
+			t.Fatalf("reading canary file %s: %v", pre.absPath, err)
+		}
+		postHash := sha256.Sum256(data)
+		if postHash != pre.hash {
+			t.Errorf("SHA-256 mutated for %s! Before: %x, After: %x", pre.absPath, pre.hash, postHash)
+		}
+		if postInfo.Size() != pre.size {
+			t.Errorf("Byte size mutated for %s! Before: %d, After: %d", pre.absPath, pre.size, postInfo.Size())
+		}
+		if postInfo.ModTime() != pre.mtime {
+			t.Errorf("mtime mutated for %s! Before: %v, After: %v", pre.absPath, pre.mtime, postInfo.ModTime())
+		}
+	}
+
+	// 3. Trash directory must remain completely empty with zero manifests
+	if entries, err := os.ReadDir(trashDir); err == nil && len(entries) > 0 {
+		t.Errorf("trashDir has entries after DryRun: %v", entries)
+	}
+	manifestPath := filepath.Join(trashDir, "manifest.json")
+	if _, err := os.Stat(manifestPath); !os.IsNotExist(err) {
+		t.Errorf("trash manifest.json was created during DryRun: %s", manifestPath)
+	}
+
+	// 4. Cleaner must never have been called
+	if len(macosCleaner.Cleaned()) != 0 {
+		t.Errorf("macosCleaner was invoked during DryRun: %v", macosCleaner.Cleaned())
+	}
+}
+
+func TestCoordinator_DirectTrashPurge_BypassesQuarantine(t *testing.T) {
+	tempDir := t.TempDir()
+	configDir := filepath.Join(tempDir, "config")
+	dataDir := filepath.Join(tempDir, "data")
+	trashDir := filepath.Join(tempDir, "internal_trash")
+
+	cfg := &config.Config{
+		Safety: config.SafetyConfig{
+			TrashEnabled: true, // Internal quarantine enabled!
+			TrashDir:     trashDir,
+		},
+	}
+
+	bl := safety.NewBlacklist(nil)
+	trashMgr := trash.New(cfg.Safety)
+
+	cleaners := newFakeCleanerProvider()
+	macosCleaner := &fakeCleaner{name: "macos", installed: true}
+	cleaners.Register("macos", macosCleaner)
+
+	coord := deleter.New(cleaners, cfg, bl, trashMgr, nil, configDir, dataDir)
+
+	mockUserTrash := filepath.Join(tempDir, "user_trash")
+	if err := os.MkdirAll(mockUserTrash, 0o755); err != nil {
+		t.Fatalf("mkdir failed: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(mockUserTrash, "item.txt"), []byte("garbage"), 0o644); err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+
+	trashTarget := domain.Target{
+		ID:            "macos-trash",
+		Name:          "macOS Trash",
+		Path:          mockUserTrash,
+		Category:      "macos-trash",
+		Risk:          domain.RiskLow,
+		SizeBytes:     7,
+		EligibleBytes: 7,
+		TTLEligible:   true,
+		ReviewOnly:    false, // Authorized by --trash flag
+	}
+
+	targetsByEco := map[string][]domain.Target{
+		"macos": {trashTarget},
+	}
+
+	opts := deleter.Options{
+		DryRun: false,
+		Mode:   "force",
+	}
+
+	res, err := coord.Delete(context.Background(), targetsByEco, opts)
+	if err != nil {
+		t.Fatalf("Delete failed: %v", err)
+	}
+
+	// 1. Assert result metrics
+	if res.TotalCount != 1 {
+		t.Errorf("res.TotalCount = %d, want 1", res.TotalCount)
+	}
+	if res.TotalFreed != 7 {
+		t.Errorf("res.TotalFreed = %d, want 7", res.TotalFreed)
+	}
+
+	// 2. macosCleaner must have been directly invoked for macos-trash (bypassing trashMgr.Move)
+	if len(macosCleaner.Cleaned()) != 1 {
+		t.Fatalf("macosCleaner.Cleaned() count = %d, want 1 (direct clean)", len(macosCleaner.Cleaned()))
+	}
+	if macosCleaner.Cleaned()[0].Path != mockUserTrash {
+		t.Errorf("cleaned path = %q, want %q", macosCleaner.Cleaned()[0].Path, mockUserTrash)
+	}
+
+	// 3. Internal quarantine trash directory must remain completely empty!
+	if entries, err := os.ReadDir(trashDir); err == nil && len(entries) > 0 {
+		t.Errorf("internal trashDir has entries: %v (should bypass quarantine)", entries)
+	}
+}
+
+
 
 
 
