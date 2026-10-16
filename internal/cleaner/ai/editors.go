@@ -574,7 +574,6 @@ func scanCachedVSIXs(appSupportDir string, cutoff time.Time, maxAgeDays int) (in
 }
 
 func scanEditors(ctx context.Context, exec cleaner.CommandExecutor, home string, rules domain.EcosystemRules) ([]domain.Target, error) {
-	_ = exec
 	if home == "" {
 		return nil, nil
 	}
@@ -587,6 +586,9 @@ func scanEditors(ctx context.Context, exec cleaner.CommandExecutor, home string,
 			return nil, err
 		}
 
+		running, uncertain := checkProcessStatus(ctx, exec, ed.processNames...)
+		isBlocked := running || uncertain
+
 		// 1. Chromium & GPU Caches
 		totalCacheSize, eligibleCacheBytes, hasEligibleCache, cacheTime, _ := scanEditorChromiumCaches(ed, home, cutoff, rules.MaxAgeDays)
 		if totalCacheSize > 0 {
@@ -594,7 +596,7 @@ func scanEditors(ctx context.Context, exec cleaner.CommandExecutor, home string,
 				cacheTime = time.Now()
 			}
 			vPath := "editor://" + ed.id + "/chromium-cache"
-			targets = append(targets, domain.Target{
+			trg := domain.Target{
 				ID:            hashPath(vPath),
 				Name:          ed.name + ": Chromium & GPU Caches",
 				Path:          vPath,
@@ -604,7 +606,14 @@ func scanEditors(ctx context.Context, exec cleaner.CommandExecutor, home string,
 				Risk:          domain.RiskLow,
 				LastAccessed:  cacheTime,
 				Category:      "editor-chromium-cache",
-			})
+			}
+			if isBlocked {
+				trg.ReviewOnly = true
+				trg.ReviewReason = domain.ReviewReasonActiveProcess
+				trg.EligibleBytes = 0
+				trg.TTLEligible = false
+			}
+			targets = append(targets, trg)
 		}
 
 		// 2. Logs & Crash Reports
@@ -614,7 +623,7 @@ func scanEditors(ctx context.Context, exec cleaner.CommandExecutor, home string,
 				logTime = time.Now()
 			}
 			vPath := "editor://" + ed.id + "/logs"
-			targets = append(targets, domain.Target{
+			trg := domain.Target{
 				ID:            hashPath(vPath),
 				Name:          ed.name + ": Logs & Crash Reports",
 				Path:          vPath,
@@ -624,7 +633,14 @@ func scanEditors(ctx context.Context, exec cleaner.CommandExecutor, home string,
 				Risk:          domain.RiskLow,
 				LastAccessed:  logTime,
 				Category:      "editor-logs",
-			})
+			}
+			if isBlocked {
+				trg.ReviewOnly = true
+				trg.ReviewReason = domain.ReviewReasonActiveProcess
+				trg.EligibleBytes = 0
+				trg.TTLEligible = false
+			}
+			targets = append(targets, trg)
 		}
 
 		// 3. Workspace State Backups (Surgical state.vscdb.backup only)
@@ -634,7 +650,7 @@ func scanEditors(ctx context.Context, exec cleaner.CommandExecutor, home string,
 				totalWsSize, eligibleWsBytes, hasEligibleWs, _ := scanWorkspaceBackups(appSupport, cutoff, rules.MaxAgeDays)
 				if totalWsSize > 0 {
 					vPath := "editor://" + ed.id + "/workspace-backups"
-					targets = append(targets, domain.Target{
+					trg := domain.Target{
 						ID:            hashPath(vPath),
 						Name:          ed.name + ": Workspace State Backups",
 						Path:          vPath,
@@ -644,7 +660,14 @@ func scanEditors(ctx context.Context, exec cleaner.CommandExecutor, home string,
 						Risk:          domain.RiskMedium,
 						LastAccessed:  time.Now(),
 						Category:      "editor-workspace-backups",
-					})
+					}
+					if isBlocked {
+						trg.ReviewOnly = true
+						trg.ReviewReason = domain.ReviewReasonActiveProcess
+						trg.EligibleBytes = 0
+						trg.TTLEligible = false
+					}
+					targets = append(targets, trg)
 				}
 			}
 		}
@@ -679,7 +702,7 @@ func scanEditors(ctx context.Context, exec cleaner.CommandExecutor, home string,
 
 			if totalExtSize > 0 {
 				vPath := "editor://" + ed.id + "/extensions"
-				targets = append(targets, domain.Target{
+				trg := domain.Target{
 					ID:            hashPath(vPath),
 					Name:          ed.name + ": Cached VSIXs & Obsolete Exts",
 					Path:          vPath,
@@ -689,7 +712,14 @@ func scanEditors(ctx context.Context, exec cleaner.CommandExecutor, home string,
 					Risk:          domain.RiskMedium,
 					LastAccessed:  time.Now(),
 					Category:      "editor-extensions",
-				})
+				}
+				if isBlocked {
+					trg.ReviewOnly = true
+					trg.ReviewReason = domain.ReviewReasonActiveProcess
+					trg.EligibleBytes = 0
+					trg.TTLEligible = false
+				}
+				targets = append(targets, trg)
 			}
 		}
 	}

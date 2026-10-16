@@ -197,6 +197,9 @@ func scanClaude(ctx context.Context, exec cleaner.CommandExecutor, home string, 
 		return nil, err
 	}
 
+	running, uncertain := checkProcessStatus(ctx, exec, "claude")
+	isBlocked := running || uncertain
+
 	var targets []domain.Target
 	cleanClaudeDir := filepath.Clean(filepath.Join(home, ".claude"))
 	if info, err := os.Stat(cleanClaudeDir); err == nil && info.IsDir() {
@@ -218,7 +221,7 @@ func scanClaude(ctx context.Context, exec cleaner.CommandExecutor, home string, 
 					eligibleBytes = size
 					ttlEligible = true
 				}
-				targets = append(targets, domain.Target{
+				trg := domain.Target{
 					ID:            hashPath(p),
 					Name:          "Claude Code: " + sub + " cache",
 					Path:          p,
@@ -228,7 +231,14 @@ func scanClaude(ctx context.Context, exec cleaner.CommandExecutor, home string, 
 					Risk:          domain.RiskLow,
 					LastAccessed:  info.ModTime(),
 					Category:      "ai-claude-cache",
-				})
+				}
+				if isBlocked {
+					trg.ReviewOnly = true
+					trg.ReviewReason = domain.ReviewReasonActiveProcess
+					trg.EligibleBytes = 0
+					trg.TTLEligible = false
+				}
+				targets = append(targets, trg)
 			}
 		}
 
@@ -256,7 +266,7 @@ func scanClaude(ctx context.Context, exec cleaner.CommandExecutor, home string, 
 					ttlEligible = true
 				}
 
-				targets = append(targets, domain.Target{
+				trg := domain.Target{
 					ID:            hashPath(p),
 					Name:          "Claude Code log: " + e.Name(),
 					Path:          p,
@@ -266,12 +276,27 @@ func scanClaude(ctx context.Context, exec cleaner.CommandExecutor, home string, 
 					Risk:          domain.RiskLow,
 					LastAccessed:  info.ModTime(),
 					Category:      "ai-claude-logs",
-				})
+				}
+				if isBlocked {
+					trg.ReviewOnly = true
+					trg.ReviewReason = domain.ReviewReasonActiveProcess
+					trg.EligibleBytes = 0
+					trg.TTLEligible = false
+				}
+				targets = append(targets, trg)
 			}
 		}
 	}
 
 	verTargets := scanClaudeVersions(home, rules)
+	if isBlocked {
+		for i := range verTargets {
+			verTargets[i].ReviewOnly = true
+			verTargets[i].ReviewReason = domain.ReviewReasonActiveProcess
+			verTargets[i].EligibleBytes = 0
+			verTargets[i].TTLEligible = false
+		}
+	}
 	targets = append(targets, verTargets...)
 
 	return targets, nil
