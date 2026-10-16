@@ -175,3 +175,98 @@ func TestTarget_ReviewOnly_Invariants(t *testing.T) {
 		}
 	}
 }
+
+func TestTarget_ProviderMetrics_Serialization(t *testing.T) {
+	metrics := &domain.ProviderMetrics{
+		TotalCount:       15,
+		ActiveCount:      3,
+		SizeBytes:        10737418240, // 10 GB
+		ReclaimableBytes: 5368709120,  // 5 GB
+		ApparentBytes:    536870912000, // 500 GB
+		AllocatedBytes:   5368709120,   // 5 GB
+		Partial:          false,
+		StatusNote:       "operational",
+	}
+
+	target := domain.Target{
+		ID:              "docker-img-1",
+		Name:            "Docker Images (15 total, 3 active)",
+		Path:            "docker://system-df/images",
+		SizeBytes:       metrics.SizeBytes,
+		EligibleBytes:   0,
+		TTLEligible:     false,
+		ReviewOnly:      true,
+		ReviewReason:    domain.ReviewReasonSharedStore,
+		Risk:            domain.RiskHigh,
+		LastAccessed:    time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		Category:        "docker",
+		ProviderMetrics: metrics,
+	}
+
+	// 1. Serialize target with non-nil ProviderMetrics
+	data, err := json.Marshal(target)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	var raw map[string]interface{}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("Unmarshal to map failed: %v", err)
+	}
+
+	pmRaw, ok := raw["provider_metrics"].(map[string]interface{})
+	if !ok || pmRaw == nil {
+		t.Fatalf("expected provider_metrics in JSON, got nil or wrong type: %v", raw["provider_metrics"])
+	}
+	if int(pmRaw["total_count"].(float64)) != 15 {
+		t.Errorf("total_count = %v, want 15", pmRaw["total_count"])
+	}
+	if int(pmRaw["active_count"].(float64)) != 3 {
+		t.Errorf("active_count = %v, want 3", pmRaw["active_count"])
+	}
+	if int64(pmRaw["size_bytes"].(float64)) != 10737418240 {
+		t.Errorf("size_bytes = %v, want 10737418240", pmRaw["size_bytes"])
+	}
+	if int64(pmRaw["reclaimable_bytes"].(float64)) != 5368709120 {
+		t.Errorf("reclaimable_bytes = %v, want 5368709120", pmRaw["reclaimable_bytes"])
+	}
+	if int64(pmRaw["apparent_bytes"].(float64)) != 536870912000 {
+		t.Errorf("apparent_bytes = %v, want 536870912000", pmRaw["apparent_bytes"])
+	}
+	if int64(pmRaw["allocated_bytes"].(float64)) != 5368709120 {
+		t.Errorf("allocated_bytes = %v, want 5368709120", pmRaw["allocated_bytes"])
+	}
+	if pmRaw["status_note"] != "operational" {
+		t.Errorf("status_note = %v, want operational", pmRaw["status_note"])
+	}
+
+	// 2. Round-trip unmarshaling
+	var decoded domain.Target
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal to Target failed: %v", err)
+	}
+	if decoded.ProviderMetrics == nil {
+		t.Fatalf("decoded.ProviderMetrics is nil")
+	}
+	if *decoded.ProviderMetrics != *metrics {
+		t.Errorf("decoded.ProviderMetrics = %+v, want %+v", *decoded.ProviderMetrics, *metrics)
+	}
+
+	// 3. Verify Target with nil ProviderMetrics omits "provider_metrics"
+	targetNil := domain.Target{
+		ID:   "clean-target-1",
+		Path: "/some/path",
+	}
+	dataNil, err := json.Marshal(targetNil)
+	if err != nil {
+		t.Fatalf("Marshal targetNil failed: %v", err)
+	}
+	var rawNil map[string]interface{}
+	if err := json.Unmarshal(dataNil, &rawNil); err != nil {
+		t.Fatalf("Unmarshal rawNil failed: %v", err)
+	}
+	if _, exists := rawNil["provider_metrics"]; exists {
+		t.Errorf("expected provider_metrics to be omitted when nil, got: %v", rawNil["provider_metrics"])
+	}
+}
+
