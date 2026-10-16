@@ -6,18 +6,26 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/gtkpad/devclean/internal/cleaner"
 	"github.com/gtkpad/devclean/internal/domain"
 )
 
 type aiCleaner struct {
+	exec      cleaner.CommandExecutor
 	scanPaths []string
 	homeDir   string
 }
 
 // New creates a new AI cleaner for artificial intelligence tools and editors.
 func New(scanPaths []string) domain.Cleaner {
+	return NewWithExecutor(&cleaner.DefaultExecutor{}, scanPaths)
+}
+
+// NewWithExecutor creates a new AI cleaner with custom command executor.
+func NewWithExecutor(exec cleaner.CommandExecutor, scanPaths []string) domain.Cleaner {
 	home, _ := os.UserHomeDir()
 	return &aiCleaner{
+		exec:      exec,
 		scanPaths: scanPaths,
 		homeDir:   home,
 	}
@@ -26,6 +34,16 @@ func New(scanPaths []string) domain.Cleaner {
 // NewWithHome instancia o cleaner com home directory configurável para testes herméticos.
 func NewWithHome(scanPaths []string, homeDir string) domain.Cleaner {
 	return &aiCleaner{
+		exec:      &cleaner.DefaultExecutor{},
+		scanPaths: scanPaths,
+		homeDir:   homeDir,
+	}
+}
+
+// NewWithExecutorAndHome creates an AI cleaner with custom executor and custom home.
+func NewWithExecutorAndHome(exec cleaner.CommandExecutor, scanPaths []string, homeDir string) domain.Cleaner {
+	return &aiCleaner{
+		exec:      exec,
 		scanPaths: scanPaths,
 		homeDir:   homeDir,
 	}
@@ -56,7 +74,7 @@ func (c *aiCleaner) Scan(ctx context.Context, rules domain.EcosystemRules) ([]do
 	}
 
 	// 2. VS Code & Cursor (CachedData, logs, .obsolete)
-	editorTargets, err := scanEditors(c.homeDir, rules)
+	editorTargets, err := scanEditors(ctx, c.exec, c.homeDir, rules)
 	if err == nil {
 		targets = append(targets, editorTargets...)
 	}
@@ -88,6 +106,9 @@ func (c *aiCleaner) Clean(ctx context.Context, targets []domain.Target) error {
 	for _, t := range targets {
 		if err := ctx.Err(); err != nil {
 			return err
+		}
+		if t.IsVirtual() {
+			continue
 		}
 		if err := os.RemoveAll(t.Path); err != nil {
 			return fmt.Errorf("ai cleaner failed to remove %s: %w", t.Path, err)
