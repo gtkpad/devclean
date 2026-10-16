@@ -31,20 +31,34 @@ type AIAssessment struct {
 	Reasoning       string  `json:"reasoning"`
 }
 
+// ProviderMetrics contains structured metrics for container engines, virtual disks,
+// and shared package stores (STORE-01, STORE-02, D-03).
+type ProviderMetrics struct {
+	TotalCount       int    `json:"total_count,omitempty"`
+	ActiveCount      int    `json:"active_count,omitempty"`
+	SizeBytes        int64  `json:"size_bytes,omitempty"`
+	ReclaimableBytes int64  `json:"reclaimable_bytes,omitempty"`
+	ApparentBytes    int64  `json:"apparent_bytes,omitempty"`
+	AllocatedBytes   int64  `json:"allocated_bytes,omitempty"`
+	Partial          bool   `json:"partial,omitempty"`
+	StatusNote       string `json:"status_note,omitempty"`
+}
+
 type Target struct {
-	ID            string        `json:"id"`
-	Name          string        `json:"name"`
-	Path          string        `json:"path"`
-	SizeBytes     int64         `json:"size_bytes"`
-	EligibleBytes int64         `json:"eligible_bytes"`
-	TTLEligible   bool          `json:"ttl_eligible"`
-	ReviewOnly    bool          `json:"review_only"`
-	ReviewReason  string        `json:"review_reason,omitempty"`
-	Risk          RiskLevel     `json:"risk"`
-	LastAccessed  time.Time     `json:"last_accessed"`
-	Category      string        `json:"category"`
-	AI            *AIAssessment `json:"ai_assessment,omitempty"`
-	SmartScore    float64       `json:"smart_score,omitempty"`
+	ID              string           `json:"id"`
+	Name            string           `json:"name"`
+	Path            string           `json:"path"`
+	SizeBytes       int64            `json:"size_bytes"`
+	EligibleBytes   int64            `json:"eligible_bytes"`
+	TTLEligible     bool             `json:"ttl_eligible"`
+	ReviewOnly      bool             `json:"review_only"`
+	ReviewReason    string           `json:"review_reason,omitempty"`
+	Risk            RiskLevel        `json:"risk"`
+	LastAccessed    time.Time        `json:"last_accessed"`
+	Category        string           `json:"category"`
+	AI              *AIAssessment    `json:"ai_assessment,omitempty"`
+	SmartScore      float64          `json:"smart_score,omitempty"`
+	ProviderMetrics *ProviderMetrics `json:"provider_metrics,omitempty"`
 }
 
 // IsReviewOnly reports whether the target is restricted to inventory inspection only.
