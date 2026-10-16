@@ -24,9 +24,12 @@ var immutableSensitivePatterns = []string{
 	"Safari",
 
 	// Password Managers & Vaults
+	"*1password*",
 	"com.1password.*",
 	"com.agilebits.*",
+	"*bitwarden*",
 	"com.bitwarden.*",
+	"*keepassxc*",
 	"org.keepassxc.*",
 	"com.lastpass.*",
 	"com.dashlane.*",
