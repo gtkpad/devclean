@@ -2,20 +2,20 @@
 gsd_state_version: "1.0"
 milestone: v2.3
 milestone_name: Phases 6–14 (planned)
-current_phase: 11
-current_phase_name: macOS User/System Caches & Logs
+current_phase: 12
+current_phase_name: Browsers, Session Exclusions & ScriptCache Gate
 status: planning
-stopped_at: Phase 10 complete, ready to plan Phase 11
-last_updated: "2026-10-16T14:58:05.433Z"
+stopped_at: Phase 11 complete, ready to plan Phase 12
+last_updated: "2026-10-16T21:28:06.370Z"
 last_activity: 2026-10-16
-last_activity_desc: Phase 10 complete, transitioned to Phase 11
-state_head: 24fc4a87a16d36a8bef141a1b8d9ce6c03c0591f
+last_activity_desc: Phase 11 complete, transitioned to Phase 12
+state_head: 5f35b786fbac5744d80888d6bcb417dd80115757
 progress:
   total_phases: 9
-  completed_phases: 5
-  total_plans: 19
-  completed_plans: 19
-  percent: 56
+  completed_phases: 6
+  total_plans: 23
+  completed_plans: 23
+  percent: 67
 ---
 
 # Project State
@@ -25,21 +25,21 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-14)
 
 **Core value:** O DevClean deve revelar espaço recuperável com precisão e impedir que inventário amplo seja confundido com autorização para apagar dados compartilhados, ativos ou de sessão.
-**Current focus:** Phase 10 — Docker, OrbStack & Shared Stores
+**Current focus:** Phase 11 — macOS User/System Caches & Logs
 
 ## Current Position
 
-Phase: 11 — macOS User/System Caches & Logs
+Phase: 12 — Browsers, Session Exclusions & ScriptCache Gate
 Plan: Not started
 Status: Ready to plan
-Last activity: 2026-10-16 — Phase 10 complete, transitioned to Phase 11
+Last activity: 2026-10-16 — Phase 11 complete, transitioned to Phase 12
 
-Progress: [██████░░░░] 56%
+Progress: [███████░░░] 67%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 19
+- Total plans completed: 23
 - Average duration: —
 - Total execution time: —
 
@@ -53,6 +53,7 @@ Progress: [██████░░░░] 56%
 | 08 | 4 | - | - |
 | 09 | 4 | - | - |
 | 10 | 4 | - | - |
+| 11 | 4 | - | - |
 
 **Recent Trend:**
 - Last 5 plans: —
@@ -84,6 +85,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-10-16T12:22:16.612Z
-Stopped at: Phase 10 complete, ready to plan Phase 11
-Resume file: .planning/phases/10-docker-orbstack-shared-stores/10-CONTEXT.md
+Last session: 2026-10-16T19:05:50.682Z
+Stopped at: Phase 11 complete, ready to plan Phase 12
+Resume file: .planning/phases/11-macos-user-system-caches-logs/11-CONTEXT.md
