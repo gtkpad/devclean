@@ -378,3 +378,94 @@ func setupMockZed(t *testing.T, home string) {
 		t.Fatal(err)
 	}
 }
+
+func TestEditors_WorkspaceStorage_SurgicalBackup(t *testing.T) {
+	home := t.TempDir()
+	mockExec := newMockExecutor()
+
+	var appDir string
+	if runtime.GOOS == "darwin" {
+		appDir = filepath.Join(home, "Library", "Application Support", "Code")
+	} else {
+		appDir = filepath.Join(home, ".config", "Code")
+	}
+
+	wsDir1 := filepath.Join(appDir, "User", "workspaceStorage", "ws-001")
+	wsDir2 := filepath.Join(appDir, "User", "workspaceStorage", "ws-002")
+
+	if err := os.MkdirAll(wsDir1, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(wsDir2, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Workspace 1: state.vscdb (8192 bytes), workspace.json (512 bytes), state.vscdb.backup (4096 bytes)
+	if err := os.WriteFile(filepath.Join(wsDir1, "state.vscdb"), make([]byte, 8192), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wsDir1, "workspace.json"), make([]byte, 512), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wsDir1, "state.vscdb.backup"), make([]byte, 4096), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Workspace 2: state.vscdb (16384 bytes), workspace.json (512 bytes), no backup
+	if err := os.WriteFile(filepath.Join(wsDir2, "state.vscdb"), make([]byte, 16384), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wsDir2, "workspace.json"), make([]byte, 512), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Also setup a mock editor with hasWorkspaces=false (e.g. Zed) to verify it never emits workspace-backups
+	setupMockZed(t, home)
+
+	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 0}
+	targets, err := scanEditors(context.Background(), mockExec, home, rules)
+	if err != nil {
+		t.Fatalf("scanEditors failed: %v", err)
+	}
+
+	var foundBackupTarget bool
+	for _, target := range targets {
+		if strings.Contains(target.Name, "state.vscdb") || strings.Contains(target.Path, "state.vscdb") {
+			t.Fatalf("SECURITY VIOLATION: primary state database state.vscdb exposed in target %s (%s)", target.Name, target.Path)
+		}
+		if strings.Contains(target.Name, "workspace.json") || strings.Contains(target.Path, "workspace.json") {
+			t.Fatalf("SECURITY VIOLATION: workspace.json exposed in target %s (%s)", target.Name, target.Path)
+		}
+
+		if target.Path == "editor://zed/workspace-backups" {
+			t.Fatalf("editor without workspaces emitted workspace-backups target: %s", target.Path)
+		}
+
+		if target.Path == "editor://code/workspace-backups" {
+			foundBackupTarget = true
+			if target.Category != "editor-workspace-backups" {
+				t.Errorf("expected category editor-workspace-backups, got %s", target.Category)
+			}
+			if target.Risk != domain.RiskMedium {
+				t.Errorf("expected RiskMedium, got %v", target.Risk)
+			}
+			if target.SizeBytes != 4096 {
+				t.Errorf("expected SizeBytes == 4096, got %d", target.SizeBytes)
+			}
+			if target.EligibleBytes != 4096 {
+				t.Errorf("expected EligibleBytes == 4096, got %d", target.EligibleBytes)
+			}
+			if !target.TTLEligible {
+				t.Errorf("expected TTLEligible == true for MaxAgeDays = 0")
+			}
+			if !strings.Contains(target.Name, "Workspace State Backups") {
+				t.Errorf("expected Name to contain 'Workspace State Backups', got %s", target.Name)
+			}
+		}
+	}
+
+	if !foundBackupTarget {
+		t.Fatalf("expected editor://code/workspace-backups target was not found")
+	}
+}
+
