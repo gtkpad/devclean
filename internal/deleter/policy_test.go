@@ -1051,6 +1051,240 @@ func TestCoordinator_DryRun_ZeroMutation_Phase08(t *testing.T) {
 	}
 }
 
+func TestCoordinator_DryRun_ZeroMutation_Phase09(t *testing.T) {
+	tempDir := t.TempDir()
+	configDir := filepath.Join(tempDir, "config")
+	dataDir := filepath.Join(tempDir, "data")
+	trashDir := filepath.Join(tempDir, "trash")
+
+	cfg := &config.Config{
+		Safety: config.SafetyConfig{
+			TrashEnabled: true,
+			TrashDir:     trashDir,
+		},
+	}
+
+	bl := safety.NewBlacklist(nil)
+	trashMgr := trash.New(cfg.Safety)
+
+	cleaners := newFakeCleanerProvider()
+	aiCleaner := &fakeCleaner{name: "ai", installed: true}
+	cleaners.Register("ai", aiCleaner)
+
+	coord := deleter.New(cleaners, cfg, bl, trashMgr, nil, configDir, dataDir)
+
+	type fileState struct {
+		absPath string
+		hash    [32]byte
+		size    int64
+		mtime   time.Time
+	}
+
+	var preStates []fileState
+
+	recordFile := func(relPath, payload string) string {
+		fullPath := filepath.Join(tempDir, relPath)
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
+			t.Fatalf("mkdir failed: %v", err)
+		}
+		if err := os.WriteFile(fullPath, []byte(payload), 0o644); err != nil {
+			t.Fatalf("write failed: %v", err)
+		}
+		info, err := os.Stat(fullPath)
+		if err != nil {
+			t.Fatalf("stat failed: %v", err)
+		}
+		preStates = append(preStates, fileState{
+			absPath: fullPath,
+			hash:    sha256.Sum256([]byte(payload)),
+			size:    info.Size(),
+			mtime:   info.ModTime(),
+		})
+		return fullPath
+	}
+
+	// 1. Code Chromium Cache
+	codeCacheFile := recordFile("ai/code_cache/Cache/data.bin", "CODE-CACHE-CANARY-DATA-V1")
+	codeCacheInfo, _ := os.Stat(codeCacheFile)
+
+	// 2. Cursor Workspace Storage
+	_ = recordFile("ai/cursor_ws/User/workspaceStorage/ws1/state.vscdb", "PRIMARY-VSCDB-STATE-CANARY")
+	cursorBackupFile := recordFile("ai/cursor_ws/User/workspaceStorage/ws1/state.vscdb.backup", "BACKUP-VSCDB-CANARY")
+	cursorBackupInfo, _ := os.Stat(cursorBackupFile)
+
+	// 3. Windsurf Extensions
+	_ = recordFile("ai/windsurf_ext/.windsurf/extensions/.obsolete", `{"test.ext-1.0.0": true}`)
+	windsurfExtPkg := recordFile("ai/windsurf_ext/.windsurf/extensions/test.ext-1.0.0/package.json", "EXT-CANARY")
+	windsurfExtInfo, _ := os.Stat(windsurfExtPkg)
+
+	// 4. Claude CLI Inactive Version
+	claudeV1File := recordFile("ai/claude_versions/.local/share/claude/versions/1.0.0/claude", "CLAUDE-V1-CANARY")
+	claudeV1Info, _ := os.Stat(claudeV1File)
+
+	// 5. Claude CLI Active Version
+	claudeV2File := recordFile("ai/claude_versions/.local/share/claude/versions/2.0.0/claude", "CLAUDE-V2-ACTIVE-CANARY")
+	claudeV2Info, _ := os.Stat(claudeV2File)
+	claudeBinDir := filepath.Join(tempDir, "ai/claude_versions/.local/bin")
+	if err := os.MkdirAll(claudeBinDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	claudeActiveSymlink := filepath.Join(claudeBinDir, "claude")
+	_ = os.Symlink(filepath.Dir(claudeV2File), claudeActiveSymlink)
+
+	// 6. Claude CLI ReviewOnly Version
+	claudeV09File := recordFile("ai/claude_versions/.local/share/claude/versions/0.9.0/claude", "CLAUDE-V09-REVIEWONLY-CANARY")
+	claudeV09Info, _ := os.Stat(claudeV09File)
+	claudeShareDir := filepath.Join(tempDir, "ai/claude_versions/.local/share/claude")
+	_ = os.Symlink(filepath.Join(claudeShareDir, "versions", "9.9.9"), filepath.Join(claudeShareDir, "current"))
+
+	targets := []domain.Target{
+		{
+			ID:            "code-cache-canary",
+			Name:          "VS Code: Chromium & GPU Caches",
+			Path:          "editor://code/chromium-cache",
+			Category:      "editor-chromium-cache",
+			Risk:          domain.RiskLow,
+			SizeBytes:     codeCacheInfo.Size(),
+			EligibleBytes: codeCacheInfo.Size(),
+			TTLEligible:   true,
+			ReviewOnly:    false,
+		},
+		{
+			ID:            "cursor-ws-canary",
+			Name:          "Cursor: Workspace State Backups",
+			Path:          "editor://cursor/workspace-backups",
+			Category:      "editor-workspace-backups",
+			Risk:          domain.RiskMedium,
+			SizeBytes:     cursorBackupInfo.Size(),
+			EligibleBytes: cursorBackupInfo.Size(),
+			TTLEligible:   true,
+			ReviewOnly:    false,
+		},
+		{
+			ID:            "windsurf-ext-canary",
+			Name:          "Windsurf: Cached VSIXs & Obsolete Exts",
+			Path:          "editor://windsurf/extensions",
+			Category:      "editor-extensions",
+			Risk:          domain.RiskMedium,
+			SizeBytes:     windsurfExtInfo.Size(),
+			EligibleBytes: windsurfExtInfo.Size(),
+			TTLEligible:   true,
+			ReviewOnly:    false,
+		},
+		{
+			ID:            "claude-v1-canary",
+			Name:          "Claude CLI version: 1.0.0",
+			Path:          filepath.Dir(claudeV1File),
+			Category:      "ai-claude-versions",
+			Risk:          domain.RiskLow,
+			SizeBytes:     claudeV1Info.Size(),
+			EligibleBytes: claudeV1Info.Size(),
+			TTLEligible:   true,
+			ReviewOnly:    false,
+		},
+		{
+			ID:            "claude-v2-active-canary",
+			Name:          "Claude CLI version: 2.0.0",
+			Path:          filepath.Dir(claudeV2File),
+			Category:      "ai-claude-versions",
+			Risk:          domain.RiskLow,
+			SizeBytes:     claudeV2Info.Size(),
+			EligibleBytes: 0,
+			TTLEligible:   false,
+			ReviewOnly:    true,
+			ReviewReason:  domain.ReviewReasonActiveProcess,
+		},
+		{
+			ID:            "claude-v09-review-canary",
+			Name:          "Claude CLI version: 0.9.0",
+			Path:          filepath.Dir(claudeV09File),
+			Category:      "ai-claude-versions",
+			Risk:          domain.RiskLow,
+			SizeBytes:     claudeV09Info.Size(),
+			EligibleBytes: 0,
+			TTLEligible:   false,
+			ReviewOnly:    true,
+			ReviewReason:  domain.ReviewReasonAmbiguous,
+		},
+	}
+
+	targetsByEco := map[string][]domain.Target{
+		"ai": targets,
+	}
+
+	expectedWouldDeleteCount := 4
+	expectedSkippedCount := 2
+	expectedFreedBytes := codeCacheInfo.Size() + cursorBackupInfo.Size() + windsurfExtInfo.Size() + claudeV1Info.Size()
+
+	opts := deleter.Options{
+		DryRun: true,
+		Auto:   true,
+		Mode:   "auto",
+	}
+
+	res, err := coord.Delete(context.Background(), targetsByEco, opts)
+	if err != nil {
+		t.Fatalf("DryRun Delete failed: %v", err)
+	}
+
+	// 1. Assert result metrics
+	if res.TotalCount != expectedWouldDeleteCount {
+		t.Errorf("res.TotalCount = %d, want %d", res.TotalCount, expectedWouldDeleteCount)
+	}
+	if res.TotalFreed != expectedFreedBytes {
+		t.Errorf("res.TotalFreed = %d, want %d", res.TotalFreed, expectedFreedBytes)
+	}
+	if len(res.SkippedReviewOnly) != expectedSkippedCount {
+		t.Fatalf("len(res.SkippedReviewOnly) = %d, want %d", len(res.SkippedReviewOnly), expectedSkippedCount)
+	}
+	if len(res.Errors) != 0 {
+		t.Errorf("expected 0 errors, got %d: %v", len(res.Errors), res.Errors)
+	}
+
+	// 2. Strict POL-04, VAL-02 zero-mutation assertion on EVERY canary file
+	for _, pre := range preStates {
+		postInfo, err := os.Stat(pre.absPath)
+		if err != nil {
+			t.Fatalf("canary file missing after DryRun: %s (err: %v)", pre.absPath, err)
+		}
+		data, err := os.ReadFile(pre.absPath)
+		if err != nil {
+			t.Fatalf("reading canary file %s: %v", pre.absPath, err)
+		}
+		postHash := sha256.Sum256(data)
+		if postHash != pre.hash {
+			t.Errorf("SHA-256 mutated for %s! Before: %x, After: %x", pre.absPath, pre.hash, postHash)
+		}
+		if postInfo.Size() != pre.size {
+			t.Errorf("Byte size mutated for %s! Before: %d, After: %d", pre.absPath, pre.size, postInfo.Size())
+		}
+		if postInfo.ModTime() != pre.mtime {
+			t.Errorf("mtime mutated for %s! Before: %v, After: %v", pre.absPath, pre.mtime, postInfo.ModTime())
+		}
+	}
+
+	// 3. Trash directory must remain completely empty with zero manifests
+	if entries, err := os.ReadDir(trashDir); err == nil && len(entries) > 0 {
+		t.Errorf("trashDir has entries after DryRun: %v", entries)
+	}
+	manifestPath := filepath.Join(trashDir, "manifest.json")
+	if _, err := os.Stat(manifestPath); !os.IsNotExist(err) {
+		t.Errorf("trash manifest.json was created during DryRun: %s", manifestPath)
+	}
+
+	// 4. History log must not be mutated
+	historyFile := filepath.Join(dataDir, "history.jsonl")
+	if info, err := os.Stat(historyFile); err == nil && info.Size() > 0 {
+		t.Errorf("history.jsonl has content after DryRun: size %d", info.Size())
+	}
+
+	// 5. Cleaner must never have been called
+	if len(aiCleaner.Cleaned()) != 0 {
+		t.Errorf("aiCleaner was invoked during DryRun")
+	}
+}
+
+
 
 
 

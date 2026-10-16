@@ -854,4 +854,50 @@ func TestAICleaner_Clean_SymlinkProtection(t *testing.T) {
 	}
 }
 
+func TestAICleaner_HelperFunctions(t *testing.T) {
+	// 1. extractEditorIDFromURI
+	id, cat := extractEditorIDFromURI("editor://code/workspace-backups")
+	if id != "code" || cat != "workspace-backups" {
+		t.Errorf("expected code/workspace-backups, got %s/%s", id, cat)
+	}
+	id, cat = extractEditorIDFromURI("editor://cursor")
+	if id != "cursor" || cat != "" {
+		t.Errorf("expected cursor/empty, got %s/%s", id, cat)
+	}
+	id, cat = extractEditorIDFromURI("custom-scheme")
+	if id != "custom-scheme" || cat != "" {
+		t.Errorf("expected custom-scheme/empty, got %s/%s", id, cat)
+	}
+
+	// 2. findEditorDef
+	ed, ok := findEditorDef("code")
+	if !ok || ed.id != "code" {
+		t.Errorf("expected to find editor code, got %v, ok=%v", ed, ok)
+	}
+	_, ok = findEditorDef("non-existent-editor")
+	if ok {
+		t.Errorf("expected non-existent-editor to return ok=false")
+	}
+
+	// 3. cleanEditorVirtualTarget with unknown editor
+	err := cleanEditorVirtualTarget(t.TempDir(), domain.Target{Path: "editor://unknown/logs"})
+	if err != nil {
+		t.Errorf("expected nil error for unknown editor virtual target, got %v", err)
+	}
+
+	// 4. resolveAppSupportDir fallback checks
+	tmpHome := t.TempDir()
+	resolved := resolveAppSupportDir(tmpHome, "DarwinApp", "LinuxApp")
+	if runtime.GOOS == "darwin" {
+		if !strings.Contains(resolved, "DarwinApp") {
+			t.Errorf("expected DarwinApp fallback, got %s", resolved)
+		}
+	} else {
+		if !strings.Contains(resolved, "LinuxApp") {
+			t.Errorf("expected LinuxApp fallback, got %s", resolved)
+		}
+	}
+}
+
+
 
