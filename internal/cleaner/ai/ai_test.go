@@ -662,3 +662,35 @@ func TestAICleaner_FullScanAndClean(t *testing.T) {
 		t.Error("expected error when cleaning with canceled context, got nil")
 	}
 }
+
+func TestAICleaner_ConstructorsWithExecutor(t *testing.T) {
+	mockExec := newMockExecutor()
+
+	// 1. NewWithExecutor
+	cExec := NewWithExecutor(mockExec, nil)
+	if cExec == nil || cExec.Name() != "ai" {
+		t.Fatalf("expected valid cleaner with name 'ai'")
+	}
+
+	// 2. NewWithExecutorAndHome
+	tmpHome := t.TempDir()
+	cExecHome := NewWithExecutorAndHome(mockExec, nil, tmpHome)
+	if cExecHome == nil || cExecHome.Name() != "ai" {
+		t.Fatalf("expected valid cleaner with name 'ai'")
+	}
+
+	// 3. Clean should safely skip virtual targets (e.g. editor://) without os.RemoveAll error
+	virtualTarget := domain.Target{
+		ID:        "test-virt",
+		Name:      "VS Code: Chromium & GPU Caches",
+		Path:      "editor://code/chromium-cache",
+		SizeBytes: 1024,
+	}
+	if !virtualTarget.IsVirtual() {
+		t.Fatalf("expected virtualTarget.IsVirtual() = true")
+	}
+	if err := cExecHome.Clean(context.Background(), []domain.Target{virtualTarget}); err != nil {
+		t.Fatalf("expected Clean to safely skip virtual target, got error: %v", err)
+	}
+}
+
