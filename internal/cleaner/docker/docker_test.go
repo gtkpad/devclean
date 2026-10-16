@@ -280,4 +280,137 @@ func TestDockerCleaner_IsInstalled_HybridDiscovery(t *testing.T) {
 	})
 }
 
+func TestDockerCleaner_VMDisk_SparseMetrics(t *testing.T) {
+	fakeHome := t.TempDir()
+	t.Setenv("HOME", fakeHome)
+
+	rawDir := filepath.Join(fakeHome, "Library", "Containers", "com.docker.docker", "Data", "vms", "0", "data")
+	if err := os.MkdirAll(rawDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	rawPath := filepath.Join(rawDir, "Docker.raw")
+	sampleData := make([]byte, 4096)
+	if err := os.WriteFile(rawPath, sampleData, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	mockExec := cleaner.NewMockExecutor()
+	mockExec.Outputs["docker system df --format {{json .}}"] = []byte(`{"Type":"Images","TotalCount":1,"Active":1,"Size":"100MB","Reclaimable":"0B"}`)
+
+	c := docker.NewWithExecutor(mockExec)
+	targets, err := c.Scan(context.Background(), domain.EcosystemRules{})
+	if err != nil {
+		t.Fatalf("unexpected Scan error: %v", err)
+	}
+
+	var vmTarget *domain.Target
+	for i := range targets {
+		if targets[i].ID == "docker-vm-disk" {
+			vmTarget = &targets[i]
+			break
+		}
+	}
+
+	if vmTarget == nil {
+		t.Fatal("expected docker-vm-disk target to be discovered")
+	}
+
+	if vmTarget.Category != "docker-vm-disk" {
+		t.Errorf("expected Category 'docker-vm-disk', got %q", vmTarget.Category)
+	}
+	if !vmTarget.ReviewOnly {
+		t.Error("expected ReviewOnly == true")
+	}
+	if vmTarget.ReviewReason != domain.ReviewReasonSharedStore {
+		t.Errorf("expected ReviewReason %q, got %q", domain.ReviewReasonSharedStore, vmTarget.ReviewReason)
+	}
+	if vmTarget.EligibleBytes != 0 {
+		t.Errorf("expected EligibleBytes == 0, got %d", vmTarget.EligibleBytes)
+	}
+	if vmTarget.TTLEligible {
+		t.Error("expected TTLEligible == false")
+	}
+	if vmTarget.Path != rawPath {
+		t.Errorf("expected Path %q, got %q", rawPath, vmTarget.Path)
+	}
+	if vmTarget.ProviderMetrics == nil {
+		t.Fatal("expected ProviderMetrics to be non-nil")
+	}
+	if vmTarget.ProviderMetrics.ApparentBytes != 4096 {
+		t.Errorf("expected ApparentBytes == 4096, got %d", vmTarget.ProviderMetrics.ApparentBytes)
+	}
+	if vmTarget.ProviderMetrics.AllocatedBytes < 0 {
+		t.Errorf("expected non-negative AllocatedBytes, got %d", vmTarget.ProviderMetrics.AllocatedBytes)
+	}
+	if !strings.Contains(vmTarget.Name, "Docker Desktop VM Disk") {
+		t.Errorf("expected Name to contain 'Docker Desktop VM Disk', got %q", vmTarget.Name)
+	}
+}
+
+func TestDockerCleaner_Clean_DefensiveGuard_PreservesAll(t *testing.T) {
+	tempDir := t.TempDir()
+	sentinelPath := filepath.Join(tempDir, "Docker.raw")
+	content := []byte("sentinel-docker-vm-data-do-not-delete")
+	if err := os.WriteFile(sentinelPath, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	fiBefore, err := os.Stat(sentinelPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mockExec := cleaner.NewMockExecutor()
+	c := docker.NewWithExecutor(mockExec)
+
+	// Targets with various bypass attempts
+	targets := []domain.Target{
+		{
+			ID:          "docker-vm-disk",
+			Path:        sentinelPath,
+			Category:    "docker-vm-disk",
+			ReviewOnly:  true,
+		},
+		{
+			ID:          "docker-images",
+			Path:        "docker://system-df/images",
+			Category:    "docker-images",
+			ReviewOnly:  true,
+		},
+		{
+			ID:          "malicious-bypass-reviewonly",
+			Path:        sentinelPath,
+			Category:    "docker-vm-disk",
+			ReviewOnly:  false, // Bypass attempt
+		},
+		{
+			ID:          "malicious-bypass-virtual",
+			Path:        "docker://virtual-uri",
+			Category:    "custom",
+			ReviewOnly:  false, // Bypass attempt
+		},
+	}
+
+	err = c.Clean(context.Background(), targets)
+	if err != nil {
+		t.Fatalf("Clean returned unexpected error: %v", err)
+	}
+
+	fiAfter, err := os.Stat(sentinelPath)
+	if err != nil {
+		t.Fatalf("sentinel file was deleted! stat error: %v", err)
+	}
+	if fiAfter.Size() != fiBefore.Size() {
+		t.Errorf("sentinel file size altered: before=%d, after=%d", fiBefore.Size(), fiAfter.Size())
+	}
+	readBytes, err := os.ReadFile(sentinelPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(readBytes) != string(content) {
+		t.Errorf("sentinel content altered: got %q, want %q", string(readBytes), string(content))
+	}
+}
+
+
 
