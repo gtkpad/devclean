@@ -673,14 +673,21 @@ func TestAICleaner_Clean_PreDeletionRevalidation(t *testing.T) {
 	}
 
 	// Check Code cache leaf
-	var codeCacheDir string
+	var appDir, cacheDir string
 	if runtime.GOOS == "darwin" {
-		codeCacheDir = filepath.Join(home, "Library", "Caches", "com.microsoft.VSCode", "Cache", "data_0")
+		appDir = filepath.Join(home, "Library", "Application Support", "Code")
+		cacheDir = filepath.Join(home, "Library", "Caches", "com.microsoft.VSCode")
 	} else {
-		codeCacheDir = filepath.Join(home, ".cache", "Code", "Cache", "data_0")
+		appDir = filepath.Join(home, ".config", "Code")
+		cacheDir = filepath.Join(home, ".cache", "Code")
 	}
-	if _, err := os.Stat(codeCacheDir); os.IsNotExist(err) {
+	codeCacheFile := filepath.Join(appDir, "Cache", "cache.bin")
+	if _, err := os.Stat(codeCacheFile); os.IsNotExist(err) {
 		t.Fatal("SECURITY VIOLATION: Code cache was deleted while Code editor was running!")
+	}
+	codeOSCacheFile := filepath.Join(cacheDir, "data.bin")
+	if _, err := os.Stat(codeOSCacheFile); os.IsNotExist(err) {
+		t.Fatal("SECURITY VIOLATION: Code OS cache was deleted while Code editor was running!")
 	}
 }
 
