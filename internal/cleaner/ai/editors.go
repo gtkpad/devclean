@@ -2,14 +2,17 @@ package ai
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/gtkpad/devclean/internal/cleaner"
 	"github.com/gtkpad/devclean/internal/domain"
 	devfs "github.com/gtkpad/devclean/internal/fs"
+	"github.com/gtkpad/devclean/internal/safety"
 )
 
 type editorDef struct {
@@ -484,6 +487,92 @@ func scanWorkspaceBackups(appSupportDir string, cutoff time.Time, maxAgeDays int
 	return totalSize, eligibleBytes, hasEligible, foundFiles
 }
 
+func scanObsoleteExtensions(extRoot string, cutoff time.Time, maxAgeDays int) (int64, int64, bool, []string) {
+	obsoleteFile := filepath.Join(extRoot, ".obsolete")
+	data, err := os.ReadFile(obsoleteFile)
+	if err != nil {
+		return 0, 0, false, nil
+	}
+
+	var obsoleteMap map[string]bool
+	if err := json.Unmarshal(data, &obsoleteMap); err != nil {
+		return 0, 0, false, nil
+	}
+
+	var totalSize, eligibleBytes int64
+	var foundDirs []string
+	hasEligible := false
+
+	for extFolder, isObsolete := range obsoleteMap {
+		if !isObsolete {
+			continue // Positive match only! Active extensions are strictly protected
+		}
+
+		cleanFolder := filepath.Clean(extFolder)
+		if strings.Contains(cleanFolder, "..") || filepath.IsAbs(cleanFolder) {
+			continue // Path traversal defense!
+		}
+
+		fullDir := filepath.Join(extRoot, cleanFolder)
+		rel, err := filepath.Rel(extRoot, fullDir)
+		if err != nil || strings.HasPrefix(rel, "..") || rel == "." {
+			continue // Escape containment check!
+		}
+
+		if isLink, err := safety.IsSymlink(fullDir); err == nil && isLink {
+			continue // Symlink defense!
+		}
+		if safety.IsCoreBlacklisted(fullDir) {
+			continue // Core blacklist defense!
+		}
+
+		info, err := os.Stat(fullDir)
+		if err != nil || !info.IsDir() {
+			continue
+		}
+
+		sz, _ := devfs.CalcDirSize(fullDir)
+		if sz == 0 {
+			continue
+		}
+
+		totalSize += sz
+		foundDirs = append(foundDirs, fullDir)
+
+		if maxAgeDays == 0 || info.ModTime().Before(cutoff) {
+			eligibleBytes += sz
+			hasEligible = true
+		}
+	}
+
+	return totalSize, eligibleBytes, hasEligible, foundDirs
+}
+
+func scanCachedVSIXs(appSupportDir string, cutoff time.Time, maxAgeDays int) (int64, int64, bool, []string) {
+	if appSupportDir == "" {
+		return 0, 0, false, nil
+	}
+	vsixDir := filepath.Join(appSupportDir, "CachedExtensionVSIXs")
+	info, err := os.Stat(vsixDir)
+	if err != nil || !info.IsDir() {
+		return 0, 0, false, nil
+	}
+
+	sz, _ := devfs.CalcDirSize(vsixDir)
+	if sz == 0 {
+		return 0, 0, false, nil
+	}
+
+	var eligibleBytes int64
+	var hasEligible bool
+	if maxAgeDays == 0 || info.ModTime().Before(cutoff) {
+		eligibleBytes = sz
+		hasEligible = true
+	}
+
+	return sz, eligibleBytes, hasEligible, []string{vsixDir}
+}
+
 func scanEditors(ctx context.Context, exec cleaner.CommandExecutor, home string, rules domain.EcosystemRules) ([]domain.Target, error) {
 	_ = exec
 	if home == "" {
@@ -557,6 +646,50 @@ func scanEditors(ctx context.Context, exec cleaner.CommandExecutor, home string,
 						Category:      "editor-workspace-backups",
 					})
 				}
+			}
+		}
+
+		// 4. Cached Extension VSIXs & Obsolete Extensions
+		if ed.hasExtensions {
+			var totalExtSize, eligibleExtBytes int64
+			var hasEligibleExt bool
+
+			if ed.appSupportDir != nil {
+				appSupport := ed.appSupportDir(home)
+				if appSupport != "" {
+					vsixSz, vsixEligible, vsixHasEligible, _ := scanCachedVSIXs(appSupport, cutoff, rules.MaxAgeDays)
+					totalExtSize += vsixSz
+					eligibleExtBytes += vsixEligible
+					if vsixHasEligible {
+						hasEligibleExt = true
+					}
+				}
+			}
+
+			if ed.extRoots != nil {
+				for _, root := range ed.extRoots(home) {
+					obsSz, obsEligible, obsHasEligible, _ := scanObsoleteExtensions(root, cutoff, rules.MaxAgeDays)
+					totalExtSize += obsSz
+					eligibleExtBytes += obsEligible
+					if obsHasEligible {
+						hasEligibleExt = true
+					}
+				}
+			}
+
+			if totalExtSize > 0 {
+				vPath := "editor://" + ed.id + "/extensions"
+				targets = append(targets, domain.Target{
+					ID:            hashPath(vPath),
+					Name:          ed.name + ": Cached VSIXs & Obsolete Exts",
+					Path:          vPath,
+					SizeBytes:     totalExtSize,
+					EligibleBytes: eligibleExtBytes,
+					TTLEligible:   hasEligibleExt,
+					Risk:          domain.RiskMedium,
+					LastAccessed:  time.Now(),
+					Category:      "editor-extensions",
+				})
 			}
 		}
 	}
