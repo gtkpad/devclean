@@ -15,7 +15,7 @@ Milestone v2.3 makes DevClean's inventory complete and its cleanup decisions exp
 - [x] **Phase 7: ReviewOnly & Coordinator Policy** - Enforce one conservative mutation policy across CLI, TUI, MCP, scheduler, and direct calls. (completed 2026-10-15)
 - [x] **Phase 8: Node, Headless, Shell/CLI & Xcode** - Discover the specified developer-tool caches and block unsafe active-tool cleanup. (completed 2026-10-15)
 - [x] **Phase 9: AI/Electron Editors & Active Versions** - Cover editor cache leaves while preserving state databases and active tool versions. (completed 2026-10-15)
-- [ ] **Phase 10: Docker, OrbStack & Shared Stores** - Report provider metrics while treating daemon and package stores as review-only inventory.
+- [x] **Phase 10: Docker, OrbStack & Shared Stores** - Report provider metrics while treating daemon and package stores as review-only inventory. (completed 2026-10-16)
 - [ ] **Phase 11: macOS User/System Caches & Logs** - Add allowlisted user/system coverage with process, permission, ownership, and overlap guards.
 - [ ] **Phase 12: Browsers, Session Exclusions & ScriptCache Gate** - Inventory six browsers while protecting session data and gating ScriptCache eligibility.
 - [ ] **Phase 13: App Leftovers & LaunchAgents** - Produce evidence-based review candidates without automatic removal.
@@ -183,7 +183,7 @@ Phases execute in numeric order: 6 → 7 → 8 → 9 → 10 → 11 → 12 → 13
 | 7. ReviewOnly & Coordinator Policy | 4/4 | Complete    | 2026-10-15 |
 | 8. Node, Headless, Shell/CLI & Xcode | 4/4 | Complete    | 2026-10-15 |
 | 9. AI/Electron Editors & Active Versions | 4/4 | Complete    | 2026-10-15 |
-| 10. Docker, OrbStack & Shared Stores | 4/4 | In Progress | - |
+| 10. Docker, OrbStack & Shared Stores | 4/4 | Complete    | 2026-10-16 |
 | 11. macOS User/System Caches & Logs | 0/TBD | Not started | - |
 | 12. Browsers, Session Exclusions & ScriptCache Gate | 0/TBD | Not started | - |
 | 13. App Leftovers & LaunchAgents | 0/TBD | Not started | - |
