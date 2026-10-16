@@ -316,3 +316,75 @@ func TestClaude_AmbiguousSymlink_FailClosed(t *testing.T) {
 	}
 }
 
+func TestClaude_ProcessGuard_ActiveCLI(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// 1. Setup version in ~/.local/share/claude/versions/1.0.0
+	versionsDir := filepath.Join(tmpDir, ".local", "share", "claude", "versions")
+	v100 := filepath.Join(versionsDir, "1.0.0")
+	if err := os.MkdirAll(v100, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(v100, "claude"), []byte("bin-1.0.0"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Active symlink pointing to 2.0.0
+	v200 := filepath.Join(versionsDir, "2.0.0")
+	if err := os.MkdirAll(v200, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(v200, "claude"), []byte("bin-2.0.0"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	binDir := filepath.Join(tmpDir, ".local", "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(v200, filepath.Join(binDir, "claude")); err != nil {
+		t.Fatal(err)
+	}
+
+	// Setup cache dir in ~/.claude/cache
+	cacheDir := filepath.Join(tmpDir, ".claude", "cache")
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cacheDir, "temp.bin"), []byte("some-cache-bytes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 2. Mock executor with claude running
+	mockExec := newMockExecutor()
+	mockExec.runningProcesses["claude"] = true
+
+	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 0}
+	targets, err := scanClaude(context.Background(), mockExec, tmpDir, rules)
+	if err != nil {
+		t.Fatalf("scanClaude failed: %v", err)
+	}
+
+	if len(targets) == 0 {
+		t.Fatal("expected Claude targets to be emitted")
+	}
+
+	for _, target := range targets {
+		if !target.ReviewOnly {
+			t.Errorf("expected Claude target %s to have ReviewOnly=true when CLI is active", target.Path)
+		}
+		if target.ReviewReason != domain.ReviewReasonActiveProcess {
+			t.Errorf("expected Claude target %s to have ReviewReason=%s, got %s", target.Path, domain.ReviewReasonActiveProcess, target.ReviewReason)
+		}
+		if target.EligibleBytes != 0 {
+			t.Errorf("expected Claude target %s to have EligibleBytes=0, got %d", target.Path, target.EligibleBytes)
+		}
+		if target.TTLEligible {
+			t.Errorf("expected Claude target %s to have TTLEligible=false", target.Path)
+		}
+		if target.SizeBytes <= 0 {
+			t.Errorf("expected Claude target %s to have SizeBytes > 0, got %d", target.Path, target.SizeBytes)
+		}
+	}
+}
+
+

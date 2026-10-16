@@ -634,4 +634,100 @@ func TestEditors_CachedExtensionVSIXs(t *testing.T) {
 	}
 }
 
+func TestEditors_ProcessGuard_IsolatedBlocking(t *testing.T) {
+	home := t.TempDir()
+	setupMockEditor(t, home, "Code", "com.microsoft.VSCode")
+	setupMockEditor(t, home, "Cursor", "Cursor")
+
+	mockExec := newMockExecutor()
+	// Code is running
+	mockExec.runningProcesses["Code"] = true
+
+	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 0}
+	targets, err := scanEditors(context.Background(), mockExec, home, rules)
+	if err != nil {
+		t.Fatalf("scanEditors failed: %v", err)
+	}
+
+	var foundCode, foundCursor bool
+	for _, target := range targets {
+		if strings.HasPrefix(target.Path, "editor://code/") {
+			foundCode = true
+			if !target.ReviewOnly {
+				t.Errorf("expected Code target %s to have ReviewOnly=true", target.Path)
+			}
+			if target.ReviewReason != domain.ReviewReasonActiveProcess {
+				t.Errorf("expected Code target %s to have ReviewReason=%s, got %s", target.Path, domain.ReviewReasonActiveProcess, target.ReviewReason)
+			}
+			if target.EligibleBytes != 0 {
+				t.Errorf("expected Code target %s to have EligibleBytes=0, got %d", target.Path, target.EligibleBytes)
+			}
+			if target.TTLEligible {
+				t.Errorf("expected Code target %s to have TTLEligible=false", target.Path)
+			}
+			if target.SizeBytes <= 0 {
+				t.Errorf("expected Code target %s to have SizeBytes > 0, got %d", target.Path, target.SizeBytes)
+			}
+		}
+		if strings.HasPrefix(target.Path, "editor://cursor/") {
+			foundCursor = true
+			if target.ReviewOnly {
+				t.Errorf("expected Cursor target %s to have ReviewOnly=false (isolated blocking), got ReviewOnly=true (reason: %s)", target.Path, target.ReviewReason)
+			}
+			if target.EligibleBytes <= 0 {
+				t.Errorf("expected Cursor target %s to have EligibleBytes > 0, got %d", target.Path, target.EligibleBytes)
+			}
+			if !target.TTLEligible {
+				t.Errorf("expected Cursor target %s to have TTLEligible=true", target.Path)
+			}
+		}
+	}
+
+	if !foundCode {
+		t.Fatal("expected Code targets to be found")
+	}
+	if !foundCursor {
+		t.Fatal("expected Cursor targets to be found")
+	}
+}
+
+func TestEditors_ProcessGuard_FailClosed(t *testing.T) {
+	home := t.TempDir()
+	setupMockEditor(t, home, "Cursor", "Cursor")
+
+	mockExec := newMockExecutor()
+	// Cursor encounters unexpected error in pgrep
+	mockExec.uncertainProcesses["Cursor"] = true
+
+	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 0}
+	targets, err := scanEditors(context.Background(), mockExec, home, rules)
+	if err != nil {
+		t.Fatalf("scanEditors failed: %v", err)
+	}
+
+	var foundCursor bool
+	for _, target := range targets {
+		if strings.HasPrefix(target.Path, "editor://cursor/") {
+			foundCursor = true
+			if !target.ReviewOnly {
+				t.Errorf("expected Cursor target %s to have ReviewOnly=true on uncertain process", target.Path)
+			}
+			if target.ReviewReason != domain.ReviewReasonActiveProcess {
+				t.Errorf("expected Cursor target %s to have ReviewReason=%s, got %s", target.Path, domain.ReviewReasonActiveProcess, target.ReviewReason)
+			}
+			if target.EligibleBytes != 0 {
+				t.Errorf("expected Cursor target %s to have EligibleBytes=0, got %d", target.Path, target.EligibleBytes)
+			}
+			if target.TTLEligible {
+				t.Errorf("expected Cursor target %s to have TTLEligible=false", target.Path)
+			}
+		}
+	}
+
+	if !foundCursor {
+		t.Fatal("expected Cursor targets to be found")
+	}
+}
+
+
 
