@@ -44,6 +44,7 @@ func defaultConfig() *config.Config {
 			DotNet: config.EcosystemConfig{Enabled: true, MaxAgeDays: 45, FailMode: "continue"},
 			Python: config.EcosystemConfig{Enabled: true, MaxAgeDays: 30, FailMode: "continue"},
 			Node:   config.EcosystemConfig{Enabled: true, MaxAgeDays: 14, FailMode: "continue"},
+			MacOS:  config.EcosystemConfig{Enabled: true, MaxAgeDays: 14, FailMode: "continue"},
 		},
 	}
 }

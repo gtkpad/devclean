@@ -157,12 +157,15 @@ func (c *Coordinator) Delete(
 			continue
 		}
 
-		// Stage 2: Partitioning Filesystem vs Virtual
+		// Stage 2: Partitioning Filesystem vs Virtual vs Direct Cleaner Purge (D-03)
 		var fsTargets []domain.Target
+		var directTargets []domain.Target
 		var virtualTargets []domain.Target
 		for _, t := range safeTargets {
 			if t.IsVirtual() {
 				virtualTargets = append(virtualTargets, t)
+			} else if t.Category == "macos-trash" {
+				directTargets = append(directTargets, t)
 			} else {
 				fsTargets = append(fsTargets, t)
 			}
@@ -201,6 +204,37 @@ func (c *Coordinator) Delete(
 			}
 			ecoSuccess = true
 		} else {
+			// Direct cleaner purge targets (e.g. macos-trash bypassing internal quarantine) (D-03)
+			if len(directTargets) > 0 {
+				var cleaner domain.Cleaner
+				if c.cleaners != nil {
+					cleaner = c.cleaners.GetCleaner(eco)
+				}
+				if cleaner == nil {
+					res.Errors = append(res.Errors, fmt.Errorf("no cleaner found for ecosystem %s", eco))
+				} else {
+					for _, t := range directTargets {
+						if opts.OnProgress != nil {
+							opts.OnProgress(ProgressEvent{
+								Ecosystem: eco,
+								Target:    t,
+								Action:    ActionDeletingDirect,
+							})
+						}
+					}
+					if err := cleaner.Clean(ctx, directTargets); err != nil {
+						res.Errors = append(res.Errors, fmt.Errorf("cleaning %s direct: %w", eco, err))
+					} else {
+						for _, t := range directTargets {
+							ecoFreed += t.SizeBytes
+							ecoCount++
+							ecoCleanedPaths = append(ecoCleanedPaths, t.Path)
+						}
+						ecoSuccess = true
+					}
+				}
+			}
+
 			// Filesystem targets
 			if len(fsTargets) > 0 {
 				if trashActive && c.trashMgr != nil {
