@@ -27,6 +27,27 @@ type editorDef struct {
 	extRoots      func(home string) []string
 }
 
+func resolveAppSupportDir(home, darwinFolder, linuxFolder string) string {
+	darwinPath := filepath.Join(home, "Library", "Application Support", darwinFolder)
+	linuxPath := filepath.Join(home, ".config", linuxFolder)
+	if runtime.GOOS == "darwin" {
+		if _, err := os.Stat(darwinPath); err == nil {
+			return darwinPath
+		}
+		if _, err := os.Stat(linuxPath); err == nil {
+			return linuxPath
+		}
+		return darwinPath
+	}
+	if _, err := os.Stat(linuxPath); err == nil {
+		return linuxPath
+	}
+	if _, err := os.Stat(darwinPath); err == nil {
+		return darwinPath
+	}
+	return linuxPath
+}
+
 func getEditorDefinitions() []editorDef {
 	return []editorDef{
 		{
@@ -36,24 +57,7 @@ func getEditorDefinitions() []editorDef {
 			hasExtensions: true,
 			hasWorkspaces: true,
 			appSupportDir: func(home string) string {
-				darwinPath := filepath.Join(home, "Library", "Application Support", "Code")
-				linuxPath := filepath.Join(home, ".config", "Code")
-				if runtime.GOOS == "darwin" {
-					if _, err := os.Stat(darwinPath); err == nil {
-						return darwinPath
-					}
-					if _, err := os.Stat(linuxPath); err == nil {
-						return linuxPath
-					}
-					return darwinPath
-				}
-				if _, err := os.Stat(linuxPath); err == nil {
-					return linuxPath
-				}
-				if _, err := os.Stat(darwinPath); err == nil {
-					return darwinPath
-				}
-				return linuxPath
+				return resolveAppSupportDir(home, "Code", "Code")
 			},
 			cacheDirs: func(home string) []string {
 				return []string{
@@ -74,24 +78,7 @@ func getEditorDefinitions() []editorDef {
 			hasExtensions: true,
 			hasWorkspaces: true,
 			appSupportDir: func(home string) string {
-				darwinPath := filepath.Join(home, "Library", "Application Support", "Code - Insiders")
-				linuxPath := filepath.Join(home, ".config", "Code - Insiders")
-				if runtime.GOOS == "darwin" {
-					if _, err := os.Stat(darwinPath); err == nil {
-						return darwinPath
-					}
-					if _, err := os.Stat(linuxPath); err == nil {
-						return linuxPath
-					}
-					return darwinPath
-				}
-				if _, err := os.Stat(linuxPath); err == nil {
-					return linuxPath
-				}
-				if _, err := os.Stat(darwinPath); err == nil {
-					return darwinPath
-				}
-				return linuxPath
+				return resolveAppSupportDir(home, "Code - Insiders", "Code - Insiders")
 			},
 			cacheDirs: func(home string) []string {
 				return []string{
@@ -112,24 +99,7 @@ func getEditorDefinitions() []editorDef {
 			hasExtensions: true,
 			hasWorkspaces: true,
 			appSupportDir: func(home string) string {
-				darwinPath := filepath.Join(home, "Library", "Application Support", "Cursor")
-				linuxPath := filepath.Join(home, ".config", "Cursor")
-				if runtime.GOOS == "darwin" {
-					if _, err := os.Stat(darwinPath); err == nil {
-						return darwinPath
-					}
-					if _, err := os.Stat(linuxPath); err == nil {
-						return linuxPath
-					}
-					return darwinPath
-				}
-				if _, err := os.Stat(linuxPath); err == nil {
-					return linuxPath
-				}
-				if _, err := os.Stat(darwinPath); err == nil {
-					return darwinPath
-				}
-				return linuxPath
+				return resolveAppSupportDir(home, "Cursor", "Cursor")
 			},
 			cacheDirs: func(home string) []string {
 				return []string{
@@ -151,24 +121,7 @@ func getEditorDefinitions() []editorDef {
 			hasExtensions: true,
 			hasWorkspaces: true,
 			appSupportDir: func(home string) string {
-				darwinPath := filepath.Join(home, "Library", "Application Support", "Antigravity")
-				linuxPath := filepath.Join(home, ".config", "Antigravity")
-				if runtime.GOOS == "darwin" {
-					if _, err := os.Stat(darwinPath); err == nil {
-						return darwinPath
-					}
-					if _, err := os.Stat(linuxPath); err == nil {
-						return linuxPath
-					}
-					return darwinPath
-				}
-				if _, err := os.Stat(linuxPath); err == nil {
-					return linuxPath
-				}
-				if _, err := os.Stat(darwinPath); err == nil {
-					return darwinPath
-				}
-				return linuxPath
+				return resolveAppSupportDir(home, "Antigravity", "Antigravity")
 			},
 			cacheDirs: func(home string) []string {
 				return []string{
@@ -193,24 +146,7 @@ func getEditorDefinitions() []editorDef {
 			hasExtensions: true,
 			hasWorkspaces: true,
 			appSupportDir: func(home string) string {
-				darwinPath := filepath.Join(home, "Library", "Application Support", "Windsurf")
-				linuxPath := filepath.Join(home, ".config", "Windsurf")
-				if runtime.GOOS == "darwin" {
-					if _, err := os.Stat(darwinPath); err == nil {
-						return darwinPath
-					}
-					if _, err := os.Stat(linuxPath); err == nil {
-						return linuxPath
-					}
-					return darwinPath
-				}
-				if _, err := os.Stat(linuxPath); err == nil {
-					return linuxPath
-				}
-				if _, err := os.Stat(darwinPath); err == nil {
-					return darwinPath
-				}
-				return linuxPath
+				return resolveAppSupportDir(home, "Windsurf", "Windsurf")
 			},
 			cacheDirs: func(home string) []string {
 				return []string{
@@ -232,24 +168,7 @@ func getEditorDefinitions() []editorDef {
 			hasExtensions: false,
 			hasWorkspaces: false,
 			appSupportDir: func(home string) string {
-				darwinPath := filepath.Join(home, "Library", "Application Support", "Claude")
-				linuxPath := filepath.Join(home, ".config", "Claude")
-				if runtime.GOOS == "darwin" {
-					if _, err := os.Stat(darwinPath); err == nil {
-						return darwinPath
-					}
-					if _, err := os.Stat(linuxPath); err == nil {
-						return linuxPath
-					}
-					return darwinPath
-				}
-				if _, err := os.Stat(linuxPath); err == nil {
-					return linuxPath
-				}
-				if _, err := os.Stat(darwinPath); err == nil {
-					return darwinPath
-				}
-				return linuxPath
+				return resolveAppSupportDir(home, "Claude", "Claude")
 			},
 			cacheDirs: func(home string) []string {
 				return []string{
@@ -268,24 +187,7 @@ func getEditorDefinitions() []editorDef {
 			hasExtensions: false,
 			hasWorkspaces: false,
 			appSupportDir: func(home string) string {
-				darwinPath := filepath.Join(home, "Library", "Application Support", "opencode")
-				linuxPath := filepath.Join(home, ".config", "opencode")
-				if runtime.GOOS == "darwin" {
-					if _, err := os.Stat(darwinPath); err == nil {
-						return darwinPath
-					}
-					if _, err := os.Stat(linuxPath); err == nil {
-						return linuxPath
-					}
-					return darwinPath
-				}
-				if _, err := os.Stat(linuxPath); err == nil {
-					return linuxPath
-				}
-				if _, err := os.Stat(darwinPath); err == nil {
-					return darwinPath
-				}
-				return linuxPath
+				return resolveAppSupportDir(home, "opencode", "opencode")
 			},
 			cacheDirs: func(home string) []string {
 				return []string{
