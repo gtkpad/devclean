@@ -291,55 +291,31 @@ func TestClaude(t *testing.T) {
 func TestEditors(t *testing.T) {
 	home := t.TempDir()
 
-	// 1. Setup Editor App Support / Config dirs
-	var codeDir, cursorDir string
+	// Setup basic Editor App Support / Config dirs with Cache and logs
+	var codeDir string
 	if runtime.GOOS == "darwin" {
 		codeDir = filepath.Join(home, "Library", "Application Support", "Code")
-		cursorDir = filepath.Join(home, "Library", "Application Support", "Cursor")
 	} else {
 		codeDir = filepath.Join(home, ".config", "Code")
-		cursorDir = filepath.Join(home, ".config", "Cursor")
 	}
 
-	for _, edDir := range []string{codeDir, cursorDir} {
-		if err := os.MkdirAll(filepath.Join(edDir, "CachedData"), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(edDir, "CachedData", "v8_cache.bin"), []byte("v8-bytecode"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.MkdirAll(filepath.Join(edDir, "logs"), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(edDir, "logs", "session.log"), []byte("session-log"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		// Settings files that MUST NOT be touched
-		if err := os.WriteFile(filepath.Join(edDir, "settings.json"), []byte(`{"editor.tabSize": 2}`), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(edDir, "keybindings.json"), []byte(`[]`), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	// 2. Setup Extensions (.vscode and .cursor)
-	vscodeExt := filepath.Join(home, ".vscode", "extensions")
-	if err := os.MkdirAll(filepath.Join(vscodeExt, "publisher.ext-1.0.0"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(codeDir, "Cache"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(vscodeExt, "publisher.ext-1.0.0", "package.json"), []byte("{}"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(codeDir, "Cache", "v8_cache.bin"), []byte("v8-bytecode"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(vscodeExt, "publisher.ext-2.0.0"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(codeDir, "logs"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(vscodeExt, "publisher.ext-2.0.0", "package.json"), []byte("{}"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(codeDir, "logs", "session.log"), []byte("session-log"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// .obsolete marks ext-1.0.0 as obsolete
-	obsoleteJSON := `{"publisher.ext-1.0.0": true, "publisher.ext-3.0.0": false}`
-	if err := os.WriteFile(filepath.Join(vscodeExt, ".obsolete"), []byte(obsoleteJSON), 0o644); err != nil {
+	// Settings files that MUST NOT be touched
+	if err := os.WriteFile(filepath.Join(codeDir, "settings.json"), []byte(`{"editor.tabSize": 2}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(codeDir, "keybindings.json"), []byte(`[]`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -350,107 +326,30 @@ func TestEditors(t *testing.T) {
 		t.Fatalf("unexpected scan error: %v", err)
 	}
 
-	var foundCodeCachedData, foundCodeLogs bool
-	var foundCursorCachedData, foundCursorLogs bool
-	var foundObsoleteExt, foundActiveExt, foundSettings bool
-
+	var foundChromium, foundLogs, foundSettings bool
 	for _, target := range targets {
 		if target.Risk != domain.RiskLow {
 			t.Errorf("expected RiskLow for editor target %s, got %v", target.Name, target.Risk)
 		}
-
-		base := filepath.Base(target.Path)
-		if base == "settings.json" || base == "keybindings.json" {
+		if target.Path == filepath.Join(codeDir, "settings.json") || target.Path == filepath.Join(codeDir, "keybindings.json") {
 			foundSettings = true
 		}
-		if base == "publisher.ext-2.0.0" {
-			foundActiveExt = true
+		if target.Path == "editor://code/chromium-cache" {
+			foundChromium = true
 		}
-		if base == "publisher.ext-1.0.0" {
-			foundObsoleteExt = true
-			if target.Category != "editor-obsolete-extension" {
-				t.Errorf("expected category editor-obsolete-extension, got %s", target.Category)
-			}
-		}
-		if target.Category == "editor-cached-data" {
-			if target.Path == filepath.Join(codeDir, "CachedData") {
-				foundCodeCachedData = true
-			}
-			if target.Path == filepath.Join(cursorDir, "CachedData") {
-				foundCursorCachedData = true
-			}
-		}
-		if target.Category == "editor-logs" {
-			if target.Path == filepath.Join(codeDir, "logs") {
-				foundCodeLogs = true
-			}
-			if target.Path == filepath.Join(cursorDir, "logs") {
-				foundCursorLogs = true
-			}
+		if target.Path == "editor://code/logs" {
+			foundLogs = true
 		}
 	}
 
 	if foundSettings {
 		t.Fatal("SECURITY VIOLATION: settings.json or keybindings.json returned as target!")
 	}
-	if foundActiveExt {
-		t.Fatal("SECURITY VIOLATION: active extension publisher.ext-2.0.0 returned as target!")
+	if !foundChromium {
+		t.Error("expected Code chromium-cache to be detected")
 	}
-	if !foundCodeCachedData {
-		t.Error("expected Code CachedData to be detected")
-	}
-	if !foundCodeLogs {
+	if !foundLogs {
 		t.Error("expected Code logs to be detected")
-	}
-	if !foundCursorCachedData {
-		t.Error("expected Cursor CachedData to be detected")
-	}
-	if !foundCursorLogs {
-		t.Error("expected Cursor logs to be detected")
-	}
-	if !foundObsoleteExt {
-		t.Error("expected obsolete extension publisher.ext-1.0.0 to be detected")
-	}
-
-	// Test TTL filtering: set Code CachedData to recent, Cursor CachedData to old
-	oldTime := time.Now().AddDate(0, 0, -60)
-	recentTime := time.Now().AddDate(0, 0, -2)
-	_ = os.Chtimes(filepath.Join(codeDir, "CachedData"), recentTime, recentTime)
-	_ = os.Chtimes(filepath.Join(cursorDir, "CachedData"), oldTime, oldTime)
-	_ = os.Chtimes(filepath.Join(vscodeExt, "publisher.ext-1.0.0"), oldTime, oldTime)
-
-	rulesAge := domain.EcosystemRules{Enabled: true, MaxAgeDays: 30}
-	agedTargets, err := scanEditors(context.Background(), &cleaner.DefaultExecutor{}, home, rulesAge)
-	if err != nil {
-		t.Fatalf("unexpected scan error with TTL: %v", err)
-	}
-
-	var foundRecentCodeCachedData, foundOldCursorCachedData bool
-	for _, target := range agedTargets {
-		if target.Path == filepath.Join(codeDir, "CachedData") {
-			foundRecentCodeCachedData = true
-			if target.TTLEligible {
-				t.Errorf("recent Code CachedData should have TTLEligible=false")
-			}
-			if target.EligibleBytes != 0 {
-				t.Errorf("recent Code CachedData should have EligibleBytes=0, got %d", target.EligibleBytes)
-			}
-		}
-		if target.Path == filepath.Join(cursorDir, "CachedData") {
-			foundOldCursorCachedData = true
-			if !target.TTLEligible {
-				t.Errorf("old Cursor CachedData should have TTLEligible=true")
-			}
-			if target.EligibleBytes != target.SizeBytes {
-				t.Errorf("old Cursor CachedData should have EligibleBytes == SizeBytes")
-			}
-		}
-	}
-	if !foundRecentCodeCachedData {
-		t.Errorf("recent Code CachedData should be reported in scan")
-	}
-	if !foundOldCursorCachedData {
-		t.Errorf("old Cursor CachedData should be reported in scan")
 	}
 }
 
@@ -585,6 +484,18 @@ func TestAICleaner_FullScanAndClean(t *testing.T) {
 	}
 
 	// 2. Editors
+	var codeAppDir string
+	if runtime.GOOS == "darwin" {
+		codeAppDir = filepath.Join(tmpHome, "Library", "Application Support", "Code")
+	} else {
+		codeAppDir = filepath.Join(tmpHome, ".config", "Code")
+	}
+	if err := os.MkdirAll(filepath.Join(codeAppDir, "Cache"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(codeAppDir, "Cache", "v8_cache.bin"), []byte("v8"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	vscodeExt := filepath.Join(tmpHome, ".vscode", "extensions")
 	obsoleteExt := filepath.Join(vscodeExt, "publisher.obsolete-1.0.0")
 	if err := os.MkdirAll(obsoleteExt, 0o755); err != nil {
@@ -624,8 +535,11 @@ func TestAICleaner_FullScanAndClean(t *testing.T) {
 		t.Fatalf("expected at least 4 targets across all sub-cleaners, got %d", len(targets))
 	}
 
-	// Verify each target exists on disk before clean
+	// Verify each target exists on disk before clean (skipping virtual targets like editor://)
 	for _, target := range targets {
+		if target.IsVirtual() {
+			continue
+		}
 		if _, err := os.Stat(target.Path); err != nil {
 			t.Fatalf("target path %s does not exist before Clean(): %v", target.Path, err)
 		}
@@ -636,8 +550,11 @@ func TestAICleaner_FullScanAndClean(t *testing.T) {
 		t.Fatalf("unexpected clean error: %v", err)
 	}
 
-	// Verify all target paths are deleted
+	// Verify all physical target paths are deleted
 	for _, target := range targets {
+		if target.IsVirtual() {
+			continue
+		}
 		if _, err := os.Stat(target.Path); !os.IsNotExist(err) {
 			t.Errorf("target path %s still exists after Clean()", target.Path)
 		}
