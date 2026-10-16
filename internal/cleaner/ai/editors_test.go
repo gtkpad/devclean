@@ -469,3 +469,169 @@ func TestEditors_WorkspaceStorage_SurgicalBackup(t *testing.T) {
 	}
 }
 
+func TestEditors_ObsoleteExtensions_Safety(t *testing.T) {
+	home := t.TempDir()
+	mockExec := newMockExecutor()
+
+	extRoot := filepath.Join(home, ".vscode", "extensions")
+	if err := os.MkdirAll(extRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Obsolete extension folder (candidate)
+	obsoleteDir := filepath.Join(extRoot, "publisher.obsolete-ext-1.0.0")
+	if err := os.MkdirAll(obsoleteDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(obsoleteDir, "package.json"), make([]byte, 2048), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 2. Active extension 1: not in .obsolete
+	activeDir1 := filepath.Join(extRoot, "publisher.active-ext-2.0.0")
+	if err := os.MkdirAll(activeDir1, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(activeDir1, "package.json"), make([]byte, 4096), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 3. Active extension 2: in .obsolete with false
+	activeDir2 := filepath.Join(extRoot, "publisher.kept-ext-3.0.0")
+	if err := os.MkdirAll(activeDir2, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(activeDir2, "package.json"), make([]byte, 8192), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 4. Sensitive directory outside extRoot for path traversal
+	sensitiveDir := filepath.Join(home, "sensitive_data")
+	if err := os.MkdirAll(sensitiveDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sensitiveDir, "secret.key"), make([]byte, 1024), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 5. Symlink pointing to sensitive directory
+	symlinkDir := filepath.Join(extRoot, "symlink-ext")
+	if err := os.Symlink(sensitiveDir, symlinkDir); err != nil {
+		t.Fatal(err)
+	}
+
+	// 6. Write .obsolete JSON
+	obsoleteContent := `{
+		"publisher.obsolete-ext-1.0.0": true,
+		"publisher.kept-ext-3.0.0": false,
+		"../../sensitive_data": true,
+		"symlink-ext": true
+	}`
+	obsoletePath := filepath.Join(extRoot, ".obsolete")
+	if err := os.WriteFile(obsoletePath, []byte(obsoleteContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 0}
+	targets, err := scanEditors(context.Background(), mockExec, home, rules)
+	if err != nil {
+		t.Fatalf("scanEditors failed: %v", err)
+	}
+
+	var foundExtTarget bool
+	for _, target := range targets {
+		if target.Path == "editor://code/extensions" {
+			foundExtTarget = true
+			if target.Category != "editor-extensions" {
+				t.Errorf("expected category editor-extensions, got %s", target.Category)
+			}
+			if target.Risk != domain.RiskMedium {
+				t.Errorf("expected RiskMedium, got %v", target.Risk)
+			}
+			// SizeBytes must correspond ONLY to publisher.obsolete-ext-1.0.0 (2048)
+			if target.SizeBytes != 2048 {
+				t.Errorf("expected SizeBytes == 2048, got %d", target.SizeBytes)
+			}
+			if target.EligibleBytes != 2048 {
+				t.Errorf("expected EligibleBytes == 2048, got %d", target.EligibleBytes)
+			}
+		}
+
+		// Ensure no target exposes sensitive data or active extensions
+		if strings.Contains(target.Name, "sensitive_data") || strings.Contains(target.Path, "sensitive_data") {
+			t.Fatalf("SECURITY VIOLATION: sensitive_data targeted: %s", target.Path)
+		}
+		if strings.Contains(target.Name, "active-ext") || strings.Contains(target.Path, "active-ext") {
+			t.Fatalf("SECURITY VIOLATION: active extension targeted: %s", target.Path)
+		}
+		if strings.Contains(target.Name, "kept-ext") || strings.Contains(target.Path, "kept-ext") {
+			t.Fatalf("SECURITY VIOLATION: kept extension targeted: %s", target.Path)
+		}
+		if strings.Contains(target.Name, "symlink-ext") || strings.Contains(target.Path, "symlink-ext") {
+			t.Fatalf("SECURITY VIOLATION: symlink-ext targeted: %s", target.Path)
+		}
+		if strings.Contains(target.Name, ".obsolete") || strings.Contains(target.Path, ".obsolete") {
+			t.Fatalf("SECURITY VIOLATION: .obsolete metadata file targeted: %s", target.Path)
+		}
+	}
+
+	if !foundExtTarget {
+		t.Fatalf("expected editor://code/extensions target not found")
+	}
+
+	// Verify .obsolete file itself still exists on disk
+	if _, err := os.Stat(obsoletePath); err != nil {
+		t.Fatalf(".obsolete file was removed or missing: %v", err)
+	}
+}
+
+func TestEditors_CachedExtensionVSIXs(t *testing.T) {
+	home := t.TempDir()
+	mockExec := newMockExecutor()
+
+	var appDir string
+	if runtime.GOOS == "darwin" {
+		appDir = filepath.Join(home, "Library", "Application Support", "Code")
+	} else {
+		appDir = filepath.Join(home, ".config", "Code")
+	}
+
+	vsixDir := filepath.Join(appDir, "CachedExtensionVSIXs")
+	if err := os.MkdirAll(vsixDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(vsixDir, "extension.vsix"), make([]byte, 5000), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 0}
+	targets, err := scanEditors(context.Background(), mockExec, home, rules)
+	if err != nil {
+		t.Fatalf("scanEditors failed: %v", err)
+	}
+
+	var foundExtTarget bool
+	for _, target := range targets {
+		if target.Path == "editor://code/extensions" {
+			foundExtTarget = true
+			if target.Category != "editor-extensions" {
+				t.Errorf("expected category editor-extensions, got %s", target.Category)
+			}
+			if target.Risk != domain.RiskMedium {
+				t.Errorf("expected RiskMedium, got %v", target.Risk)
+			}
+			if target.SizeBytes != 5000 {
+				t.Errorf("expected SizeBytes == 5000, got %d", target.SizeBytes)
+			}
+			if target.EligibleBytes != 5000 {
+				t.Errorf("expected EligibleBytes == 5000, got %d", target.EligibleBytes)
+			}
+		}
+	}
+
+	if !foundExtTarget {
+		t.Fatalf("expected editor://code/extensions target for CachedExtensionVSIXs not found")
+	}
+}
+
+
