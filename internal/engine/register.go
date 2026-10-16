@@ -40,7 +40,7 @@ func RegisterDefaultCleanersWithExecutor(eng *Engine, cfg *config.Config, resolv
 	effectivePaths := cfg.EffectiveScanPaths()
 
 	// Ecossistemas base de linguagens e containers
-	eng.Register(docker.New())
+	eng.Register(docker.NewWithExecutor(exec))
 	eng.Register(golang.New())
 	eng.Register(node.New(effectivePaths))
 	eng.Register(dotnet.New(paths, effectivePaths))

@@ -49,8 +49,10 @@ func TestPnpmCleaner_IsInstalled(t *testing.T) {
 
 
 func TestPnpmCleaner_Scan_Success(t *testing.T) {
-	tempDir := t.TempDir()
-	storeDir := filepath.Join(tempDir, "pnpm-store")
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+
+	storeDir := filepath.Join(tempHome, "pnpm-store")
 	if err := os.MkdirAll(storeDir, 0o755); err != nil {
 		t.Fatalf("failed to create storeDir: %v", err)
 	}
@@ -73,14 +75,27 @@ func TestPnpmCleaner_Scan_Success(t *testing.T) {
 	}
 
 	target := targets[0]
-	if target.Path != "pnpm://store/prune" {
-		t.Errorf("target.Path = %q, want %q", target.Path, "pnpm://store/prune")
+	resolvedStoreDir, resErr := filepath.EvalSymlinks(storeDir)
+	if resErr != nil {
+		resolvedStoreDir = storeDir
 	}
-	if !target.IsVirtual() {
-		t.Errorf("expected target.IsVirtual() to be true")
+	if target.Path != resolvedStoreDir {
+		t.Errorf("target.Path = %q, want %q", target.Path, resolvedStoreDir)
 	}
-	if target.Category != "virtual-pnpm-store" {
-		t.Errorf("target.Category = %q, want %q", target.Category, "virtual-pnpm-store")
+	if !target.ReviewOnly {
+		t.Errorf("expected target.ReviewOnly to be true")
+	}
+	if target.ReviewReason != domain.ReviewReasonSharedStore {
+		t.Errorf("target.ReviewReason = %q, want %q", target.ReviewReason, domain.ReviewReasonSharedStore)
+	}
+	if target.EligibleBytes != 0 {
+		t.Errorf("target.EligibleBytes = %d, want 0", target.EligibleBytes)
+	}
+	if target.TTLEligible {
+		t.Errorf("expected TTLEligible = false")
+	}
+	if target.Category != "pnpm-store" {
+		t.Errorf("target.Category = %q, want %q", target.Category, "pnpm-store")
 	}
 	if target.Risk != domain.RiskLow {
 		t.Errorf("target.Risk = %v, want %v", target.Risk, domain.RiskLow)
@@ -91,6 +106,9 @@ func TestPnpmCleaner_Scan_Success(t *testing.T) {
 }
 
 func TestPnpmCleaner_Scan_FailureOrEmpty(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+
 	t.Run("command error", func(t *testing.T) {
 		mock := cleaner.NewMockExecutor()
 		mock.Errors["pnpm store path"] = errors.New("command not found")
@@ -136,13 +154,11 @@ func TestPnpmCleaner_Scan_FailureOrEmpty(t *testing.T) {
 }
 
 func TestPnpmCleaner_Clean(t *testing.T) {
-	t.Run("clean success", func(t *testing.T) {
+	t.Run("clean skips virtual prune and executes no external prune", func(t *testing.T) {
 		mock := cleaner.NewMockExecutor()
-		mock.Outputs["pnpm store prune"] = []byte("pruned")
-
 		c := NewWithExecutor(mock)
 		targets := []domain.Target{
-			{Path: "pnpm://store/prune"},
+			{Path: "pnpm://store/prune", Category: "virtual-pnpm-store"},
 			{Path: "other://something"},
 		}
 
@@ -150,29 +166,8 @@ func TestPnpmCleaner_Clean(t *testing.T) {
 			t.Fatalf("Clean() unexpected error: %v", err)
 		}
 
-		foundPrune := false
-		for _, call := range mock.Calls {
-			if len(call) == 3 && call[0] == "pnpm" && call[1] == "store" && call[2] == "prune" {
-				foundPrune = true
-				break
-			}
-		}
-		if !foundPrune {
-			t.Errorf("expected 'pnpm store prune' call in executor calls, got %v", mock.Calls)
-		}
-	})
-
-	t.Run("clean error", func(t *testing.T) {
-		mock := cleaner.NewMockExecutor()
-		mock.Errors["pnpm store prune"] = errors.New("prune failed")
-
-		c := NewWithExecutor(mock)
-		targets := []domain.Target{
-			{Path: "pnpm://store/prune"},
-		}
-
-		if err := c.Clean(context.Background(), targets); err == nil {
-			t.Errorf("expected Clean() error when prune fails, got nil")
+		if len(mock.Calls) != 0 {
+			t.Errorf("expected 0 calls to executor, got %v", mock.Calls)
 		}
 	})
 }
@@ -376,4 +371,132 @@ func TestPnpmCleaner_Clean_PermissionHandling(t *testing.T) {
 	// Must not panic
 	_ = c.Clean(context.Background(), targets)
 }
+
+func TestPnpm_HybridStoreDiscovery_ReviewOnly(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+
+	// Create CLI store path
+	cliStore := filepath.Join(tempHome, "custom-pnpm-store")
+	if err := os.MkdirAll(filepath.Join(cliStore, "v3"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	f1 := filepath.Join(cliStore, "v3", "f1.bin")
+	if err := os.WriteFile(f1, []byte("shared-pkg-data-12345"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	// Create candidate disk store path: ~/.pnpm-store
+	diskStore := filepath.Join(tempHome, ".pnpm-store")
+	if err := os.MkdirAll(filepath.Join(diskStore, "v3"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	f2 := filepath.Join(diskStore, "v3", "f2.bin")
+	if err := os.WriteFile(f2, []byte("shared-pkg-data-67890"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	mock := cleaner.NewMockExecutor()
+	mock.Outputs["pnpm store path"] = []byte(cliStore + "\n")
+
+	c := NewWithExecutor(mock)
+	targets, err := c.Scan(context.Background(), domain.EcosystemRules{Enabled: true})
+	if err != nil {
+		t.Fatalf("Scan failed: %v", err)
+	}
+
+	var storeTargets []domain.Target
+	for _, tgt := range targets {
+		if tgt.Category == "pnpm-store" {
+			storeTargets = append(storeTargets, tgt)
+		}
+	}
+
+	// Should discover both cliStore and diskStore
+	if len(storeTargets) != 2 {
+		t.Fatalf("expected 2 store targets, got %d", len(storeTargets))
+	}
+
+	for _, st := range storeTargets {
+		if !st.ReviewOnly {
+			t.Errorf("store target %s: expected ReviewOnly == true", st.Path)
+		}
+		if st.ReviewReason != domain.ReviewReasonSharedStore {
+			t.Errorf("store target %s: expected ReviewReason == %q, got %q", st.Path, domain.ReviewReasonSharedStore, st.ReviewReason)
+		}
+		if st.EligibleBytes != 0 {
+			t.Errorf("store target %s: expected EligibleBytes == 0, got %d", st.Path, st.EligibleBytes)
+		}
+		if st.TTLEligible {
+			t.Errorf("store target %s: expected TTLEligible == false", st.Path)
+		}
+		if st.ProviderMetrics == nil {
+			t.Fatalf("store target %s: ProviderMetrics is nil", st.Path)
+		}
+		if st.ProviderMetrics.AllocatedBytes == 0 && st.ProviderMetrics.ApparentBytes == 0 {
+			t.Errorf("store target %s: expected non-zero metrics", st.Path)
+		}
+		if st.ProviderMetrics.StatusNote != "content-addressable shared package store" {
+			t.Errorf("store target %s: unexpected StatusNote %q", st.Path, st.ProviderMetrics.StatusNote)
+		}
+	}
+}
+
+func TestPnpm_Clean_MetadataCacheOnly_NoStorePrune(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+
+	storeDir := filepath.Join(tempHome, ".pnpm-store")
+	if err := os.MkdirAll(storeDir, 0o755); err != nil {
+		t.Fatalf("mkdir store: %v", err)
+	}
+	sentinel := filepath.Join(storeDir, "sentinel.pkg")
+	if err := os.WriteFile(sentinel, []byte("SENTINEL-PACKAGE-DATA"), 0o644); err != nil {
+		t.Fatalf("write sentinel: %v", err)
+	}
+
+	cacheDir := filepath.Join(tempHome, "Library", "Caches", "pnpm")
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		t.Fatalf("mkdir cache: %v", err)
+	}
+	cacheFile := filepath.Join(cacheDir, "metadata.json")
+	if err := os.WriteFile(cacheFile, []byte("cached-metadata"), 0o644); err != nil {
+		t.Fatalf("write cache file: %v", err)
+	}
+
+	mock := cleaner.NewMockExecutor()
+	c := NewWithExecutor(mock)
+
+	targets := []domain.Target{
+		{Path: "pnpm://store/prune", Category: "virtual-pnpm-store", ReviewOnly: true},
+		{Path: storeDir, Category: "pnpm-store", ReviewOnly: true},
+		{Path: cacheDir, Category: "pnpm-cache"},
+	}
+
+	if err := c.Clean(context.Background(), targets); err != nil {
+		t.Fatalf("Clean failed: %v", err)
+	}
+
+	// Cache must be deleted
+	if _, err := os.Stat(cacheDir); !os.IsNotExist(err) {
+		t.Errorf("expected metadata cache dir to be deleted")
+	}
+
+	// Store sentinel must remain intact
+	data, err := os.ReadFile(sentinel)
+	if err != nil {
+		t.Fatalf("expected store sentinel to be preserved, got err: %v", err)
+	}
+	if string(data) != "SENTINEL-PACKAGE-DATA" {
+		t.Errorf("store sentinel corrupted: %s", string(data))
+	}
+
+	// pnpm store prune must NEVER be called
+	for _, call := range mock.Calls {
+		if len(call) >= 3 && call[0] == "pnpm" && call[1] == "store" && call[2] == "prune" {
+			t.Fatalf("FORBIDDEN: pnpm store prune was executed: %v", call)
+		}
+	}
+}
+
 
