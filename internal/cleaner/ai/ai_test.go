@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -611,4 +612,239 @@ func TestAICleaner_ConstructorsWithExecutor(t *testing.T) {
 		t.Fatalf("expected Clean to safely skip virtual target, got error: %v", err)
 	}
 }
+
+func TestAICleaner_Clean_PreDeletionRevalidation(t *testing.T) {
+	home := t.TempDir()
+	setupMockEditor(t, home, "Code", "com.microsoft.VSCode")
+
+	mockExec := newMockExecutor()
+	// Initially Code is NOT running
+	mockExec.runningProcesses["Code"] = false
+
+	c := NewWithExecutorAndHome(mockExec, nil, home)
+	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 0}
+	targets, err := c.Scan(context.Background(), rules)
+	if err != nil {
+		t.Fatalf("Scan failed: %v", err)
+	}
+
+	var codeTargets []domain.Target
+	for _, target := range targets {
+		if strings.HasPrefix(target.Path, "editor://code/") {
+			codeTargets = append(codeTargets, target)
+		}
+	}
+	if len(codeTargets) == 0 {
+		t.Fatal("expected Code targets from Scan")
+	}
+
+	// Now simulate user starting Code before Clean() runs! (D-07 race condition)
+	mockExec.runningProcesses["Code"] = true
+
+	// Also simulate claude CLI target
+	claudeDir := filepath.Join(home, ".claude", "cache")
+	if err := os.MkdirAll(claudeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	claudeSentinel := filepath.Join(claudeDir, "sentinel.txt")
+	if err := os.WriteFile(claudeSentinel, []byte("claude-cache-bytes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	claudeTarget := domain.Target{
+		ID:        "claude-cache-test",
+		Path:      claudeDir,
+		Category:  "ai-claude-cache",
+		SizeBytes: 18,
+	}
+
+	// Also set claude running
+	mockExec.runningProcesses["claude"] = true
+
+	allTargets := append(codeTargets, claudeTarget)
+
+	err = c.Clean(context.Background(), allTargets)
+	if err != nil {
+		t.Fatalf("Clean failed: %v", err)
+	}
+
+	// Verify that neither Code targets nor Claude cache were deleted!
+	if _, err := os.Stat(claudeSentinel); os.IsNotExist(err) {
+		t.Fatal("SECURITY VIOLATION: Claude cache was deleted while claude CLI was running!")
+	}
+
+	// Check Code cache leaf
+	var codeCacheDir string
+	if runtime.GOOS == "darwin" {
+		codeCacheDir = filepath.Join(home, "Library", "Caches", "com.microsoft.VSCode", "Cache", "data_0")
+	} else {
+		codeCacheDir = filepath.Join(home, ".cache", "Code", "Cache", "data_0")
+	}
+	if _, err := os.Stat(codeCacheDir); os.IsNotExist(err) {
+		t.Fatal("SECURITY VIOLATION: Code cache was deleted while Code editor was running!")
+	}
+}
+
+func TestAICleaner_Clean_VirtualEditorTarget(t *testing.T) {
+	home := t.TempDir()
+	mockExec := newMockExecutor()
+	c := NewWithExecutorAndHome(mockExec, nil, home)
+
+	var appDir string
+	if runtime.GOOS == "darwin" {
+		appDir = filepath.Join(home, "Library", "Application Support", "Code")
+	} else {
+		appDir = filepath.Join(home, ".config", "Code")
+	}
+
+	// 1. WorkspaceStorage setup
+	ws1 := filepath.Join(appDir, "User", "workspaceStorage", "ws1")
+	if err := os.MkdirAll(ws1, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	vscdbPrimary := filepath.Join(ws1, "state.vscdb")
+	vscdbBackup := filepath.Join(ws1, "state.vscdb.backup")
+	wsJson := filepath.Join(ws1, "workspace.json")
+	if err := os.WriteFile(vscdbPrimary, []byte("PRIMARY-DB"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(vscdbBackup, []byte("BACKUP-DB"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(wsJson, []byte(`{"id":"ws1"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 2. Extensions setup
+	extDir := filepath.Join(home, ".vscode", "extensions")
+	if err := os.MkdirAll(extDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	obsoleteFile := filepath.Join(extDir, ".obsolete")
+	if err := os.WriteFile(obsoleteFile, []byte(`{"pub.obs-1.0.0": true, "pub.active-1.0.0": false}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	obsExtPath := filepath.Join(extDir, "pub.obs-1.0.0")
+	if err := os.MkdirAll(obsExtPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(obsExtPath, "package.json"), []byte("obs-pkg"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	activeExtPath := filepath.Join(extDir, "pub.active-1.0.0")
+	if err := os.MkdirAll(activeExtPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(activeExtPath, "package.json"), []byte("active-pkg"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 3. CachedExtensionVSIXs setup
+	vsixDir := filepath.Join(appDir, "CachedExtensionVSIXs")
+	if err := os.MkdirAll(vsixDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(vsixDir, "tool.vsix"), []byte("vsix-data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 4. Chromium cache leaf setup
+	codeCacheLeaf := filepath.Join(appDir, "Code Cache", "js")
+	if err := os.MkdirAll(codeCacheLeaf, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(codeCacheLeaf, "cached.js"), []byte("js-cache"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 5. Logs leaf setup
+	logLeaf := filepath.Join(appDir, "logs", "session1")
+	if err := os.MkdirAll(logLeaf, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(logLeaf, "main.log"), []byte("log-data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Call Clean with the 4 virtual targets
+	targets := []domain.Target{
+		{Path: "editor://code/workspace-backups", Category: "editor-workspace-backups"},
+		{Path: "editor://code/extensions", Category: "editor-extensions"},
+		{Path: "editor://code/chromium-cache", Category: "editor-chromium-cache"},
+		{Path: "editor://code/logs", Category: "editor-logs"},
+	}
+
+	if err := c.Clean(context.Background(), targets); err != nil {
+		t.Fatalf("Clean failed: %v", err)
+	}
+
+	// Assert: state.vscdb and workspace.json are untouched!
+	if _, err := os.Stat(vscdbPrimary); err != nil {
+		t.Fatalf("SECURITY VIOLATION: primary state.vscdb was removed: %v", err)
+	}
+	if _, err := os.Stat(wsJson); err != nil {
+		t.Fatalf("SECURITY VIOLATION: workspace.json was removed: %v", err)
+	}
+	// Assert: state.vscdb.backup is deleted!
+	if _, err := os.Stat(vscdbBackup); !os.IsNotExist(err) {
+		t.Fatalf("state.vscdb.backup should have been deleted")
+	}
+
+	// Assert: .obsolete metadata file and active extension are untouched!
+	if _, err := os.Stat(obsoleteFile); err != nil {
+		t.Fatalf("SECURITY VIOLATION: .obsolete metadata was removed: %v", err)
+	}
+	if _, err := os.Stat(activeExtPath); err != nil {
+		t.Fatalf("SECURITY VIOLATION: active extension was removed: %v", err)
+	}
+	// Assert: obsolete extension and CachedExtensionVSIXs are deleted!
+	if _, err := os.Stat(obsExtPath); !os.IsNotExist(err) {
+		t.Fatalf("obsolete extension folder should have been deleted")
+	}
+	if _, err := os.Stat(vsixDir); !os.IsNotExist(err) {
+		t.Fatalf("CachedExtensionVSIXs should have been deleted")
+	}
+
+	// Assert: Code Cache and logs are deleted!
+	if _, err := os.Stat(codeCacheLeaf); !os.IsNotExist(err) {
+		t.Fatalf("Code Cache leaf should have been deleted")
+	}
+	if _, err := os.Stat(logLeaf); !os.IsNotExist(err) {
+		t.Fatalf("logs leaf should have been deleted")
+	}
+}
+
+func TestAICleaner_Clean_SymlinkProtection(t *testing.T) {
+	home := t.TempDir()
+	mockExec := newMockExecutor()
+	c := NewWithExecutorAndHome(mockExec, nil, home)
+
+	// External precious directory
+	externalDir := t.TempDir()
+	preciousFile := filepath.Join(externalDir, "precious.txt")
+	if err := os.WriteFile(preciousFile, []byte("DO-NOT-DELETE"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Physical target path that is a symlink to externalDir
+	symlinkTarget := filepath.Join(home, "symlink-cache")
+	if err := os.Symlink(externalDir, symlinkTarget); err != nil {
+		t.Fatal(err)
+	}
+
+	target := domain.Target{
+		Path:      symlinkTarget,
+		Category:  "ai-generic",
+		SizeBytes: 100,
+	}
+
+	if err := c.Clean(context.Background(), []domain.Target{target}); err != nil {
+		t.Fatalf("Clean failed: %v", err)
+	}
+
+	// Assert external directory and file are completely intact
+	if _, err := os.Stat(preciousFile); err != nil {
+		t.Fatalf("SECURITY VIOLATION: external target was deleted via symlink: %v", err)
+	}
+}
+
 
