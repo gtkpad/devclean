@@ -49,7 +49,7 @@ func RegisterDefaultCleanersWithExecutor(eng *Engine, cfg *config.Config, resolv
 	eng.Register(java.New(effectivePaths))
 
 	// Ecossistemas de IA, runtimes e gerenciadores de pacotes
-	eng.Register(ai.New(effectivePaths))
+	eng.Register(ai.NewWithExecutor(exec, effectivePaths))
 	eng.Register(pnpm.NewWithExecutor(exec))
 	eng.Register(bun.New())
 	eng.Register(nextjs.New(effectivePaths))
