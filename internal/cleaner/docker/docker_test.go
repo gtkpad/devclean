@@ -14,6 +14,7 @@ import (
 )
 
 func TestDockerCleaner_SystemDF_CategorizedReviewOnly(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	mockExec := cleaner.NewMockExecutor()
 
 	dfOutput := `{"Type":"Images","TotalCount":5,"Active":2,"Size":"2.4GB","Reclaimable":"1.1GB (45%)"}
@@ -160,6 +161,7 @@ func TestDockerCleaner_DefaultConstructor(t *testing.T) {
 }
 
 func TestDockerCleaner_DaemonOffline_StatusTarget(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	mockExec := cleaner.NewMockExecutor()
 	mockExec.Errors["docker system df --format {{json .}}"] = errors.New("Cannot connect to the Docker daemon at unix:///var/run/docker.sock")
 	mockExec.Outputs["lookpath:docker"] = []byte("/usr/local/bin/docker")
@@ -195,6 +197,7 @@ func TestDockerCleaner_DaemonOffline_StatusTarget(t *testing.T) {
 }
 
 func TestDockerCleaner_MalformedJSON_PartialTolerance(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	mockExec := cleaner.NewMockExecutor()
 	dfOutput := `{"Type":"Images","TotalCount":5,"Active":2,"Size":"2.4GB","Reclaimable":"1.1GB (45%)"}
 {"Type": "broken json line...

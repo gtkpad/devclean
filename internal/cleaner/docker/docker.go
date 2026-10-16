@@ -55,6 +55,9 @@ func (c *dockerCleaner) IsInstalled() bool {
 		filepath.Join(home, ".orbstack"),
 		filepath.Join(home, ".cache", "orbstack"),
 	}
+	groupContainers, _ := filepath.Glob(filepath.Join(home, "Library", "Group Containers", "*dev.orbstack"))
+	candidates = append(candidates, groupContainers...)
+
 	for _, p := range candidates {
 		if fs.DirExists(p) {
 			return true
@@ -122,6 +125,11 @@ func (c *dockerCleaner) Scan(ctx context.Context, rules domain.EcosystemRules) (
 		targets = append(targets, vmTarget)
 	}
 
+	orbTargets, orbErr := scanOrbStack(ctx, c.exec, rules)
+	if orbErr == nil {
+		targets = append(targets, orbTargets...)
+	}
+
 	return targets, nil
 }
 
@@ -177,8 +185,11 @@ func scanDockerVMDisk() (domain.Target, bool) {
 
 func (c *dockerCleaner) Clean(ctx context.Context, targets []domain.Target) error {
 	for _, t := range targets {
-		if t.ReviewOnly || t.Category == "docker-vm-disk" || strings.HasPrefix(t.Path, "docker://") {
+		if t.ReviewOnly || t.Category == "docker-vm-disk" || t.Category == "orbstack-data" || strings.HasPrefix(t.Path, "docker://") {
 			continue
+		}
+		if t.Category == "orbstack-cache" {
+			_ = cleanOrbStackCache(ctx, c.exec, t)
 		}
 	}
 	return nil
