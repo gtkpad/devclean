@@ -63,8 +63,8 @@ func (c *aiCleaner) Scan(ctx context.Context, rules domain.EcosystemRules) ([]do
 		return targets, nil
 	}
 
-	// 1. Claude Code (~/.claude)
-	claudeTargets, err := scanClaude(filepath.Join(c.homeDir, ".claude"), rules)
+	// 1. Claude Code (~/.claude, ~/.local/share/claude/versions)
+	claudeTargets, err := scanClaude(ctx, c.exec, c.homeDir, rules)
 	if err == nil {
 		targets = append(targets, claudeTargets...)
 	}
