@@ -115,7 +115,7 @@ Plans:
 **Plans**: TBD
 - [x] 10-01-PLAN.md
 - [x] 10-02-PLAN.md
-- [ ] 10-03-PLAN.md
+- [x] 10-03-PLAN.md
 - [ ] 10-04-PLAN.md
 
 ### Phase 11: macOS User/System Caches & Logs
@@ -183,7 +183,7 @@ Phases execute in numeric order: 6 → 7 → 8 → 9 → 10 → 11 → 12 → 13
 | 7. ReviewOnly & Coordinator Policy | 4/4 | Complete    | 2026-10-15 |
 | 8. Node, Headless, Shell/CLI & Xcode | 4/4 | Complete    | 2026-10-15 |
 | 9. AI/Electron Editors & Active Versions | 4/4 | Complete    | 2026-10-15 |
-| 10. Docker, OrbStack & Shared Stores | 2/4 | In Progress | - |
+| 10. Docker, OrbStack & Shared Stores | 3/4 | In Progress | - |
 | 11. macOS User/System Caches & Logs | 0/TBD | Not started | - |
 | 12. Browsers, Session Exclusions & ScriptCache Gate | 0/TBD | Not started | - |
 | 13. App Leftovers & LaunchAgents | 0/TBD | Not started | - |
