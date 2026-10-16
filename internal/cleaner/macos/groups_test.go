@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/gtkpad/devclean/internal/domain"
+	"github.com/gtkpad/devclean/internal/fs"
 )
 
 func TestGroupContainers_AllowlistedCachesOnly(t *testing.T) {
@@ -65,13 +66,19 @@ func TestGroupContainers_AllowlistedCachesOnly(t *testing.T) {
 		t.Errorf("expected risk RiskLow, got %s", target.Risk)
 	}
 
-	// Target size must account strictly for cache + log (1536 bytes), never the 170KB database/plist/doc files
-	expectedCacheBytes := int64(1024 + 512)
+	// Target size must account strictly for cache + log, never the 170KB database/plist/doc files
+	cacheUsage, _ := fs.CalcUsage(cacheDir)
+	logUsage, _ := fs.CalcUsage(logDir)
+	expectedCacheBytes := cacheUsage.AllocatedBytes + logUsage.AllocatedBytes
+
 	if target.SizeBytes != expectedCacheBytes {
 		t.Errorf("target SizeBytes = %d, want exactly %d (only Library/Caches and Library/Logs)", target.SizeBytes, expectedCacheBytes)
 	}
 	if target.EligibleBytes != expectedCacheBytes {
 		t.Errorf("target EligibleBytes = %d, want %d", target.EligibleBytes, expectedCacheBytes)
+	}
+	if target.SizeBytes >= 50*1024 {
+		t.Errorf("target SizeBytes = %d unexpectedly counted root database/plist files", target.SizeBytes)
 	}
 	if target.ReviewOnly {
 		t.Errorf("expected ReviewOnly == false")
