@@ -128,7 +128,7 @@ func TestMacOSCleaner_PreDeleteProcessRevalidation(t *testing.T) {
 	tempDir := t.TempDir()
 	mockHome := filepath.Join(tempDir, "mock_home")
 
-	appCache := filepath.Join(mockHome, "Library", "Caches", "com.example.runningapp")
+	appCache := filepath.Join(mockHome, "Library", "Caches", "runningapp")
 	if err := os.MkdirAll(appCache, 0o755); err != nil {
 		t.Fatalf("failed to create appCache: %v", err)
 	}
