@@ -1284,6 +1284,297 @@ func TestCoordinator_DryRun_ZeroMutation_Phase09(t *testing.T) {
 	}
 }
 
+func TestCoordinator_DryRun_ZeroMutation_Phase10(t *testing.T) {
+	tempDir := t.TempDir()
+	configDir := filepath.Join(tempDir, "config")
+	dataDir := filepath.Join(tempDir, "data")
+	trashDir := filepath.Join(tempDir, "trash")
+
+	cfg := &config.Config{
+		Safety: config.SafetyConfig{
+			TrashEnabled: true,
+			TrashDir:     trashDir,
+		},
+	}
+
+	bl := safety.NewBlacklist(nil)
+	trashMgr := trash.New(cfg.Safety)
+
+	cleaners := newFakeCleanerProvider()
+	dockerCleaner := &fakeCleaner{name: "docker", installed: true}
+	dotnetCleaner := &fakeCleaner{name: "dotnet", installed: true}
+	pnpmCleaner := &fakeCleaner{name: "pnpm", installed: true}
+	cleaners.Register("docker", dockerCleaner)
+	cleaners.Register("dotnet", dotnetCleaner)
+	cleaners.Register("pnpm", pnpmCleaner)
+
+	coord := deleter.New(cleaners, cfg, bl, trashMgr, nil, configDir, dataDir)
+
+	type fileState struct {
+		absPath string
+		hash    [32]byte
+		size    int64
+		mtime   time.Time
+	}
+
+	var preStates []fileState
+
+	recordFile := func(relPath string, payload []byte) string {
+		fullPath := filepath.Join(tempDir, relPath)
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
+			t.Fatalf("mkdir failed: %v", err)
+		}
+		if err := os.WriteFile(fullPath, payload, 0o644); err != nil {
+			t.Fatalf("write failed: %v", err)
+		}
+		info, err := os.Stat(fullPath)
+		if err != nil {
+			t.Fatalf("stat failed: %v", err)
+		}
+		preStates = append(preStates, fileState{
+			absPath: fullPath,
+			hash:    sha256.Sum256(payload),
+			size:    info.Size(),
+			mtime:   info.ModTime(),
+		})
+		return fullPath
+	}
+
+	makePayload := func(prefix string, totalSize int) []byte {
+		b := make([]byte, totalSize)
+		copy(b, []byte(prefix))
+		return b
+	}
+
+	// 1. Docker Host VM Disk: docker_vm/Docker.raw (10 MB payload "DOCKER-RAW-CANARY-DATA-V1")
+	dockerRawFile := recordFile("docker_vm/Docker.raw", makePayload("DOCKER-RAW-CANARY-DATA-V1", 10*1024*1024))
+	dockerRawInfo, _ := os.Stat(dockerRawFile)
+
+	// 2. Docker Images: Virtual target docker://system-df/images
+	// (Virtual, no physical file created)
+
+	// 3. OrbStack VM/Data: orbstack_data/data.img.raw (20 MB payload "ORBSTACK-DATA-IMG-CANARY-V1")
+	orbDataFile := recordFile("orbstack_data/data.img.raw", makePayload("ORBSTACK-DATA-IMG-CANARY-V1", 20*1024*1024))
+	orbDataInfo, _ := os.Stat(orbDataFile)
+
+	// 4. OrbStack Cache: orbstack_cache/data.bin (512 KB payload "ORBSTACK-CACHE-CANARY-V1")
+	orbCacheFile := recordFile("orbstack_cache/data.bin", makePayload("ORBSTACK-CACHE-CANARY-V1", 512*1024))
+	orbCacheInfo, _ := os.Stat(orbCacheFile)
+
+	// 5. NuGet Packages: nuget_packages/Canary.Package.1.0.0.nupkg ("NUGET-PACKAGE-STORE-CANARY-V1")
+	nugetPackageFile := recordFile("nuget_packages/Canary.Package.1.0.0.nupkg", []byte("NUGET-PACKAGE-STORE-CANARY-V1"))
+	nugetPackageInfo, _ := os.Stat(nugetPackageFile)
+
+	// 6. NuGet HTTP Cache: nuget_http/cached_resp.json (200 KB payload "NUGET-HTTP-CACHE-CANARY-V1")
+	nugetHttpFile := recordFile("nuget_http/cached_resp.json", makePayload("NUGET-HTTP-CACHE-CANARY-V1", 200*1024))
+	nugetHttpInfo, _ := os.Stat(nugetHttpFile)
+
+	// 7. pnpm Store: pnpm_store/files/canary.bin ("PNPM-STORE-HARDLINK-CANARY-V1") with hardlink canary_link.bin
+	pnpmStoreFile := recordFile("pnpm_store/files/canary.bin", []byte("PNPM-STORE-HARDLINK-CANARY-V1"))
+	pnpmStoreInfo, _ := os.Stat(pnpmStoreFile)
+	pnpmLinkFile := filepath.Join(tempDir, "pnpm_store/files/canary_link.bin")
+	if err := os.Link(pnpmStoreFile, pnpmLinkFile); err != nil {
+		t.Fatalf("failed to create hardlink: %v", err)
+	}
+	linkInfo, _ := os.Stat(pnpmLinkFile)
+	preStates = append(preStates, fileState{
+		absPath: pnpmLinkFile,
+		hash:    sha256.Sum256([]byte("PNPM-STORE-HARDLINK-CANARY-V1")),
+		size:    linkInfo.Size(),
+		mtime:   linkInfo.ModTime(),
+	})
+
+	// 8. pnpm Metadata Cache: pnpm_cache/meta.json (100 KB payload "PNPM-METADATA-CACHE-CANARY-V1")
+	pnpmCacheFile := recordFile("pnpm_cache/meta.json", makePayload("PNPM-METADATA-CACHE-CANARY-V1", 100*1024))
+	pnpmCacheInfo, _ := os.Stat(pnpmCacheFile)
+
+	dockerTargets := []domain.Target{
+		{
+			ID:            "docker-vm-disk-canary",
+			Name:          "Docker Host VM Disk",
+			Path:          filepath.Dir(dockerRawFile),
+			Category:      "docker-vm-disk",
+			Risk:          domain.RiskLow,
+			SizeBytes:     dockerRawInfo.Size(),
+			EligibleBytes: 0,
+			TTLEligible:   false,
+			ReviewOnly:    true,
+			ReviewReason:  domain.ReviewReasonSharedStore,
+		},
+		{
+			ID:            "docker-images-canary",
+			Name:          "Docker Images",
+			Path:          "docker://system-df/images",
+			Category:      "docker-images",
+			Risk:          domain.RiskLow,
+			SizeBytes:     1024 * 1024 * 50,
+			EligibleBytes: 0,
+			TTLEligible:   false,
+			ReviewOnly:    true,
+			ReviewReason:  domain.ReviewReasonSharedStore,
+		},
+		{
+			ID:            "orbstack-data-canary",
+			Name:          "OrbStack VM Data",
+			Path:          filepath.Dir(orbDataFile),
+			Category:      "orbstack-data",
+			Risk:          domain.RiskLow,
+			SizeBytes:     orbDataInfo.Size(),
+			EligibleBytes: 0,
+			TTLEligible:   false,
+			ReviewOnly:    true,
+			ReviewReason:  domain.ReviewReasonSharedStore,
+		},
+		{
+			ID:            "orbstack-cache-canary",
+			Name:          "OrbStack Cache",
+			Path:          filepath.Dir(orbCacheFile),
+			Category:      "orbstack-cache",
+			Risk:          domain.RiskLow,
+			SizeBytes:     orbCacheInfo.Size(),
+			EligibleBytes: orbCacheInfo.Size(),
+			TTLEligible:   true,
+			ReviewOnly:    false,
+		},
+	}
+
+	dotnetTargets := []domain.Target{
+		{
+			ID:            "nuget-packages-canary",
+			Name:          "NuGet Packages Store",
+			Path:          filepath.Dir(nugetPackageFile),
+			Category:      "nuget-packages",
+			Risk:          domain.RiskLow,
+			SizeBytes:     nugetPackageInfo.Size(),
+			EligibleBytes: 0,
+			TTLEligible:   false,
+			ReviewOnly:    true,
+			ReviewReason:  domain.ReviewReasonSharedStore,
+		},
+		{
+			ID:            "nuget-http-cache-canary",
+			Name:          "NuGet HTTP Cache",
+			Path:          filepath.Dir(nugetHttpFile),
+			Category:      "nuget-http-cache",
+			Risk:          domain.RiskLow,
+			SizeBytes:     nugetHttpInfo.Size(),
+			EligibleBytes: nugetHttpInfo.Size(),
+			TTLEligible:   true,
+			ReviewOnly:    false,
+		},
+	}
+
+	pnpmTargets := []domain.Target{
+		{
+			ID:            "pnpm-store-canary",
+			Name:          "pnpm Shared Store",
+			Path:          filepath.Dir(pnpmStoreFile),
+			Category:      "pnpm-store",
+			Risk:          domain.RiskLow,
+			SizeBytes:     pnpmStoreInfo.Size(),
+			EligibleBytes: 0,
+			TTLEligible:   false,
+			ReviewOnly:    true,
+			ReviewReason:  domain.ReviewReasonSharedStore,
+		},
+		{
+			ID:            "pnpm-cache-canary",
+			Name:          "pnpm Metadata Cache",
+			Path:          filepath.Dir(pnpmCacheFile),
+			Category:      "pnpm-cache",
+			Risk:          domain.RiskLow,
+			SizeBytes:     pnpmCacheInfo.Size(),
+			EligibleBytes: pnpmCacheInfo.Size(),
+			TTLEligible:   true,
+			ReviewOnly:    false,
+		},
+	}
+
+	targetsByEco := map[string][]domain.Target{
+		"docker": dockerTargets,
+		"dotnet": dotnetTargets,
+		"pnpm":   pnpmTargets,
+	}
+
+	expectedWouldDeleteCount := 3 // orbstack-cache, nuget-http-cache, pnpm-cache
+	expectedSkippedCount := 5     // docker-vm-disk, docker-images, orbstack-data, nuget-packages, pnpm-store
+	expectedFreedBytes := orbCacheInfo.Size() + nugetHttpInfo.Size() + pnpmCacheInfo.Size()
+
+	opts := deleter.Options{
+		DryRun: true,
+		Auto:   true,
+		Mode:   "auto",
+	}
+
+	res, err := coord.Delete(context.Background(), targetsByEco, opts)
+	if err != nil {
+		t.Fatalf("DryRun Delete failed: %v", err)
+	}
+
+	// 1. Assert result metrics
+	if res.TotalCount != expectedWouldDeleteCount {
+		t.Errorf("res.TotalCount = %d, want %d", res.TotalCount, expectedWouldDeleteCount)
+	}
+	if res.TotalFreed != expectedFreedBytes {
+		t.Errorf("res.TotalFreed = %d, want %d", res.TotalFreed, expectedFreedBytes)
+	}
+	if len(res.SkippedReviewOnly) != expectedSkippedCount {
+		t.Fatalf("len(res.SkippedReviewOnly) = %d, want %d", len(res.SkippedReviewOnly), expectedSkippedCount)
+	}
+	if len(res.Errors) != 0 {
+		t.Errorf("expected 0 errors, got %d: %v", len(res.Errors), res.Errors)
+	}
+
+	// 2. Strict POL-01, POL-02, VAL-01 zero-mutation assertion on EVERY sentinel file
+	for _, pre := range preStates {
+		postInfo, err := os.Stat(pre.absPath)
+		if err != nil {
+			t.Fatalf("sentinel file missing after DryRun: %s (err: %v)", pre.absPath, err)
+		}
+		data, err := os.ReadFile(pre.absPath)
+		if err != nil {
+			t.Fatalf("reading sentinel file %s: %v", pre.absPath, err)
+		}
+		postHash := sha256.Sum256(data)
+		if postHash != pre.hash {
+			t.Errorf("SHA-256 mutated for %s! Before: %x, After: %x", pre.absPath, pre.hash, postHash)
+		}
+		if postInfo.Size() != pre.size {
+			t.Errorf("Byte size mutated for %s! Before: %d, After: %d", pre.absPath, pre.size, postInfo.Size())
+		}
+		if postInfo.ModTime() != pre.mtime {
+			t.Errorf("mtime mutated for %s! Before: %v, After: %v", pre.absPath, pre.mtime, postInfo.ModTime())
+		}
+	}
+
+	// 3. Trash directory must remain completely empty with zero manifests
+	if entries, err := os.ReadDir(trashDir); err == nil && len(entries) > 0 {
+		t.Errorf("trashDir has entries after DryRun: %v", entries)
+	}
+	manifestPath := filepath.Join(trashDir, "manifest.json")
+	if _, err := os.Stat(manifestPath); !os.IsNotExist(err) {
+		t.Errorf("trash manifest.json was created during DryRun: %s", manifestPath)
+	}
+
+	// 4. History log must not be mutated
+	historyFile := filepath.Join(dataDir, "history.jsonl")
+	if info, err := os.Stat(historyFile); err == nil && info.Size() > 0 {
+		t.Errorf("history.jsonl has content after DryRun: size %d", info.Size())
+	}
+
+	// 5. Cleaners must never have been called
+	if len(dockerCleaner.Cleaned()) != 0 {
+		t.Errorf("dockerCleaner was invoked during DryRun")
+	}
+	if len(dotnetCleaner.Cleaned()) != 0 {
+		t.Errorf("dotnetCleaner was invoked during DryRun")
+	}
+	if len(pnpmCleaner.Cleaned()) != 0 {
+		t.Errorf("pnpmCleaner was invoked during DryRun")
+	}
+}
+
+
 
 
 
