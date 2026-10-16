@@ -134,44 +134,59 @@ func scanClaudeVersions(home string, rules domain.EcosystemRules) []domain.Targe
 	cutoff := time.Now().AddDate(0, 0, -rules.MaxAgeDays)
 	var targets []domain.Target
 
-	if !res.ambiguous && !res.missingSymlink && !res.brokenSymlink && res.activeVersionPath != "" {
-		for _, verPath := range res.candidateVersions {
-			cleanVer := filepath.Clean(verPath)
-			if evalVer, err := filepath.EvalSymlinks(verPath); err == nil {
-				cleanVer = evalVer
-			}
+	for _, verPath := range res.candidateVersions {
+		info, err := os.Stat(verPath)
+		if err != nil {
+			continue
+		}
+
+		sz, _ := devfs.CalcDirSize(verPath)
+		if sz == 0 {
+			sz = info.Size()
+		}
+
+		cleanVer := filepath.Clean(verPath)
+		if evalVer, err := filepath.EvalSymlinks(verPath); err == nil {
+			cleanVer = evalVer
+		}
+
+		// If a valid active version was resolved, protect it from deletion
+		if !res.ambiguous && !res.missingSymlink && !res.brokenSymlink && res.activeVersionPath != "" {
 			if cleanVer == res.activeVersionPath || strings.HasPrefix(res.activeVersionPath, cleanVer+string(filepath.Separator)) {
 				// PROTECTED: Active version is strictly preserved and never targeted
 				continue
 			}
+		}
 
-			info, err := os.Stat(verPath)
-			if err != nil {
-				continue
-			}
+		target := domain.Target{
+			ID:           hashPath(verPath),
+			Name:         "Claude CLI version: " + filepath.Base(verPath),
+			Path:         verPath,
+			SizeBytes:    sz,
+			Risk:         domain.RiskLow,
+			LastAccessed: info.ModTime(),
+			Category:     "ai-claude-versions",
+		}
 
-			sz, _ := devfs.CalcDirSize(verPath)
-			if sz == 0 {
-				sz = info.Size()
-			}
-
-			target := domain.Target{
-				ID:           hashPath(verPath),
-				Name:         "Claude CLI version: " + filepath.Base(verPath),
-				Path:         verPath,
-				SizeBytes:    sz,
-				Risk:         domain.RiskLow,
-				LastAccessed: info.ModTime(),
-				Category:     "ai-claude-versions",
-			}
-
+		if res.missingSymlink {
+			target.ReviewOnly = true
+			target.ReviewReason = domain.ReviewReasonActiveVersion
+			target.EligibleBytes = 0
+			target.TTLEligible = false
+		} else if res.brokenSymlink || res.ambiguous {
+			target.ReviewOnly = true
+			target.ReviewReason = domain.ReviewReasonAmbiguous
+			target.EligibleBytes = 0
+			target.TTLEligible = false
+		} else {
+			// Confirmed inactive version
 			if rules.MaxAgeDays == 0 || info.ModTime().Before(cutoff) {
 				target.TTLEligible = true
 				target.EligibleBytes = sz
 			}
-
-			targets = append(targets, target)
 		}
+
+		targets = append(targets, target)
 	}
 
 	return targets
