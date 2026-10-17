@@ -40,7 +40,7 @@ func TestRegisterDefaultCleaners(t *testing.T) {
 	RegisterDefaultCleaners(eng, cfg, res)
 
 	wantEcosystems := []string{
-		"ai", "bun", "cocoapods", "cpp", "docker", "dotnet",
+		"ai", "browsers", "bun", "cocoapods", "cpp", "docker", "dotnet",
 		"elixir", "flutter", "go", "homebrew", "java", "macos", "nextjs",
 		"node", "pnpm", "python", "rust", "shell", "terraform", "xcode",
 	}
@@ -90,6 +90,7 @@ func TestRegisterDefaultCleaners(t *testing.T) {
 		{"elixir", 14},
 		{"shell", 30},
 		{"macos", 14},
+		{"browsers", 14},
 	}
 
 	for _, tc := range tests {

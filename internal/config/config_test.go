@@ -82,6 +82,15 @@ func TestLoad_NoFile_ReturnsDefaults(t *testing.T) {
 	if cfg.Ecosystems.Shell.MaxAgeDays != 30 {
 		t.Errorf("Shell.MaxAgeDays = %d, want 30", cfg.Ecosystems.Shell.MaxAgeDays)
 	}
+	if cfg.Ecosystems.Browsers.MaxAgeDays != 14 {
+		t.Errorf("Browsers.MaxAgeDays = %d, want 14", cfg.Ecosystems.Browsers.MaxAgeDays)
+	}
+	if !cfg.Ecosystems.Browsers.Enabled {
+		t.Error("Browsers.Enabled should be true by default")
+	}
+	if cfg.Hooks.Browsers.Timeout != "30s" {
+		t.Errorf("Hooks.Browsers.Timeout = %q, want 30s", cfg.Hooks.Browsers.Timeout)
+	}
 	if cfg.Hooks.NextJS.Timeout != "30s" {
 		t.Errorf("Hooks.NextJS.Timeout = %q, want 30s", cfg.Hooks.NextJS.Timeout)
 	}
