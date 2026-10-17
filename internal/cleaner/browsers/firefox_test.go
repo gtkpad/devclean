@@ -171,7 +171,8 @@ func TestBrowsers_Firefox_CleanPreservesSession(t *testing.T) {
 
 	// 1. Verify Firefox disposable files are removed
 	for _, f := range disposable {
-		if strings.Contains(f, "Firefox") {
+		rel, _ := filepath.Rel(tempDir, f)
+		if strings.Contains(rel, "Firefox") {
 			if _, err := os.Stat(f); !os.IsNotExist(err) {
 				t.Errorf("expected disposable Firefox file to be deleted: %s", f)
 			}
@@ -180,7 +181,8 @@ func TestBrowsers_Firefox_CleanPreservesSession(t *testing.T) {
 
 	// 2. Verify Firefox SQLite databases and session sentinels are 100% INTACT (BROW-03, D-15)
 	for _, f := range protected {
-		if strings.Contains(f, "Firefox") {
+		rel, _ := filepath.Rel(tempDir, f)
+		if strings.Contains(rel, "Firefox") {
 			if _, err := os.Stat(f); err != nil {
 				t.Errorf("INVIOLABLE VIOLATION: Firefox session sentinel was removed or corrupted: %s (%v)", f, err)
 			}
