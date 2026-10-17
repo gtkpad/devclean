@@ -4,18 +4,17 @@ milestone: v2.3
 milestone_name: Phases 6–14 (planned)
 current_phase: 12
 current_phase_name: Browsers, Session Exclusions & ScriptCache Gate
-status: planning
-stopped_at: Phase 11 complete, ready to plan Phase 12
-last_updated: "2026-10-16T21:28:06.370Z"
-last_activity: 2026-10-16
-last_activity_desc: Phase 11 complete, transitioned to Phase 12
-state_head: 5f35b786fbac5744d80888d6bcb417dd80115757
+status: executing
+stopped_at: Plan 12-01 completed
+last_updated: "2026-10-17T11:00:00.000Z"
+last_activity: 2026-10-17
+last_activity_desc: Plan 12-01 completed (security foundation, session guard, process guard, test fixtures)
+state_head: 9e731af1322fdfaeefbbaef199e12089da3b2c26
 progress:
   total_phases: 9
   completed_phases: 6
-  total_plans: 23
-  completed_plans: 23
-  percent: 67
+  total_plans: 26
+  completed_plans: 24
 ---
 
 # Project State
@@ -25,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-14)
 
 **Core value:** O DevClean deve revelar espaço recuperável com precisão e impedir que inventário amplo seja confundido com autorização para apagar dados compartilhados, ativos ou de sessão.
-**Current focus:** Phase 11 — macOS User/System Caches & Logs
+**Current focus:** Phase 12 — Browsers, Session Exclusions & ScriptCache Gate
 
 ## Current Position
 
-Phase: 12 — Browsers, Session Exclusions & ScriptCache Gate
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-10-16 — Phase 11 complete, transitioned to Phase 12
+Phase: 12 (Browsers, Session Exclusions & ScriptCache Gate) — EXECUTING
+Plan: 2 of 3
+Status: Executing Phase 12
+Last activity: 2026-10-17 — Plan 12-01 completed
 
 Progress: [███████░░░] 67%
 
@@ -85,6 +84,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-10-16T19:05:50.682Z
-Stopped at: Phase 11 complete, ready to plan Phase 12
-Resume file: .planning/phases/11-macos-user-system-caches-logs/11-CONTEXT.md
+Last session: 2026-10-17T00:38:36.354Z
+Stopped at: Phase 12 context gathered
+Resume file: .planning/phases/12-browsers-session-exclusions-scriptcache-gate/12-CONTEXT.md
