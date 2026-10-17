@@ -27,6 +27,12 @@ var dedicatedEcosystemCaches = map[string]string{
 	"node":                  "node",
 	"Yarn":                  "node",
 	"dev.orbstack.OrbStack": "docker",
+	"Google":                 "browsers",
+	"BraveSoftware":          "browsers",
+	"company.thebrowser.Arc": "browsers",
+	"Microsoft Edge":         "browsers",
+	"Firefox":                "browsers",
+	"com.apple.Safari":       "browsers",
 }
 
 // Prefix exclusions for AI/Electron editors handled by internal/cleaner/ai (D-05).

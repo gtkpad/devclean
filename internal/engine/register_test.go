@@ -31,6 +31,7 @@ func TestRegisterDefaultCleaners(t *testing.T) {
 			Elixir:    config.EcosystemConfig{Enabled: true, MaxAgeDays: 14},
 			Shell:     config.EcosystemConfig{Enabled: true, MaxAgeDays: 30},
 			MacOS:     config.EcosystemConfig{Enabled: true, MaxAgeDays: 14},
+			Browsers:  config.EcosystemConfig{Enabled: true, MaxAgeDays: 14},
 		},
 	}
 
@@ -120,7 +121,7 @@ func TestRegisterDefaultCleanersWithExecutor(t *testing.T) {
 
 	RegisterDefaultCleanersWithExecutor(eng, cfg, res, exec)
 
-	if len(eng.Ecosystems()) != 20 {
-		t.Fatalf("expected 20 ecosystems, got %d", len(eng.Ecosystems()))
+	if len(eng.Ecosystems()) != 21 {
+		t.Fatalf("expected 21 ecosystems, got %d", len(eng.Ecosystems()))
 	}
 }

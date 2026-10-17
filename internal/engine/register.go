@@ -3,6 +3,7 @@ package engine
 import (
 	"github.com/gtkpad/devclean/internal/cleaner"
 	"github.com/gtkpad/devclean/internal/cleaner/ai"
+	"github.com/gtkpad/devclean/internal/cleaner/browsers"
 	"github.com/gtkpad/devclean/internal/cleaner/bun"
 	"github.com/gtkpad/devclean/internal/cleaner/cocoapods"
 	"github.com/gtkpad/devclean/internal/cleaner/cpp"
@@ -65,7 +66,8 @@ func RegisterDefaultCleanersWithExecutor(eng *Engine, cfg *config.Config, resolv
 	eng.Register(cocoapods.New(effectivePaths))
 	eng.Register(elixir.New(effectivePaths))
 
-	// Ecossistema do sistema operacional
+	// Ecossistema do sistema operacional e navegadores
 	eng.Register(macos.NewWithExecutor(exec))
+	eng.Register(browsers.NewWithExecutor(exec))
 }
 

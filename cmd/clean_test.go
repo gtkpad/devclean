@@ -675,6 +675,10 @@ ecosystems:
     enabled: false
   shell:
     enabled: false
+  macos:
+    enabled: false
+  browsers:
+    enabled: false
 `, tmpDir)
 	cfgPath := filepath.Join(tmpDir, "config.yaml")
 	if err := os.WriteFile(cfgPath, []byte(content), 0o644); err != nil {
@@ -896,6 +900,10 @@ ecosystems:
   elixir:
     enabled: false
   shell:
+    enabled: false
+  macos:
+    enabled: false
+  browsers:
     enabled: false
 `, tmpDir)
 	cfgPath := filepath.Join(tmpDir, "config.yaml")
