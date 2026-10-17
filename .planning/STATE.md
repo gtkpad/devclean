@@ -2,19 +2,20 @@
 gsd_state_version: "1.0"
 milestone: v2.3
 milestone_name: Phases 6–14 (planned)
-current_phase: 12
-current_phase_name: Browsers, Session Exclusions & ScriptCache Gate
-status: completed
-stopped_at: Plan 12-03 completed (Phase 12 complete)
-last_updated: "2026-10-17T11:40:00.000Z"
+current_phase: 13
+current_phase_name: App Leftovers & LaunchAgents
+status: planning
+stopped_at: Phase 12 complete, ready to plan Phase 13
+last_updated: "2026-10-17T11:52:22.194Z"
 last_activity: 2026-10-17
-last_activity_desc: Plan 12-03 completed (browser cleaner orchestrator, engine registration, config defaults, macos exclusions, dry-run canary)
-state_head: ec82d8d05a5bea8ae4bc613ca6e6483edbca7dbb
+last_activity_desc: Phase 12 complete, transitioned to Phase 13
+state_head: 2fbe8894b2c1e20b1946bf069a1d7de9646f1470
 progress:
   total_phases: 9
   completed_phases: 7
   total_plans: 26
   completed_plans: 26
+  percent: 78
 ---
 
 # Project State
@@ -28,12 +29,12 @@ See: .planning/PROJECT.md (updated 2026-10-14)
 
 ## Current Position
 
-Phase: 12 (Browsers, Session Exclusions & ScriptCache Gate) — COMPLETED
-Plan: 3 of 3 (completed)
-Status: Phase 12 completed; ready for Phase 13
-Last activity: 2026-10-17 — Plan 12-03 completed
+Phase: 13 — App Leftovers & LaunchAgents
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-10-17 — Phase 12 complete, transitioned to Phase 13
 
-Progress: [█████████░] 85%
+Progress: [████████░░] 78%
 
 ## Performance Metrics
 
@@ -86,5 +87,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-10-17T00:38:36.354Z
-Stopped at: Phase 12 context gathered
+Stopped at: Phase 12 complete, ready to plan Phase 13
 Resume file: .planning/phases/12-browsers-session-exclusions-scriptcache-gate/12-CONTEXT.md

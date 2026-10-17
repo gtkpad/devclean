@@ -17,7 +17,7 @@ Milestone v2.3 makes DevClean's inventory complete and its cleanup decisions exp
 - [x] **Phase 9: AI/Electron Editors & Active Versions** - Cover editor cache leaves while preserving state databases and active tool versions. (completed 2026-10-15)
 - [x] **Phase 10: Docker, OrbStack & Shared Stores** - Report provider metrics while treating daemon and package stores as review-only inventory. (completed 2026-10-16)
 - [x] **Phase 11: macOS User/System Caches & Logs** - Add allowlisted user/system coverage with process, permission, ownership, and overlap guards. (completed 2026-10-16)
-- [ ] **Phase 12: Browsers, Session Exclusions & ScriptCache Gate** - Inventory six browsers while protecting session data and gating ScriptCache eligibility.
+- [x] **Phase 12: Browsers, Session Exclusions & ScriptCache Gate** - Inventory six browsers while protecting session data and gating ScriptCache eligibility. (completed 2026-10-17)
 - [ ] **Phase 13: App Leftovers & LaunchAgents** - Produce evidence-based review candidates without automatic removal.
 - [ ] **Phase 14: Integrated Validation & macOS Acceptance** - Prove safety, coverage, portability, and read-only benchmark parity on a real macOS host.
 
@@ -185,6 +185,6 @@ Phases execute in numeric order: 6 → 7 → 8 → 9 → 10 → 11 → 12 → 13
 | 9. AI/Electron Editors & Active Versions | 4/4 | Complete    | 2026-10-15 |
 | 10. Docker, OrbStack & Shared Stores | 4/4 | Complete    | 2026-10-16 |
 | 11. macOS User/System Caches & Logs | 4/4 | Complete    | 2026-10-16 |
-| 12. Browsers, Session Exclusions & ScriptCache Gate | 0/TBD | Not started | - |
+| 12. Browsers, Session Exclusions & ScriptCache Gate | 3/3 | Complete    | 2026-10-17 |
 | 13. App Leftovers & LaunchAgents | 0/TBD | Not started | - |
 | 14. Integrated Validation & macOS Acceptance | 0/TBD | Not started | - |
