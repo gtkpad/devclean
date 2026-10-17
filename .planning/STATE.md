@@ -4,17 +4,17 @@ milestone: v2.3
 milestone_name: Phases 6–14 (planned)
 current_phase: 12
 current_phase_name: Browsers, Session Exclusions & ScriptCache Gate
-status: executing
-stopped_at: Plan 12-02 completed
-last_updated: "2026-10-17T11:15:00.000Z"
+status: completed
+stopped_at: Plan 12-03 completed (Phase 12 complete)
+last_updated: "2026-10-17T11:40:00.000Z"
 last_activity: 2026-10-17
-last_activity_desc: Plan 12-02 completed (multi-browser discovery, multi-profile traversal, consolidated targets, ScriptCache gating, TCC degradation)
-state_head: f8f1cda06a2c88ed7323f0c8ebfe231814128bfc
+last_activity_desc: Plan 12-03 completed (browser cleaner orchestrator, engine registration, config defaults, macos exclusions, dry-run canary)
+state_head: ec82d8d05a5bea8ae4bc613ca6e6483edbca7dbb
 progress:
   total_phases: 9
-  completed_phases: 6
+  completed_phases: 7
   total_plans: 26
-  completed_plans: 25
+  completed_plans: 26
 ---
 
 # Project State
@@ -24,21 +24,21 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-14)
 
 **Core value:** O DevClean deve revelar espaço recuperável com precisão e impedir que inventário amplo seja confundido com autorização para apagar dados compartilhados, ativos ou de sessão.
-**Current focus:** Phase 12 — Browsers, Session Exclusions & ScriptCache Gate
+**Current focus:** Phase 12 — Browsers, Session Exclusions & ScriptCache Gate (COMPLETE)
 
 ## Current Position
 
-Phase: 12 (Browsers, Session Exclusions & ScriptCache Gate) — EXECUTING
-Plan: 2 of 3 (completed)
-Status: Executing Phase 12
-Last activity: 2026-10-17 — Plan 12-02 completed
+Phase: 12 (Browsers, Session Exclusions & ScriptCache Gate) — COMPLETED
+Plan: 3 of 3 (completed)
+Status: Phase 12 completed; ready for Phase 13
+Last activity: 2026-10-17 — Plan 12-03 completed
 
-Progress: [████████░░] 78%
+Progress: [█████████░] 85%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 23
+- Total plans completed: 26
 - Average duration: —
 - Total execution time: —
 
@@ -53,6 +53,7 @@ Progress: [████████░░] 78%
 | 09 | 4 | - | - |
 | 10 | 4 | - | - |
 | 11 | 4 | - | - |
+| 12 | 3 | - | - |
 
 **Recent Trend:**
 - Last 5 plans: —
