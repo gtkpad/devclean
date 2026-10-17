@@ -36,6 +36,12 @@ func TestUserCaches_DeduplicationExclusions(t *testing.T) {
 		"com.anthropic.claudefordesktop",
 		"opencode",
 		"dev.zed.Zed",
+		"Google",
+		"BraveSoftware",
+		"company.thebrowser.Arc",
+		"Microsoft Edge",
+		"Firefox",
+		"com.apple.Safari",
 	}
 
 	for _, dir := range excludedDirs {

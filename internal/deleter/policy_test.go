@@ -1848,6 +1848,201 @@ func TestCoordinator_DirectTrashPurge_BypassesQuarantine(t *testing.T) {
 	}
 }
 
+func TestCoordinator_DryRun_ZeroMutation_Phase12(t *testing.T) {
+	tempDir := t.TempDir()
+	configDir := filepath.Join(tempDir, "config")
+	dataDir := filepath.Join(tempDir, "data")
+	trashDir := filepath.Join(tempDir, "trash")
+
+	cfg := &config.Config{
+		Safety: config.SafetyConfig{
+			TrashEnabled: true,
+			TrashDir:     trashDir,
+		},
+	}
+
+	bl := safety.NewBlacklist(nil)
+	trashMgr := trash.New(cfg.Safety)
+
+	cleaners := newFakeCleanerProvider()
+	browsersCleaner := &fakeCleaner{name: "browsers", installed: true}
+	cleaners.Register("browsers", browsersCleaner)
+
+	coord := deleter.New(cleaners, cfg, bl, trashMgr, nil, configDir, dataDir)
+
+	type fileState struct {
+		absPath string
+		hash    [32]byte
+		size    int64
+		mtime   time.Time
+	}
+
+	var preStates []fileState
+
+	recordFile := func(relPath string, payload []byte) string {
+		fullPath := filepath.Join(tempDir, relPath)
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
+			t.Fatalf("mkdir failed: %v", err)
+		}
+		if err := os.WriteFile(fullPath, payload, 0o644); err != nil {
+			t.Fatalf("write failed: %v", err)
+		}
+		info, err := os.Stat(fullPath)
+		if err != nil {
+			t.Fatalf("stat failed: %v", err)
+		}
+		preStates = append(preStates, fileState{
+			absPath: fullPath,
+			hash:    sha256.Sum256(payload),
+			size:    info.Size(),
+			mtime:   info.ModTime(),
+		})
+		return fullPath
+	}
+
+	makePayload := func(prefix string, totalSize int) []byte {
+		b := make([]byte, totalSize)
+		copy(b, []byte(prefix))
+		return b
+	}
+
+	// 1. Canary files for Chrome, Firefox, and Safari: disposable cache, protected session sentinels, and gated scriptcache
+	chromeCacheFile := recordFile("Library/Application Support/Google/Chrome/Default/GPUCache/data_0", makePayload("CHROME-GPU-CACHE", 1024))
+	chromeCookieFile := recordFile("Library/Application Support/Google/Chrome/Default/Cookies", makePayload("CHROME-SESSION-COOKIES", 2048))
+	chromeScriptCacheFile := recordFile("Library/Application Support/Google/Chrome/Default/Service Worker/ScriptCache/script_0", makePayload("CHROME-SCRIPTCACHE", 4096))
+	firefoxCacheFile := recordFile("Library/Caches/Firefox/Profiles/abc.default/cache2/entries/001", makePayload("FIREFOX-CACHE2", 1024))
+	firefoxPlacesFile := recordFile("Library/Application Support/Firefox/Profiles/abc.default/places.sqlite", makePayload("FIREFOX-PLACES-DB", 4096))
+	safariCacheFile := recordFile("Library/Caches/com.apple.Safari/WebKitCache/v16", makePayload("SAFARI-WEBKIT-CACHE", 1024))
+	safariHistoryFile := recordFile("Library/Safari/History.db", makePayload("SAFARI-HISTORY-DB", 4096))
+
+	chromeCacheTarget := domain.Target{
+		ID:            "browser-chrome-caches",
+		Name:          "Google Chrome Caches",
+		Path:          "browser://chrome/caches",
+		Category:      "browser-cache",
+		Risk:          domain.RiskLow,
+		SizeBytes:     1024,
+		EligibleBytes: 1024,
+		TTLEligible:   true,
+		ReviewOnly:    false,
+	}
+
+	chromeScriptCacheTarget := domain.Target{
+		ID:            "browser-chrome-scriptcache",
+		Name:          "Google Chrome ScriptCache",
+		Path:          "browser://chrome/scriptcache",
+		Category:      "browser-scriptcache",
+		Risk:          domain.RiskMedium,
+		SizeBytes:     4096,
+		EligibleBytes: 0,
+		TTLEligible:   false,
+		ReviewOnly:    true,
+		ReviewReason:  "scriptcache_requires_evidence",
+	}
+
+	firefoxCacheTarget := domain.Target{
+		ID:            "browser-firefox-caches",
+		Name:          "Mozilla Firefox Caches",
+		Path:          "browser://firefox/caches",
+		Category:      "browser-cache",
+		Risk:          domain.RiskLow,
+		SizeBytes:     1024,
+		EligibleBytes: 1024,
+		TTLEligible:   true,
+		ReviewOnly:    false,
+	}
+
+	safariCacheTarget := domain.Target{
+		ID:            "browser-safari-caches",
+		Name:          "Safari Caches",
+		Path:          "browser://safari/caches",
+		Category:      "browser-cache",
+		Risk:          domain.RiskLow,
+		SizeBytes:     1024,
+		EligibleBytes: 1024,
+		TTLEligible:   true,
+		ReviewOnly:    false,
+	}
+
+	targetsByEco := map[string][]domain.Target{
+		"browsers": {chromeCacheTarget, chromeScriptCacheTarget, firefoxCacheTarget, safariCacheTarget},
+	}
+
+	opts := deleter.Options{
+		DryRun: true,
+		Auto:   true,
+		Mode:   "auto",
+	}
+
+	res, err := coord.Delete(context.Background(), targetsByEco, opts)
+	if err != nil {
+		t.Fatalf("DryRun Delete failed: %v", err)
+	}
+
+	// 1. Assert result metrics
+	if res.TotalCount != 3 {
+		t.Errorf("res.TotalCount = %d, want 3 (would_delete count for eligible caches)", res.TotalCount)
+	}
+	if res.TotalFreed != 3072 {
+		t.Errorf("res.TotalFreed = %d, want 3072", res.TotalFreed)
+	}
+	if len(res.SkippedReviewOnly) != 1 {
+		t.Fatalf("len(res.SkippedReviewOnly) = %d, want 1", len(res.SkippedReviewOnly))
+	}
+	if res.SkippedReviewOnly[0].ID != chromeScriptCacheTarget.ID {
+		t.Errorf("res.SkippedReviewOnly[0].ID = %q, want %q", res.SkippedReviewOnly[0].ID, chromeScriptCacheTarget.ID)
+	}
+	if len(res.Errors) != 0 {
+		t.Errorf("expected 0 errors, got %d: %v", len(res.Errors), res.Errors)
+	}
+
+	// 2. Strict POL-04, VAL-01 zero-mutation assertion on 100% of canary files
+	for _, pre := range preStates {
+		postInfo, err := os.Stat(pre.absPath)
+		if err != nil {
+			t.Fatalf("canary file missing after DryRun: %s (err: %v)", pre.absPath, err)
+		}
+		data, err := os.ReadFile(pre.absPath)
+		if err != nil {
+			t.Fatalf("reading canary file %s: %v", pre.absPath, err)
+		}
+		postHash := sha256.Sum256(data)
+		if postHash != pre.hash {
+			t.Errorf("SHA-256 mutated for %s! Before: %x, After: %x", pre.absPath, pre.hash, postHash)
+		}
+		if postInfo.Size() != pre.size {
+			t.Errorf("Byte size mutated for %s! Before: %d, After: %d", pre.absPath, pre.size, postInfo.Size())
+		}
+		if postInfo.ModTime() != pre.mtime {
+			t.Errorf("mtime mutated for %s! Before: %v, After: %v", pre.absPath, pre.mtime, postInfo.ModTime())
+		}
+	}
+
+	// 3. Trash directory must remain completely empty with zero manifests
+	if entries, err := os.ReadDir(trashDir); err == nil && len(entries) > 0 {
+		t.Errorf("trashDir has entries after DryRun: %v", entries)
+	}
+	manifestPath := filepath.Join(trashDir, "manifest.json")
+	if _, err := os.Stat(manifestPath); !os.IsNotExist(err) {
+		t.Errorf("trash manifest.json was created during DryRun: %s", manifestPath)
+	}
+
+	// 4. Cleaner must never have been called
+	if len(browsersCleaner.Cleaned()) != 0 {
+		t.Errorf("browsersCleaner was invoked during DryRun: %v", browsersCleaner.Cleaned())
+	}
+
+	// Silence unused warnings for variable paths
+	_ = chromeCacheFile
+	_ = chromeCookieFile
+	_ = chromeScriptCacheFile
+	_ = firefoxCacheFile
+	_ = firefoxPlacesFile
+	_ = safariCacheFile
+	_ = safariHistoryFile
+}
+
+
 
 
 
