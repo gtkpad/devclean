@@ -5,16 +5,16 @@ milestone_name: Phases 6–14 (planned)
 current_phase: 12
 current_phase_name: Browsers, Session Exclusions & ScriptCache Gate
 status: executing
-stopped_at: Plan 12-01 completed
-last_updated: "2026-10-17T11:00:00.000Z"
+stopped_at: Plan 12-02 completed
+last_updated: "2026-10-17T11:15:00.000Z"
 last_activity: 2026-10-17
-last_activity_desc: Plan 12-01 completed (security foundation, session guard, process guard, test fixtures)
-state_head: 9e731af1322fdfaeefbbaef199e12089da3b2c26
+last_activity_desc: Plan 12-02 completed (multi-browser discovery, multi-profile traversal, consolidated targets, ScriptCache gating, TCC degradation)
+state_head: f8f1cda06a2c88ed7323f0c8ebfe231814128bfc
 progress:
   total_phases: 9
   completed_phases: 6
   total_plans: 26
-  completed_plans: 24
+  completed_plans: 25
 ---
 
 # Project State
@@ -29,11 +29,11 @@ See: .planning/PROJECT.md (updated 2026-10-14)
 ## Current Position
 
 Phase: 12 (Browsers, Session Exclusions & ScriptCache Gate) — EXECUTING
-Plan: 2 of 3
+Plan: 2 of 3 (completed)
 Status: Executing Phase 12
-Last activity: 2026-10-17 — Plan 12-01 completed
+Last activity: 2026-10-17 — Plan 12-02 completed
 
-Progress: [███████░░░] 67%
+Progress: [████████░░] 78%
 
 ## Performance Metrics
 
