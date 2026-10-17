@@ -1,8 +1,6 @@
 package browsers
 
 import (
-	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -61,7 +59,7 @@ func TestBrowsers_InviolableSessionShield(t *testing.T) {
 		// System Blacklisted Paths (via safety.IsCoreBlacklisted)
 		{"Root Directory", "/"},
 		{"System Bin", "/bin"},
-		{"System Lib", "/usr/lib"},
+		{"System Lib", "/lib"},
 		{"System Etc", "/etc"},
 		{"Hidden SSH", "/Users/user/.ssh/id_rsa"},
 		{"Hidden Git", "/Users/user/project/.git/HEAD"},
@@ -105,7 +103,7 @@ func TestBrowsers_InviolableSessionShield(t *testing.T) {
 				t.Errorf("FALSE POSITIVE: expected IsSessionOrProtectedData(%q) = false, got true", tc.path)
 			}
 			if err := VerifyCleanCandidate(tc.path); err != nil {
-				t.Errorf("FALSE POSITIVE: expected VerifyCleanCandidate(%q) = nil, got %v", tc.path)
+				t.Errorf("FALSE POSITIVE: expected VerifyCleanCandidate(%q) = nil, got %v", tc.path, err)
 			}
 		})
 	}
