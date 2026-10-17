@@ -27,6 +27,7 @@ func Defaults() Config {
 			Elixir:    EcosystemConfig{Enabled: true, MaxAgeDays: 14, FailMode: "continue", ExcludePaths: []string{}},
 			Shell:     EcosystemConfig{Enabled: true, MaxAgeDays: 30, FailMode: "continue", ExcludePaths: []string{}},
 			MacOS:     EcosystemConfig{Enabled: true, MaxAgeDays: 14, FailMode: "continue", ExcludePaths: []string{}},
+			Browsers:  EcosystemConfig{Enabled: true, MaxAgeDays: 14, FailMode: "continue", ExcludePaths: []string{}},
 		},
 		Safety: SafetyConfig{
 			TrashEnabled:  true,
@@ -58,6 +59,7 @@ func Defaults() Config {
 			Elixir:    HookConfig{Timeout: "30s"},
 			Shell:     HookConfig{Timeout: "30s"},
 			MacOS:     HookConfig{Timeout: "30s"},
+			Browsers:  HookConfig{Timeout: "30s"},
 		},
 		History: HistoryConfig{
 			RetentionDays: 90,

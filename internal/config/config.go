@@ -55,6 +55,7 @@ type EcosystemsConfig struct {
 	Elixir    EcosystemConfig `mapstructure:"elixir"`
 	Shell     EcosystemConfig `mapstructure:"shell"`
 	MacOS     EcosystemConfig `mapstructure:"macos"`
+	Browsers  EcosystemConfig `mapstructure:"browsers"`
 }
 
 type SafetyConfig struct {
@@ -96,6 +97,7 @@ type HooksConfig struct {
 	Elixir    HookConfig `mapstructure:"elixir"`
 	Shell     HookConfig `mapstructure:"shell"`
 	MacOS     HookConfig `mapstructure:"macos"`
+	Browsers  HookConfig `mapstructure:"browsers"`
 }
 
 type HistoryConfig struct {
@@ -229,6 +231,14 @@ func Load(configPath string) (*Config, error) {
 	v.SetDefault("ecosystems.shell.max_age_days", defaults.Ecosystems.Shell.MaxAgeDays)
 	v.SetDefault("ecosystems.shell.fail_mode", defaults.Ecosystems.Shell.FailMode)
 	v.SetDefault("ecosystems.shell.exclude_paths", defaults.Ecosystems.Shell.ExcludePaths)
+	v.SetDefault("ecosystems.macos.enabled", defaults.Ecosystems.MacOS.Enabled)
+	v.SetDefault("ecosystems.macos.max_age_days", defaults.Ecosystems.MacOS.MaxAgeDays)
+	v.SetDefault("ecosystems.macos.fail_mode", defaults.Ecosystems.MacOS.FailMode)
+	v.SetDefault("ecosystems.macos.exclude_paths", defaults.Ecosystems.MacOS.ExcludePaths)
+	v.SetDefault("ecosystems.browsers.enabled", defaults.Ecosystems.Browsers.Enabled)
+	v.SetDefault("ecosystems.browsers.max_age_days", defaults.Ecosystems.Browsers.MaxAgeDays)
+	v.SetDefault("ecosystems.browsers.fail_mode", defaults.Ecosystems.Browsers.FailMode)
+	v.SetDefault("ecosystems.browsers.exclude_paths", defaults.Ecosystems.Browsers.ExcludePaths)
 	v.SetDefault("safety.trash_enabled", defaults.Safety.TrashEnabled)
 	v.SetDefault("safety.retention_days", defaults.Safety.RetentionDays)
 	v.SetDefault("safety.max_size_mb", defaults.Safety.MaxSizeMB)
@@ -253,6 +263,8 @@ func Load(configPath string) (*Config, error) {
 	v.SetDefault("hooks.cocoapods.timeout", defaults.Hooks.CocoaPods.Timeout)
 	v.SetDefault("hooks.elixir.timeout", defaults.Hooks.Elixir.Timeout)
 	v.SetDefault("hooks.shell.timeout", defaults.Hooks.Shell.Timeout)
+	v.SetDefault("hooks.macos.timeout", defaults.Hooks.MacOS.Timeout)
+	v.SetDefault("hooks.browsers.timeout", defaults.Hooks.Browsers.Timeout)
 	v.SetDefault("history.retention_days", defaults.History.RetentionDays)
 	v.SetDefault("intelligence.threshold", defaults.Intelligence.Threshold)
 	v.SetDefault("intelligence.max_age_days", defaults.Intelligence.MaxAgeDays)

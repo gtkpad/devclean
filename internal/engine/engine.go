@@ -197,6 +197,8 @@ func (e *Engine) ecosystemConfig(name string) config.EcosystemConfig {
 		return e.config.Ecosystems.Shell
 	case "macos":
 		return e.config.Ecosystems.MacOS
+	case "browsers":
+		return e.config.Ecosystems.Browsers
 	default:
 		return config.EcosystemConfig{Enabled: true, FailMode: "continue"}
 	}
