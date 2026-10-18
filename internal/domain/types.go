@@ -14,7 +14,7 @@ const (
 	RiskHigh   RiskLevel = "high"
 )
 
-// Semantic Review Reasons (POL-01, D-02, D-10)
+// Semantic Review Reasons (POL-01, D-02, D-10, D-12)
 const (
 	ReviewReasonSharedStore      = "shared_store"
 	ReviewReasonActiveProcess    = "active_process"
@@ -23,6 +23,8 @@ const (
 	ReviewReasonSessionSensitive = "session_sensitive"
 	ReviewReasonActiveVersion    = "active_version"
 	ReviewReasonAmbiguous        = "ambiguous_state"
+	ReviewReasonStaleLaunchAgent = "stale_launchagent"
+	ReviewReasonAppLeftover      = "app_leftover"
 )
 
 type AIAssessment struct {
