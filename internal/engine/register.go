@@ -14,6 +14,7 @@ import (
 	"github.com/gtkpad/devclean/internal/cleaner/golang"
 	"github.com/gtkpad/devclean/internal/cleaner/homebrew"
 	"github.com/gtkpad/devclean/internal/cleaner/java"
+	"github.com/gtkpad/devclean/internal/cleaner/leftovers"
 	"github.com/gtkpad/devclean/internal/cleaner/macos"
 	"github.com/gtkpad/devclean/internal/cleaner/nextjs"
 	"github.com/gtkpad/devclean/internal/cleaner/node"
@@ -66,8 +67,9 @@ func RegisterDefaultCleanersWithExecutor(eng *Engine, cfg *config.Config, resolv
 	eng.Register(cocoapods.New(effectivePaths))
 	eng.Register(elixir.New(effectivePaths))
 
-	// Ecossistema do sistema operacional e navegadores
+	// Ecossistema do sistema operacional, navegadores e resíduos
 	eng.Register(macos.NewWithExecutor(exec))
 	eng.Register(browsers.NewWithExecutor(exec))
+	eng.Register(leftovers.NewWithExecutor(exec))
 }
 

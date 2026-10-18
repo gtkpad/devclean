@@ -28,6 +28,7 @@ func Defaults() Config {
 			Shell:     EcosystemConfig{Enabled: true, MaxAgeDays: 30, FailMode: "continue", ExcludePaths: []string{}},
 			MacOS:     EcosystemConfig{Enabled: true, MaxAgeDays: 14, FailMode: "continue", ExcludePaths: []string{}},
 			Browsers:  EcosystemConfig{Enabled: true, MaxAgeDays: 14, FailMode: "continue", ExcludePaths: []string{}},
+			Leftovers: EcosystemConfig{Enabled: true, MaxAgeDays: 0, FailMode: "continue", ExcludePaths: []string{}},
 		},
 		Safety: SafetyConfig{
 			TrashEnabled:  true,
@@ -60,6 +61,7 @@ func Defaults() Config {
 			Shell:     HookConfig{Timeout: "30s"},
 			MacOS:     HookConfig{Timeout: "30s"},
 			Browsers:  HookConfig{Timeout: "30s"},
+			Leftovers: HookConfig{Timeout: "30s"},
 		},
 		History: HistoryConfig{
 			RetentionDays: 90,

@@ -32,6 +32,7 @@ func TestRegisterDefaultCleaners(t *testing.T) {
 			Shell:     config.EcosystemConfig{Enabled: true, MaxAgeDays: 30},
 			MacOS:     config.EcosystemConfig{Enabled: true, MaxAgeDays: 14},
 			Browsers:  config.EcosystemConfig{Enabled: true, MaxAgeDays: 14},
+			Leftovers: config.EcosystemConfig{Enabled: true, MaxAgeDays: 0},
 		},
 	}
 
@@ -42,7 +43,7 @@ func TestRegisterDefaultCleaners(t *testing.T) {
 
 	wantEcosystems := []string{
 		"ai", "browsers", "bun", "cocoapods", "cpp", "docker", "dotnet",
-		"elixir", "flutter", "go", "homebrew", "java", "macos", "nextjs",
+		"elixir", "flutter", "go", "homebrew", "java", "leftovers", "macos", "nextjs",
 		"node", "pnpm", "python", "rust", "shell", "terraform", "xcode",
 	}
 
@@ -92,6 +93,7 @@ func TestRegisterDefaultCleaners(t *testing.T) {
 		{"shell", 30},
 		{"macos", 14},
 		{"browsers", 14},
+		{"leftovers", 0},
 	}
 
 	for _, tc := range tests {
@@ -121,7 +123,7 @@ func TestRegisterDefaultCleanersWithExecutor(t *testing.T) {
 
 	RegisterDefaultCleanersWithExecutor(eng, cfg, res, exec)
 
-	if len(eng.Ecosystems()) != 21 {
-		t.Fatalf("expected 21 ecosystems, got %d", len(eng.Ecosystems()))
+	if len(eng.Ecosystems()) != 22 {
+		t.Fatalf("expected 22 ecosystems, got %d", len(eng.Ecosystems()))
 	}
 }

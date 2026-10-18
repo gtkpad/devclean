@@ -58,6 +58,9 @@ var allowedCleanValues = map[string]bool{
 	"cocoapods":   true,
 	"elixir":      true,
 	"shell":       true,
+	"macos":       true,
+	"browsers":    true,
+	"leftovers":   true,
 }
 
 // Validate checks the config for invalid values and returns a clear error message.
@@ -90,6 +93,9 @@ func (c *Config) Validate() error {
 		"hooks.cocoapods": c.Hooks.CocoaPods,
 		"hooks.elixir":    c.Hooks.Elixir,
 		"hooks.shell":     c.Hooks.Shell,
+		"hooks.macos":     c.Hooks.MacOS,
+		"hooks.browsers":  c.Hooks.Browsers,
+		"hooks.leftovers": c.Hooks.Leftovers,
 	}
 
 	for name, h := range hooks {

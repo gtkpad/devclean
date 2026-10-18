@@ -426,10 +426,14 @@ func getMaxAgeDays(cfg *config.Config, ecosystem string) int {
 		return cfg.Ecosystems.CocoaPods.MaxAgeDays
 	case "elixir":
 		return cfg.Ecosystems.Elixir.MaxAgeDays
+	case "shell":
+		return cfg.Ecosystems.Shell.MaxAgeDays
 	case "macos":
 		return cfg.Ecosystems.MacOS.MaxAgeDays
 	case "browsers":
 		return cfg.Ecosystems.Browsers.MaxAgeDays
+	case "leftovers":
+		return cfg.Ecosystems.Leftovers.MaxAgeDays
 	default:
 		return 0
 	}
