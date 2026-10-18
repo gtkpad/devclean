@@ -18,7 +18,7 @@ Milestone v2.3 makes DevClean's inventory complete and its cleanup decisions exp
 - [x] **Phase 10: Docker, OrbStack & Shared Stores** - Report provider metrics while treating daemon and package stores as review-only inventory. (completed 2026-10-16)
 - [x] **Phase 11: macOS User/System Caches & Logs** - Add allowlisted user/system coverage with process, permission, ownership, and overlap guards. (completed 2026-10-16)
 - [x] **Phase 12: Browsers, Session Exclusions & ScriptCache Gate** - Inventory six browsers while protecting session data and gating ScriptCache eligibility. (completed 2026-10-17)
-- [ ] **Phase 13: App Leftovers & LaunchAgents** - Produce evidence-based review candidates without automatic removal.
+- [x] **Phase 13: App Leftovers & LaunchAgents** - Produce evidence-based review candidates without automatic removal. (completed 2026-10-18)
 - [ ] **Phase 14: Integrated Validation & macOS Acceptance** - Prove safety, coverage, portability, and read-only benchmark parity on a real macOS host.
 
 ## Phase Details
@@ -157,7 +157,17 @@ Plans:
   4. Leftovers and stale LaunchAgents are never removed automatically, and dry-run/report paths leave plist and payload sentinels unchanged.
   5. Fixtures cover XML/binary parsing, symlinks, wrappers, permission errors, launchctl unavailability, and malformed values with no unsafe classification.
 
-**Plans**: TBD
+**Plans**: 3/3 plans complete
+
+Plans:
+**Wave 1**
+- [x] 13-01-PLAN.md — LaunchAgents, Plist Parsing & Stale vs. Ambiguous Classification
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [x] 13-02-PLAN.md — Installed App Indexer, Leftover Scanner & Exclusions Shield
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [x] 13-03-PLAN.md — Cleaner Lifecycle, Inviolable Clean() Guard & Engine Wiring
 
 ### Phase 14: Integrated Validation & macOS Acceptance
 
@@ -186,5 +196,5 @@ Phases execute in numeric order: 6 → 7 → 8 → 9 → 10 → 11 → 12 → 13
 | 10. Docker, OrbStack & Shared Stores | 4/4 | Complete    | 2026-10-16 |
 | 11. macOS User/System Caches & Logs | 4/4 | Complete    | 2026-10-16 |
 | 12. Browsers, Session Exclusions & ScriptCache Gate | 3/3 | Complete    | 2026-10-17 |
-| 13. App Leftovers & LaunchAgents | 0/TBD | Not started | - |
+| 13. App Leftovers & LaunchAgents | 3/3 | Complete    | 2026-10-18 |
 | 14. Integrated Validation & macOS Acceptance | 0/TBD | Not started | - |

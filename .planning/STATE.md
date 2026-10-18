@@ -2,20 +2,20 @@
 gsd_state_version: "1.0"
 milestone: v2.3
 milestone_name: Phases 6–14 (planned)
-current_phase: 13
-current_phase_name: App Leftovers & LaunchAgents
+current_phase: 14
+current_phase_name: Integrated Validation & macOS Acceptance
 status: planning
-stopped_at: Phase 12 complete, ready to plan Phase 13
-last_updated: "2026-10-17T11:52:22.194Z"
-last_activity: 2026-10-17
-last_activity_desc: Phase 12 complete, transitioned to Phase 13
-state_head: 2fbe8894b2c1e20b1946bf069a1d7de9646f1470
+stopped_at: Phase 13 complete, ready to plan Phase 14
+last_updated: "2026-10-18T16:11:15.777Z"
+last_activity: 2026-10-18
+last_activity_desc: Phase 13 complete, transitioned to Phase 14
+state_head: 8083e121c9286d4aed91573d7deac7503e25a2d2
 progress:
   total_phases: 9
-  completed_phases: 7
-  total_plans: 26
-  completed_plans: 26
-  percent: 78
+  completed_phases: 8
+  total_plans: 29
+  completed_plans: 29
+  percent: 89
 ---
 
 # Project State
@@ -25,21 +25,21 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-14)
 
 **Core value:** O DevClean deve revelar espaço recuperável com precisão e impedir que inventário amplo seja confundido com autorização para apagar dados compartilhados, ativos ou de sessão.
-**Current focus:** Phase 12 — Browsers, Session Exclusions & ScriptCache Gate (COMPLETE)
+**Current focus:** Phase 13 — App Leftovers & LaunchAgents
 
 ## Current Position
 
-Phase: 13 — App Leftovers & LaunchAgents
+Phase: 14 — Integrated Validation & macOS Acceptance
 Plan: Not started
 Status: Ready to plan
-Last activity: 2026-10-17 — Phase 12 complete, transitioned to Phase 13
+Last activity: 2026-10-18 — Phase 13 complete, transitioned to Phase 14
 
-Progress: [████████░░] 78%
+Progress: [█████████░] 89%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 26
+- Total plans completed: 29
 - Average duration: —
 - Total execution time: —
 
@@ -55,6 +55,7 @@ Progress: [████████░░] 78%
 | 10 | 4 | - | - |
 | 11 | 4 | - | - |
 | 12 | 3 | - | - |
+| 13 | 3 | - | - |
 
 **Recent Trend:**
 - Last 5 plans: —
@@ -86,6 +87,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-10-17T00:38:36.354Z
-Stopped at: Phase 12 complete, ready to plan Phase 13
-Resume file: .planning/phases/12-browsers-session-exclusions-scriptcache-gate/12-CONTEXT.md
+Last session: 2026-10-18T14:25:55.583Z
+Stopped at: Phase 13 complete, ready to plan Phase 14
+Resume file: .planning/phases/13-app-leftovers-launchagents/13-CONTEXT.md
