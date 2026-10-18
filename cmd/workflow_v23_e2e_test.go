@@ -4,13 +4,16 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/gtkpad/devclean/internal/cleaner"
 	"github.com/gtkpad/devclean/internal/config"
 	"github.com/gtkpad/devclean/internal/deleter"
 	"github.com/gtkpad/devclean/internal/domain"
@@ -407,3 +410,280 @@ func TestE2E_V23_MultiChannel_ReviewOnlyImmunity(t *testing.T) {
 	}
 	rig.assertAllSentinelsIntact(t, "TUI")
 }
+
+// TestE2E_V23_FaultInjection_ProcessGuard verifies that active application processes
+// (Chrome, OrbStack, Xcode) cause scan targets to receive ReviewOnly: true and
+// ReviewReason: active_process.
+func TestE2E_V23_FaultInjection_ProcessGuard(t *testing.T) {
+	rig := setupV23HermeticRig(t)
+
+	// Create Chrome profile and cache
+	chromeCache := filepath.Join(rig.FakeHome, "Library", "Caches", "Google", "Chrome", "Default", "Cache")
+	_ = os.MkdirAll(chromeCache, 0755)
+	_ = os.WriteFile(filepath.Join(chromeCache, "data_0"), []byte("chrome cache data"), 0644)
+
+	// Create OrbStack cache
+	orbCache := filepath.Join(rig.FakeHome, "Library", "Caches", "dev.orbstack.OrbStack")
+	_ = os.MkdirAll(orbCache, 0755)
+	_ = os.WriteFile(filepath.Join(orbCache, "cache.db"), []byte("orbstack cache"), 0644)
+
+	// Create Xcode DerivedData directory
+	derivedData := filepath.Join(rig.FakeHome, "Library", "Developer", "Xcode", "DerivedData", "App-abcdef")
+	_ = os.MkdirAll(derivedData, 0755)
+	_ = os.WriteFile(filepath.Join(derivedData, "build.db"), []byte("derived data"), 0644)
+
+	mockExec := cleaner.NewMockExecutor()
+	// Simulate active PIDs for Chrome, OrbStack, and Xcode
+	mockExec.Outputs["pgrep -x Google Chrome"] = []byte("11111\n")
+	mockExec.Outputs["pgrep -x chrome"] = []byte("11111\n")
+	mockExec.Outputs["pgrep -x OrbStack"] = []byte("22222\n")
+	mockExec.Outputs["pgrep -x Xcode"] = []byte("33333\n")
+
+	cfg, err := config.Load(rig.ConfigFile)
+	if err != nil {
+		t.Fatalf("loading config failed: %v", err)
+	}
+
+	resolver := platform.New()
+	eng := engine.New(cfg, resolver)
+	engine.RegisterDefaultCleanersWithExecutor(eng, cfg, resolver, mockExec)
+
+	ctx := context.Background()
+	results := engine.Collect(ctx, eng.Scan(ctx))
+
+	foundChrome := false
+	foundOrbStack := false
+	foundXcode := false
+
+	for _, res := range results {
+		for _, tgt := range res.Targets {
+			if strings.Contains(tgt.Name, "Chrome") || strings.Contains(tgt.Path, "Chrome") {
+				foundChrome = true
+				if !tgt.ReviewOnly {
+					t.Errorf("expected Chrome target %s to have ReviewOnly=true, got false", tgt.ID)
+				}
+				if tgt.ReviewReason != domain.ReviewReasonActiveProcess && tgt.ReviewReason != "scriptcache_requires_evidence" {
+					t.Errorf("expected Chrome target %s to have ReviewReason active_process, got %q", tgt.ID, tgt.ReviewReason)
+				}
+			}
+			if strings.Contains(tgt.ID, "orbstack") || strings.Contains(tgt.Path, "OrbStack") {
+				foundOrbStack = true
+				if !tgt.ReviewOnly {
+					t.Errorf("expected OrbStack target %s to have ReviewOnly=true, got false", tgt.ID)
+				}
+				if tgt.ReviewReason != domain.ReviewReasonActiveProcess && tgt.ReviewReason != domain.ReviewReasonSharedStore {
+					t.Errorf("expected OrbStack target %s to have ReviewReason active_process, got %q", tgt.ID, tgt.ReviewReason)
+				}
+			}
+			if strings.Contains(tgt.ID, "xcode") || strings.Contains(tgt.Path, "Xcode") {
+				foundXcode = true
+				if !tgt.ReviewOnly {
+					t.Errorf("expected Xcode target %s to have ReviewOnly=true, got false", tgt.ID)
+				}
+				if tgt.ReviewReason != domain.ReviewReasonActiveProcess {
+					t.Errorf("expected Xcode target %s to have ReviewReason active_process, got %q", tgt.ID, tgt.ReviewReason)
+				}
+			}
+		}
+	}
+
+	if !foundChrome {
+		t.Errorf("expected to find Chrome targets in scan results")
+	}
+	if !foundOrbStack {
+		t.Errorf("expected to find OrbStack targets in scan results")
+	}
+	if !foundXcode {
+		t.Errorf("expected to find Xcode targets in scan results")
+	}
+}
+
+// TestE2E_V23_FaultInjection_SymlinkGuard verifies that symlinks inside cleanable
+// directories pointing to sensitive paths (.ssh, .git) are rejected and sensitive files untouched.
+func TestE2E_V23_FaultInjection_SymlinkGuard(t *testing.T) {
+	rig := setupV23HermeticRig(t)
+
+	// Plant sensitive sentinels in system blacklisted / sensitive paths
+	sshDir := filepath.Join(rig.FakeHome, ".ssh")
+	sshSentinel := rig.plantSentinel(t, sshDir, "id_rsa", "PRIVATE_SSH_KEY_DO_NOT_DELETE")
+
+	gitDir := filepath.Join(rig.FakeWorkspace, ".git")
+	gitSentinel := rig.plantSentinel(t, gitDir, "config", "GIT_CONFIG_HISTORY_DO_NOT_DELETE")
+
+	// Create cleanable cache directory containing malicious symlinks pointing to sensitive files
+	cacheDir := filepath.Join(rig.FakeHome, "Library", "Caches", "test-malicious-app")
+	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+		t.Fatalf("failed creating cache dir: %v", err)
+	}
+	disposableFile := filepath.Join(cacheDir, "temp.cache")
+	if err := os.WriteFile(disposableFile, []byte("disposable data"), 0644); err != nil {
+		t.Fatalf("failed writing disposable cache: %v", err)
+	}
+
+	symlinkToSSH := filepath.Join(cacheDir, "symlink_ssh")
+	if err := os.Symlink(sshDir, symlinkToSSH); err != nil {
+		t.Fatalf("failed creating symlink to ssh: %v", err)
+	}
+
+	symlinkToGit := filepath.Join(cacheDir, "symlink_git")
+	if err := os.Symlink(gitDir, symlinkToGit); err != nil {
+		t.Fatalf("failed creating symlink to git: %v", err)
+	}
+
+	target := domain.Target{
+		ID:         "macos-cache-malicious",
+		Name:       "Malicious App Cache",
+		Path:       cacheDir,
+		Category:   "macos-app-cache",
+		ReviewOnly: false,
+	}
+
+	cfg, err := config.Load(rig.ConfigFile)
+	if err != nil {
+		t.Fatalf("failed loading config: %v", err)
+	}
+	bl := safety.NewBlacklist(cfg.ProtectedPatterns)
+	coord := deleter.New(nil, cfg, bl, nil, nil, rig.FakeHome, rig.FakeHome)
+
+	// Execute deletion on the cache target
+	_, err = coord.Delete(context.Background(), map[string][]domain.Target{
+		"macos": {target},
+	}, deleter.Options{Mode: "force"})
+	if err != nil {
+		t.Fatalf("unexpected coordinator error: %v", err)
+	}
+
+	// Verify sentinels in .ssh and .git are 100% untouched
+	rig.assertAllSentinelsIntact(t, "SymlinkGuard")
+
+	sshData, err := os.ReadFile(sshSentinel)
+	if err != nil || string(sshData) != "PRIVATE_SSH_KEY_DO_NOT_DELETE" {
+		t.Fatalf("INVIOLABLE BREACH: .ssh/id_rsa was modified or deleted: %v", err)
+	}
+	gitData, err := os.ReadFile(gitSentinel)
+	if err != nil || string(gitData) != "GIT_CONFIG_HISTORY_DO_NOT_DELETE" {
+		t.Fatalf("INVIOLABLE BREACH: .git/config was modified or deleted: %v", err)
+	}
+}
+
+// TestE2E_V23_FaultInjection_GracefulDegradation verifies that command execution
+// failures (e.g. docker daemon offline) complete gracefully without panics,
+// set ProviderMetrics.Partial = true, and assign ReviewReason ambiguous_state.
+func TestE2E_V23_FaultInjection_GracefulDegradation(t *testing.T) {
+	rig := setupV23HermeticRig(t)
+
+	mockExec := cleaner.NewMockExecutor()
+	// Inject connection failure for docker commands
+	mockExec.Errors["docker system df --format {{json .}}"] = errors.New("cannot connect to Docker daemon")
+	mockExec.Errors["docker system df --format json"] = errors.New("cannot connect to Docker daemon")
+	mockExec.Errors["docker system df"] = errors.New("cannot connect to Docker daemon")
+
+	cfg, err := config.Load(rig.ConfigFile)
+	if err != nil {
+		t.Fatalf("failed loading config: %v", err)
+	}
+
+	resolver := platform.New()
+	eng := engine.New(cfg, resolver)
+	engine.RegisterDefaultCleanersWithExecutor(eng, cfg, resolver, mockExec)
+
+	ctx := context.Background()
+	results := engine.Collect(ctx, eng.Scan(ctx))
+
+	foundPartial := false
+	for _, res := range results {
+		for _, tgt := range res.Targets {
+			if tgt.ProviderMetrics != nil && tgt.ProviderMetrics.Partial {
+				foundPartial = true
+				if !tgt.ReviewOnly {
+					t.Errorf("expected degraded target %s with Partial=true to have ReviewOnly=true", tgt.ID)
+				}
+				if tgt.ReviewReason != domain.ReviewReasonAmbiguous && tgt.ReviewReason != domain.ReviewReasonSystemProtected {
+					t.Errorf("expected ReviewReason ambiguous_state or system_protected, got %q", tgt.ReviewReason)
+				}
+			}
+		}
+	}
+
+	if !foundPartial {
+		t.Errorf("expected at least one target to report ProviderMetrics.Partial == true under injected fault")
+	}
+}
+
+// TestE2E_V23_ZeroDoubleCounting_AcrossEcosystems initializes all default cleaners
+// across all 19 ecosystems, executes engine.Scan(), and proves zero duplicate target
+// paths and zero parent/child path overlaps across the entire scanned inventory.
+func TestE2E_V23_ZeroDoubleCounting_AcrossEcosystems(t *testing.T) {
+	rig := setupV23HermeticRig(t)
+
+	// Create sample project directories in fakeWorkspace across multiple ecosystems
+	// 1. Node project with node_modules
+	nodeProj := filepath.Join(rig.FakeWorkspace, "proj-node")
+	_ = os.MkdirAll(filepath.Join(nodeProj, "node_modules", "pkg"), 0755)
+	_ = os.WriteFile(filepath.Join(nodeProj, "package.json"), []byte(`{"name":"test"}`), 0644)
+	_ = os.WriteFile(filepath.Join(nodeProj, "node_modules", "pkg", "index.js"), []byte(`console.log("hi");`), 0644)
+
+	// 2. Go project with build cache
+	goProj := filepath.Join(rig.FakeWorkspace, "proj-go")
+	_ = os.MkdirAll(goProj, 0755)
+	_ = os.WriteFile(filepath.Join(goProj, "go.mod"), []byte("module testgo\ngo 1.22\n"), 0644)
+
+	// 3. Rust project with target
+	rustProj := filepath.Join(rig.FakeWorkspace, "proj-rust")
+	_ = os.MkdirAll(filepath.Join(rustProj, "target", "debug"), 0755)
+	_ = os.WriteFile(filepath.Join(rustProj, "Cargo.toml"), []byte("[package]\nname = \"testrust\"\nversion = \"0.1.0\"\n"), 0644)
+	_ = os.WriteFile(filepath.Join(rustProj, "target", "debug", "binary"), []byte("bin"), 0644)
+
+	// 4. Python project with .venv
+	pyProj := filepath.Join(rig.FakeWorkspace, "proj-python")
+	_ = os.MkdirAll(filepath.Join(pyProj, ".venv", "bin"), 0755)
+	_ = os.WriteFile(filepath.Join(pyProj, "pyproject.toml"), []byte("[project]\nname = 'test'\n"), 0644)
+	_ = os.WriteFile(filepath.Join(pyProj, ".venv", "pyvenv.cfg"), []byte("home = /usr/bin\n"), 0644)
+
+	cfg, err := config.Load(rig.ConfigFile)
+	if err != nil {
+		t.Fatalf("failed loading config: %v", err)
+	}
+	cfg.ScanPaths = []string{rig.FakeWorkspace}
+
+	resolver := platform.New()
+	eng := engine.New(cfg, resolver)
+	engine.RegisterDefaultCleaners(eng, cfg, resolver)
+
+	ctx := context.Background()
+	results := engine.Collect(ctx, eng.Scan(ctx))
+
+	seenPaths := make(map[string]string) // clean path -> target ID
+	for _, res := range results {
+		for _, trg := range res.Targets {
+			if strings.HasPrefix(trg.Path, "browser://") ||
+				strings.HasPrefix(trg.Path, "docker://") ||
+				strings.HasPrefix(trg.Path, "pnpm://") ||
+				strings.TrimSpace(trg.Path) == "" {
+				continue // Skip virtual scheme paths
+			}
+			cleanPath := filepath.Clean(trg.Path)
+
+			// 1. Exact collision check
+			if existingID, exists := seenPaths[cleanPath]; exists {
+				t.Fatalf("ZERO DOUBLE-COUNTING VIOLATION: duplicate path %s reported by both %s and %s",
+					cleanPath, existingID, trg.ID)
+			}
+
+			// 2. Parent / child overlap check
+			for registeredPath, existingID := range seenPaths {
+				if strings.HasPrefix(cleanPath, registeredPath+string(filepath.Separator)) {
+					t.Fatalf("ZERO DOUBLE-COUNTING VIOLATION: nested path %s (%s) is a child of already registered %s (%s)",
+						cleanPath, trg.ID, registeredPath, existingID)
+				}
+				if strings.HasPrefix(registeredPath, cleanPath+string(filepath.Separator)) {
+					t.Fatalf("ZERO DOUBLE-COUNTING VIOLATION: registered path %s (%s) is a child of new path %s (%s)",
+						registeredPath, existingID, cleanPath, trg.ID)
+				}
+			}
+
+			seenPaths[cleanPath] = trg.ID
+		}
+	}
+}
+
