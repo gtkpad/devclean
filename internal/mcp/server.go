@@ -192,6 +192,11 @@ func (s *Server) handleScan(ctx context.Context, request mcp.CallToolRequest) (*
 	return mcp.NewToolResultText(string(data)), nil
 }
 
+// HandlePropose handles propose_deletion tool calls.
+func (s *Server) HandlePropose(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return s.handlePropose(ctx, request)
+}
+
 func (s *Server) handlePropose(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	idsJSON, err := request.RequireString("target_ids")
 	if err != nil {
@@ -266,6 +271,11 @@ func (s *Server) handlePropose(ctx context.Context, request mcp.CallToolRequest)
 		return mcp.NewToolResultError(fmt.Sprintf("marshal error: %v", err)), nil
 	}
 	return mcp.NewToolResultText(string(data)), nil
+}
+
+// HandleExecute handles execute_approved_deletion tool calls.
+func (s *Server) HandleExecute(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return s.handleExecute(ctx, request)
 }
 
 func (s *Server) handleExecute(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {

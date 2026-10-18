@@ -126,6 +126,22 @@ func New(eng *engine.Engine, bl *safety.Blacklist, cfg *config.Config) model {
 	}
 }
 
+// NewModelWithTargets creates a model directly in stateSelecting with pre-loaded scan targets for testing.
+func NewModelWithTargets(results []domain.ScanResult, coord *deleter.Coordinator, bl *safety.Blacklist, cfg *config.Config) tea.Model {
+	m := New(nil, bl, cfg)
+	m.coordinator = coord
+	m.results = engine.ResolveCanonicalOwnership(results)
+	m.flatTargets = flattenResults(m.results)
+	if len(m.flatTargets) > 0 {
+		m.state = stateSelecting
+		m.recompute()
+	} else {
+		m.state = stateDone
+		m.emptyResult = true
+	}
+	return m
+}
+
 func (m model) targetIcon(t domain.Target) string {
 	if !m.SmartMode {
 		return ""
