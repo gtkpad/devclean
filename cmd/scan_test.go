@@ -57,6 +57,8 @@ func createEmptyConfig(t *testing.T) string {
     enabled: false
   browsers:
     enabled: false
+  leftovers:
+    enabled: false
 `
 	tmpDir := t.TempDir()
 	cfgPath := filepath.Join(tmpDir, "config.yaml")
@@ -127,6 +129,8 @@ ecosystems:
   macos:
     enabled: false
   browsers:
+    enabled: false
+  leftovers:
     enabled: false
 `, tmpDir)
 	if err := os.WriteFile(cfgPath, []byte(cfgContent), 0644); err != nil {

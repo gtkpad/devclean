@@ -56,6 +56,7 @@ type EcosystemsConfig struct {
 	Shell     EcosystemConfig `mapstructure:"shell"`
 	MacOS     EcosystemConfig `mapstructure:"macos"`
 	Browsers  EcosystemConfig `mapstructure:"browsers"`
+	Leftovers EcosystemConfig `mapstructure:"leftovers"`
 }
 
 type SafetyConfig struct {
@@ -98,6 +99,7 @@ type HooksConfig struct {
 	Shell     HookConfig `mapstructure:"shell"`
 	MacOS     HookConfig `mapstructure:"macos"`
 	Browsers  HookConfig `mapstructure:"browsers"`
+	Leftovers HookConfig `mapstructure:"leftovers"`
 }
 
 type HistoryConfig struct {
@@ -239,6 +241,10 @@ func Load(configPath string) (*Config, error) {
 	v.SetDefault("ecosystems.browsers.max_age_days", defaults.Ecosystems.Browsers.MaxAgeDays)
 	v.SetDefault("ecosystems.browsers.fail_mode", defaults.Ecosystems.Browsers.FailMode)
 	v.SetDefault("ecosystems.browsers.exclude_paths", defaults.Ecosystems.Browsers.ExcludePaths)
+	v.SetDefault("ecosystems.leftovers.enabled", defaults.Ecosystems.Leftovers.Enabled)
+	v.SetDefault("ecosystems.leftovers.max_age_days", defaults.Ecosystems.Leftovers.MaxAgeDays)
+	v.SetDefault("ecosystems.leftovers.fail_mode", defaults.Ecosystems.Leftovers.FailMode)
+	v.SetDefault("ecosystems.leftovers.exclude_paths", defaults.Ecosystems.Leftovers.ExcludePaths)
 	v.SetDefault("safety.trash_enabled", defaults.Safety.TrashEnabled)
 	v.SetDefault("safety.retention_days", defaults.Safety.RetentionDays)
 	v.SetDefault("safety.max_size_mb", defaults.Safety.MaxSizeMB)
@@ -265,6 +271,7 @@ func Load(configPath string) (*Config, error) {
 	v.SetDefault("hooks.shell.timeout", defaults.Hooks.Shell.Timeout)
 	v.SetDefault("hooks.macos.timeout", defaults.Hooks.MacOS.Timeout)
 	v.SetDefault("hooks.browsers.timeout", defaults.Hooks.Browsers.Timeout)
+	v.SetDefault("hooks.leftovers.timeout", defaults.Hooks.Leftovers.Timeout)
 	v.SetDefault("history.retention_days", defaults.History.RetentionDays)
 	v.SetDefault("intelligence.threshold", defaults.Intelligence.Threshold)
 	v.SetDefault("intelligence.max_age_days", defaults.Intelligence.MaxAgeDays)

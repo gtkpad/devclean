@@ -2042,6 +2042,190 @@ func TestCoordinator_DryRun_ZeroMutation_Phase12(t *testing.T) {
 	_ = safariHistoryFile
 }
 
+func TestCoordinator_DryRun_ZeroMutation_Phase13(t *testing.T) {
+	tempDir := t.TempDir()
+	configDir := filepath.Join(tempDir, "config")
+	dataDir := filepath.Join(tempDir, "data")
+	trashDir := filepath.Join(tempDir, "trash")
+
+	cfg := &config.Config{
+		Safety: config.SafetyConfig{
+			TrashEnabled: true,
+			TrashDir:     trashDir,
+		},
+		Ecosystems: config.EcosystemsConfig{
+			Leftovers: config.EcosystemConfig{
+				Enabled:    true,
+				MaxAgeDays: 0,
+			},
+		},
+	}
+
+	bl := safety.NewBlacklist(nil)
+	trashMgr := trash.New(cfg.Safety)
+
+	cleaners := newFakeCleanerProvider()
+	leftoversCleaner := &fakeCleaner{name: "leftovers", installed: true}
+	cleaners.Register("leftovers", leftoversCleaner)
+
+	coord := deleter.New(cleaners, cfg, bl, trashMgr, nil, configDir, dataDir)
+
+	type fileState struct {
+		absPath string
+		hash    [32]byte
+		size    int64
+		mtime   time.Time
+	}
+
+	recordFile := func(relPath string, data []byte) (string, fileState) {
+		fullPath := filepath.Join(tempDir, relPath)
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(fullPath, data, 0644); err != nil {
+			t.Fatal(err)
+		}
+		st, err := os.Stat(fullPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return fullPath, fileState{
+			absPath: fullPath,
+			hash:    sha256.Sum256(data),
+			size:    st.Size(),
+			mtime:   st.ModTime(),
+		}
+	}
+
+	launchAgentPayload := []byte("<?xml version=\"1.0\" encoding=\"UTF-8\"?><plist version=\"1.0\"><dict><key>Label</key><string>com.canary.stale</string></dict></plist>")
+	leftoverPayload := []byte("CANARY-APP-LEFTOVER-STATE-DB-PAYLOAD")
+
+	launchAgentPath, launchAgentState := recordFile("Library/LaunchAgents/com.canary.stale.plist", launchAgentPayload)
+	leftoverFilePath, leftoverFileState := recordFile("Library/Application Support/OldApp/state.db", leftoverPayload)
+	leftoverDirPath := filepath.Dir(leftoverFilePath)
+
+	preStates := []fileState{launchAgentState, leftoverFileState}
+
+	// Create targets:
+	// 1. LaunchAgent target (ReviewOnly: true, ReviewReason: domain.ReviewReasonStaleLaunchAgent, EligibleBytes: 0)
+	launchAgentTarget := domain.Target{
+		ID:            "launchagent-stale",
+		Name:          "Stale LaunchAgent: com.canary.stale.plist",
+		Path:          launchAgentPath,
+		Category:      "leftovers-launchagent",
+		Risk:          domain.RiskLow,
+		SizeBytes:     int64(len(launchAgentPayload)),
+		EligibleBytes: 0,
+		TTLEligible:   false,
+		ReviewOnly:    true,
+		ReviewReason:  domain.ReviewReasonStaleLaunchAgent,
+	}
+
+	// 2. App Leftover target (ReviewOnly: true, ReviewReason: domain.ReviewReasonAppLeftover, EligibleBytes: 0)
+	leftoverTarget := domain.Target{
+		ID:            "app-leftover-oldapp",
+		Name:          "App Leftover: oldapp",
+		Path:          leftoverDirPath,
+		Category:      "leftovers-app",
+		Risk:          domain.RiskLow,
+		SizeBytes:     int64(len(leftoverPayload)),
+		EligibleBytes: 0,
+		TTLEligible:   false,
+		ReviewOnly:    true,
+		ReviewReason:  domain.ReviewReasonAppLeftover,
+	}
+
+	targetsByEco := map[string][]domain.Target{
+		"leftovers": {launchAgentTarget, leftoverTarget},
+	}
+
+	// Part 1: Verify DryRun mode produces zero mutations and intercepts both targets as SkippedReviewOnly
+	dryRunOpts := deleter.Options{
+		DryRun: true,
+		Auto:   true,
+		Mode:   "auto",
+	}
+
+	resDry, err := coord.Delete(context.Background(), targetsByEco, dryRunOpts)
+	if err != nil {
+		t.Fatalf("DryRun Delete failed: %v", err)
+	}
+
+	if resDry.TotalFreed != 0 {
+		t.Errorf("resDry.TotalFreed = %d, want 0", resDry.TotalFreed)
+	}
+	if resDry.TotalCount != 0 {
+		t.Errorf("resDry.TotalCount = %d, want 0", resDry.TotalCount)
+	}
+	if len(resDry.SkippedReviewOnly) != 2 {
+		t.Fatalf("len(resDry.SkippedReviewOnly) = %d, want 2", len(resDry.SkippedReviewOnly))
+	}
+	if len(resDry.Errors) != 0 {
+		t.Errorf("resDry.Errors = %v, want 0", resDry.Errors)
+	}
+
+	// Part 2: Verify live run (DryRun: false, force mode) STILL rejects ReviewOnly targets with zero mutations (POL-04, LEFT-04, VAL-01)
+	liveOpts := deleter.Options{
+		DryRun: false,
+		Auto:   false,
+		Mode:   "force",
+	}
+
+	resLive, err := coord.Delete(context.Background(), targetsByEco, liveOpts)
+	if err != nil {
+		t.Fatalf("Live Delete failed: %v", err)
+	}
+
+	if resLive.TotalFreed != 0 {
+		t.Errorf("resLive.TotalFreed = %d, want 0", resLive.TotalFreed)
+	}
+	if resLive.TotalCount != 0 {
+		t.Errorf("resLive.TotalCount = %d, want 0", resLive.TotalCount)
+	}
+	if len(resLive.SkippedReviewOnly) != 2 {
+		t.Fatalf("len(resLive.SkippedReviewOnly) = %d, want 2", len(resLive.SkippedReviewOnly))
+	}
+	if len(resLive.Errors) != 0 {
+		t.Errorf("resLive.Errors = %v, want 0", resLive.Errors)
+	}
+
+	// Part 3: Verify 100% of canary files remain untouched with identical hashes, sizes, and modtimes
+	for _, pre := range preStates {
+		postInfo, err := os.Stat(pre.absPath)
+		if err != nil {
+			t.Fatalf("canary file missing: %s (err: %v)", pre.absPath, err)
+		}
+		data, err := os.ReadFile(pre.absPath)
+		if err != nil {
+			t.Fatalf("reading canary file %s: %v", pre.absPath, err)
+		}
+		postHash := sha256.Sum256(data)
+		if postHash != pre.hash {
+			t.Errorf("SHA-256 mutated for %s! Before: %x, After: %x", pre.absPath, pre.hash, postHash)
+		}
+		if postInfo.Size() != pre.size {
+			t.Errorf("Byte size mutated for %s! Before: %d, After: %d", pre.absPath, pre.size, postInfo.Size())
+		}
+		if postInfo.ModTime() != pre.mtime {
+			t.Errorf("mtime mutated for %s! Before: %v, After: %v", pre.absPath, pre.mtime, postInfo.ModTime())
+		}
+	}
+
+	// Part 4: Trash directory must remain completely empty with zero manifests
+	if entries, err := os.ReadDir(trashDir); err == nil && len(entries) > 0 {
+		t.Errorf("trashDir has entries after Live run: %v", entries)
+	}
+	manifestPath := filepath.Join(trashDir, "manifest.json")
+	if _, err := os.Stat(manifestPath); !os.IsNotExist(err) {
+		t.Errorf("trash manifest.json was created during Live run: %s", manifestPath)
+	}
+
+	// Part 5: Fake cleaner was NEVER called
+	if len(leftoversCleaner.Cleaned()) != 0 {
+		t.Errorf("leftoversCleaner was invoked: %v", leftoversCleaner.Cleaned())
+	}
+}
+
 
 
 

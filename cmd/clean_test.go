@@ -153,6 +153,10 @@ func TestGetMaxAgeDays(t *testing.T) {
 		{"terraform", 30},
 		{"cocoapods", 14},
 		{"elixir", 14},
+		{"shell", 30},
+		{"macos", 14},
+		{"browsers", 14},
+		{"leftovers", 0},
 		{"unknown", 0},
 	}
 
@@ -191,6 +195,10 @@ func testConfig() *config.Config {
 			Terraform: config.EcosystemConfig{MaxAgeDays: 30},
 			CocoaPods: config.EcosystemConfig{MaxAgeDays: 14},
 			Elixir:    config.EcosystemConfig{MaxAgeDays: 14},
+			Shell:     config.EcosystemConfig{MaxAgeDays: 30},
+			MacOS:     config.EcosystemConfig{MaxAgeDays: 14},
+			Browsers:  config.EcosystemConfig{MaxAgeDays: 14},
+			Leftovers: config.EcosystemConfig{MaxAgeDays: 0},
 		},
 	}
 }
@@ -679,6 +687,8 @@ ecosystems:
     enabled: false
   browsers:
     enabled: false
+  leftovers:
+    enabled: false
 `, tmpDir)
 	cfgPath := filepath.Join(tmpDir, "config.yaml")
 	if err := os.WriteFile(cfgPath, []byte(content), 0o644); err != nil {
@@ -904,6 +914,8 @@ ecosystems:
   macos:
     enabled: false
   browsers:
+    enabled: false
+  leftovers:
     enabled: false
 `, tmpDir)
 	cfgPath := filepath.Join(tmpDir, "config.yaml")
