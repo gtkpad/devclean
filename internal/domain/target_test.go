@@ -34,6 +34,12 @@ func TestTarget_ReviewReasons(t *testing.T) {
 	if domain.ReviewReasonAmbiguous != "ambiguous_state" {
 		t.Errorf("ReviewReasonAmbiguous = %q, want %q", domain.ReviewReasonAmbiguous, "ambiguous_state")
 	}
+	if domain.ReviewReasonStaleLaunchAgent != "stale_launchagent" {
+		t.Errorf("ReviewReasonStaleLaunchAgent = %q, want %q", domain.ReviewReasonStaleLaunchAgent, "stale_launchagent")
+	}
+	if domain.ReviewReasonAppLeftover != "app_leftover" {
+		t.Errorf("ReviewReasonAppLeftover = %q, want %q", domain.ReviewReasonAppLeftover, "app_leftover")
+	}
 }
 
 func TestTarget_ReviewOnly_IsReviewOnly(t *testing.T) {
