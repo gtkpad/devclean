@@ -18,5 +18,5 @@ devclean
 # QA & Local test scripts
 QA_REPORT.md
 qa_prompt.md
-scripts/
+scripts/qa_runner.sh
 
