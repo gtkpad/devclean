@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 )
 
 // MockExitError implements interface{ ExitCode() int } and error.
@@ -25,6 +26,7 @@ func (e *MockExitError) ExitCode() int {
 
 // MockCommandExecutor records calls and returns controlled outputs/errors for testing.
 type MockCommandExecutor struct {
+	mu      sync.RWMutex
 	Outputs map[string][]byte
 	Errors  map[string]error
 	Calls   [][]string
@@ -42,6 +44,8 @@ func NewMockExecutor() *MockCommandExecutor {
 // Output records the call and returns the configured output or error.
 func (m *MockCommandExecutor) Output(_ context.Context, name string, args ...string) ([]byte, error) {
 	cmdKey := name + " " + strings.Join(args, " ")
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, append([]string{name}, args...))
 	if err, ok := m.Errors[cmdKey]; ok {
 		return m.Outputs[cmdKey], err
@@ -51,6 +55,8 @@ func (m *MockCommandExecutor) Output(_ context.Context, name string, args ...str
 
 // LookPath returns the configured path or error, falling back to /usr/local/bin/<file>.
 func (m *MockCommandExecutor) LookPath(file string) (string, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	if err, ok := m.Errors["lookpath:"+file]; ok {
 		return "", err
 	}
@@ -59,3 +65,4 @@ func (m *MockCommandExecutor) LookPath(file string) (string, error) {
 	}
 	return "/usr/local/bin/" + file, nil
 }
+
