@@ -182,7 +182,7 @@ Plans:
 
 **Plans**: TBD
 - [x] 14-01-PLAN.md
-- [ ] 14-02-PLAN.md
+- [x] 14-02-PLAN.md
 - [ ] 14-03-PLAN.md
 
 ## Progress
@@ -200,4 +200,4 @@ Phases execute in numeric order: 6 → 7 → 8 → 9 → 10 → 11 → 12 → 13
 | 11. macOS User/System Caches & Logs | 4/4 | Complete    | 2026-10-16 |
 | 12. Browsers, Session Exclusions & ScriptCache Gate | 3/3 | Complete    | 2026-10-17 |
 | 13. App Leftovers & LaunchAgents | 3/3 | Complete    | 2026-10-18 |
-| 14. Integrated Validation & macOS Acceptance | 1/3 | In Progress | - |
+| 14. Integrated Validation & macOS Acceptance | 2/3 | In Progress | - |
