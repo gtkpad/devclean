@@ -191,6 +191,6 @@ func TestDaemons_ContextCancelled(t *testing.T) {
 
 	_, err := scanDaemons(ctx, newMockProcessExecutor(), home)
 	if err == nil {
-		t.Fatalf("expected error on cancelled context, got nil")
+		t.Fatalf("expected error on canceled context, got nil")
 	}
 }

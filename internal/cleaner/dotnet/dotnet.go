@@ -109,11 +109,9 @@ func (c *dotnetCleaner) scanGlobalCaches(rules domain.EcosystemRules) ([]domain.
 			target.ReviewReason = domain.ReviewReasonSharedStore
 			target.EligibleBytes = 0
 			target.TTLEligible = false
-		} else {
-			if rules.MaxAgeDays == 0 || lastAccessed.Before(cutoff) {
-				target.EligibleBytes = size
-				target.TTLEligible = true
-			}
+		} else if rules.MaxAgeDays == 0 || lastAccessed.Before(cutoff) {
+			target.EligibleBytes = size
+			target.TTLEligible = true
 		}
 
 		targets = append(targets, target)

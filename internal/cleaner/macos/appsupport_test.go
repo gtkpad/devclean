@@ -279,6 +279,6 @@ func TestAppSupport_ContextCancelled(t *testing.T) {
 
 	_, err := scanApplicationSupport(ctx, newMockProcessExecutor(), home)
 	if err == nil {
-		t.Fatalf("expected error on cancelled context, got nil")
+		t.Fatalf("expected error on canceled context, got nil")
 	}
 }
