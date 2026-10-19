@@ -364,3 +364,39 @@ func (c *Config) EffectiveScanPaths() []string {
 	return discovered
 }
 
+// ZeroAllMaxAgeDays zeroes MaxAgeDays across all 22 registered ecosystems (REQ-CLI-01, D-09).
+func (c *Config) ZeroAllMaxAgeDays() {
+	if c != nil {
+		c.Ecosystems.ZeroAllMaxAgeDays()
+	}
+}
+
+// ZeroAllMaxAgeDays zeroes MaxAgeDays across all 22 registered ecosystems (REQ-CLI-01, D-09).
+func (ec *EcosystemsConfig) ZeroAllMaxAgeDays() {
+	if ec == nil {
+		return
+	}
+	ec.Docker.MaxAgeDays = 0
+	ec.Node.MaxAgeDays = 0
+	ec.Go.MaxAgeDays = 0
+	ec.DotNet.MaxAgeDays = 0
+	ec.Python.MaxAgeDays = 0
+	ec.Rust.MaxAgeDays = 0
+	ec.Java.MaxAgeDays = 0
+	ec.AI.MaxAgeDays = 0
+	ec.Pnpm.MaxAgeDays = 0
+	ec.Bun.MaxAgeDays = 0
+	ec.NextJS.MaxAgeDays = 0
+	ec.Xcode.MaxAgeDays = 0
+	ec.Homebrew.MaxAgeDays = 0
+	ec.CPP.MaxAgeDays = 0
+	ec.Flutter.MaxAgeDays = 0
+	ec.Terraform.MaxAgeDays = 0
+	ec.CocoaPods.MaxAgeDays = 0
+	ec.Elixir.MaxAgeDays = 0
+	ec.Shell.MaxAgeDays = 0
+	ec.MacOS.MaxAgeDays = 0
+	ec.Browsers.MaxAgeDays = 0
+	ec.Leftovers.MaxAgeDays = 0
+}
+

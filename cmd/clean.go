@@ -85,12 +85,12 @@ Run 'devclean scan' to preview what would be cleaned.`)
 			}
 
 			if preset == "aggressive" {
-				zeroAllMaxAgeDays(cfg)
+				cfg.ZeroAllMaxAgeDays()
 				if !permanent {
 					useTrash = true
 				}
 			} else if all {
-				zeroAllMaxAgeDays(cfg)
+				cfg.ZeroAllMaxAgeDays()
 			}
 
 			resolver := platform.New()
