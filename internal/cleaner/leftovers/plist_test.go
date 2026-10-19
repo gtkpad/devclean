@@ -87,7 +87,7 @@ func TestLeftovers_Plist_CorruptHandling(t *testing.T) {
 
 	// 3. Nonexistent file
 	nonExistent := filepath.Join(tempDir, "does-not-exist.plist")
-	p, err = parseLaunchAgentFile(nonExistent)
+	_, err = parseLaunchAgentFile(nonExistent)
 	if err == nil {
 		t.Errorf("expected error for nonexistent plist, got nil")
 	}

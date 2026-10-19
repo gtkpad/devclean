@@ -8,7 +8,7 @@ import (
 )
 
 // Usage captures apparent vs physically allocated byte usage, file counts,
-// and partial degradation states for sparse files and hardlinked stores.
+// and partial degradation states for sparse files and stores with hard links.
 type Usage struct {
 	ApparentBytes  int64
 	AllocatedBytes int64

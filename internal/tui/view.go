@@ -117,15 +117,16 @@ func viewSelecting(m model) string {
 	}
 
 	// Filter bar
-	if m.filter.fuzzyActive {
+	switch {
+	case m.filter.fuzzyActive:
 		filterLine := fmt.Sprintf("  / %s▎", m.filter.fuzzyText)
 		b.WriteString(headerStyle.Render(filterLine))
 		b.WriteString("\n")
-	} else if m.filter.fuzzyText != "" {
+	case m.filter.fuzzyText != "":
 		filterLine := fmt.Sprintf("  filter: %s", m.filter.fuzzyText)
 		b.WriteString(helpStyle.Render(filterLine))
 		b.WriteString("\n")
-	} else if m.statusMessage != "" {
+	case m.statusMessage != "":
 		b.WriteString(reviewStyle.Render("  " + m.statusMessage))
 		b.WriteString("\n")
 	}

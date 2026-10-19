@@ -203,6 +203,6 @@ func TestGroupContainers_ContextCancelled(t *testing.T) {
 
 	_, err := scanGroupContainers(ctx, home)
 	if err == nil {
-		t.Fatalf("expected error on cancelled context, got nil")
+		t.Fatalf("expected error on canceled context, got nil")
 	}
 }
