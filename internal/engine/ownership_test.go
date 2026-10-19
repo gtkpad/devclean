@@ -492,3 +492,132 @@ func TestOwnership_MultiLevelNesting(t *testing.T) {
 		t.Errorf("total size = %d, want %d", total, 100*1024*1024)
 	}
 }
+
+func TestOwnership_ConsolidatedParentPreserved(t *testing.T) {
+	tmp := t.TempDir()
+	cachesRoot := filepath.Join(tmp, "Library", "Caches")
+	goBuildDir := filepath.Join(cachesRoot, "go-build")
+	if err := os.MkdirAll(goBuildDir, 0755); err != nil {
+		t.Fatalf("failed to create dirs: %v", err)
+	}
+
+	const parentBytes = int64(68 * 1024 * 1024)        // 68 MB
+	const childBytes = int64(5 * 1024 * 1024 * 1024)    // 5.0 GB
+
+	t.Run("Consolidated flag skips child deduction", func(t *testing.T) {
+		results := []domain.ScanResult{
+			{
+				Ecosystem: "macos", // Generic tier
+				Targets: []domain.Target{
+					{
+						ID:             "macos-user-app-caches-consolidated",
+						Name:           "macOS App Caches (Consolidated)",
+						Path:           cachesRoot,
+						SizeBytes:      parentBytes,
+						EligibleBytes:  parentBytes,
+						TTLEligible:    true,
+						IsConsolidated: true,
+					},
+				},
+			},
+			{
+				Ecosystem: "go", // Dedicated tier
+				Targets: []domain.Target{
+					{
+						ID:            "go-build-cache",
+						Name:          "Go build cache",
+						Path:          goBuildDir,
+						SizeBytes:     childBytes,
+						EligibleBytes: childBytes,
+						TTLEligible:   true,
+					},
+				},
+			},
+		}
+
+		resolved := ResolveCanonicalOwnership(results)
+
+		var parentTarget, childTarget *domain.Target
+		for _, r := range resolved {
+			for i := range r.Targets {
+				switch r.Targets[i].ID {
+				case "macos-user-app-caches-consolidated":
+					parentTarget = &r.Targets[i]
+				case "go-build-cache":
+					childTarget = &r.Targets[i]
+				}
+			}
+		}
+
+		if parentTarget == nil || childTarget == nil {
+			t.Fatalf("missing target: parent=%v, child=%v", parentTarget, childTarget)
+		}
+
+		// Consolidated parent must retain its original size, not clamped to 0 B
+		if parentTarget.SizeBytes != parentBytes {
+			t.Errorf("parent SizeBytes = %d, want %d (should NOT be deducted)", parentTarget.SizeBytes, parentBytes)
+		}
+		if parentTarget.EligibleBytes != parentBytes {
+			t.Errorf("parent EligibleBytes = %d, want %d (should NOT be deducted)", parentTarget.EligibleBytes, parentBytes)
+		}
+
+		if childTarget.SizeBytes != childBytes {
+			t.Errorf("child SizeBytes = %d, want %d", childTarget.SizeBytes, childBytes)
+		}
+		if childTarget.EligibleBytes != childBytes {
+			t.Errorf("child EligibleBytes = %d, want %d", childTarget.EligibleBytes, childBytes)
+		}
+	})
+
+	t.Run("SubPaths present skips child deduction", func(t *testing.T) {
+		const subPathBytes = int64(20 * 1024 * 1024)
+		results := []domain.ScanResult{
+			{
+				Ecosystem: "macos",
+				Targets: []domain.Target{
+					{
+						ID:            "macos-subpaths-parent",
+						Path:          cachesRoot,
+						SizeBytes:     subPathBytes,
+						EligibleBytes: subPathBytes,
+						SubPaths:      []string{filepath.Join(cachesRoot, "app1")},
+					},
+				},
+			},
+			{
+				Ecosystem: "go",
+				Targets: []domain.Target{
+					{
+						ID:            "go-build-cache-2",
+						Path:          goBuildDir,
+						SizeBytes:     childBytes,
+						EligibleBytes: childBytes,
+					},
+				},
+			},
+		}
+
+		resolved := ResolveCanonicalOwnership(results)
+
+		var parentTarget *domain.Target
+		for _, r := range resolved {
+			for i := range r.Targets {
+				if r.Targets[i].ID == "macos-subpaths-parent" {
+					parentTarget = &r.Targets[i]
+				}
+			}
+		}
+
+		if parentTarget == nil {
+			t.Fatal("missing parent target")
+		}
+
+		if parentTarget.SizeBytes != subPathBytes {
+			t.Errorf("parent SizeBytes = %d, want %d (SubPaths guard should prevent deduction)", parentTarget.SizeBytes, subPathBytes)
+		}
+		if parentTarget.EligibleBytes != subPathBytes {
+			t.Errorf("parent EligibleBytes = %d, want %d (SubPaths guard should prevent deduction)", parentTarget.EligibleBytes, subPathBytes)
+		}
+	})
+}
+

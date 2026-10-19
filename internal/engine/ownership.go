@@ -156,6 +156,9 @@ func ResolveCanonicalOwnership(results []domain.ScanResult) []domain.ScanResult 
 
 	// 4. Hierarchical byte deduction from direct descendants with defensive clamping (D-01, T-06-06)
 	for _, parent := range activeTargets {
+		if parent.target.IsConsolidated || len(parent.target.SubPaths) > 0 {
+			continue
+		}
 		for _, child := range activeTargets {
 			if parent == child {
 				continue
