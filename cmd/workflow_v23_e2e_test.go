@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -417,17 +418,24 @@ func TestE2E_V23_MultiChannel_ReviewOnlyImmunity(t *testing.T) {
 func TestE2E_V23_FaultInjection_ProcessGuard(t *testing.T) {
 	rig := setupV23HermeticRig(t)
 
-	// Create Chrome profile and cache
-	chromeCache := filepath.Join(rig.FakeHome, "Library", "Caches", "Google", "Chrome", "Default", "Cache")
-	_ = os.MkdirAll(chromeCache, 0755)
-	_ = os.WriteFile(filepath.Join(chromeCache, "data_0"), []byte("chrome cache data"), 0644)
+	// Create Chrome profile and cache (support Darwin and Linux layout)
+	chromeCacheDarwin := filepath.Join(rig.FakeHome, "Library", "Caches", "Google", "Chrome", "Default", "GPUCache")
+	_ = os.MkdirAll(chromeCacheDarwin, 0755)
+	_ = os.WriteFile(filepath.Join(chromeCacheDarwin, "data_0"), []byte("chrome cache data"), 0644)
 
-	// Create OrbStack cache
+	chromeAppLinux := filepath.Join(rig.FakeHome, ".config", "google-chrome", "Default", "GPUCache")
+	_ = os.MkdirAll(chromeAppLinux, 0755)
+	_ = os.WriteFile(filepath.Join(chromeAppLinux, "data_0"), []byte("chrome cache data"), 0644)
+
+	// Create OrbStack cache (support Darwin and Linux layout)
 	orbCache := filepath.Join(rig.FakeHome, "Library", "Caches", "dev.orbstack.OrbStack")
 	_ = os.MkdirAll(orbCache, 0755)
 	_ = os.WriteFile(filepath.Join(orbCache, "cache.db"), []byte("orbstack cache"), 0644)
+	orbLinuxCache := filepath.Join(rig.FakeHome, ".cache", "orbstack")
+	_ = os.MkdirAll(orbLinuxCache, 0755)
+	_ = os.WriteFile(filepath.Join(orbLinuxCache, "cache.db"), []byte("orbstack cache"), 0644)
 
-	// Create Xcode DerivedData directory
+	// Create Xcode DerivedData directory (Darwin only)
 	derivedData := filepath.Join(rig.FakeHome, "Library", "Developer", "Xcode", "DerivedData", "App-abcdef")
 	_ = os.MkdirAll(derivedData, 0755)
 	_ = os.WriteFile(filepath.Join(derivedData, "build.db"), []byte("derived data"), 0644)
@@ -436,6 +444,7 @@ func TestE2E_V23_FaultInjection_ProcessGuard(t *testing.T) {
 	// Simulate active PIDs for Chrome, OrbStack, and Xcode
 	mockExec.Outputs["pgrep -x Google Chrome"] = []byte("11111\n")
 	mockExec.Outputs["pgrep -x chrome"] = []byte("11111\n")
+	mockExec.Outputs["pgrep -x google-chrome"] = []byte("11111\n")
 	mockExec.Outputs["pgrep -x OrbStack"] = []byte("22222\n")
 	mockExec.Outputs["pgrep -x Xcode"] = []byte("33333\n")
 
@@ -493,7 +502,7 @@ func TestE2E_V23_FaultInjection_ProcessGuard(t *testing.T) {
 	if !foundOrbStack {
 		t.Errorf("expected to find OrbStack targets in scan results")
 	}
-	if !foundXcode {
+	if runtime.GOOS == "darwin" && !foundXcode {
 		t.Errorf("expected to find Xcode targets in scan results")
 	}
 }
