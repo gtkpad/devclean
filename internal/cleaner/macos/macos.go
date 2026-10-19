@@ -118,6 +118,46 @@ func (c *macosCleaner) Clean(ctx context.Context, targets []domain.Target) error
 			continue
 		}
 
+		// Consolidated sub-path cleanup (REQ-OWN-02, D-06..D-08)
+		if len(t.SubPaths) > 0 {
+			for _, sub := range t.SubPaths {
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				default:
+				}
+
+				info, err := os.Lstat(sub)
+				if err != nil {
+					continue
+				}
+				if info.Mode()&os.ModeSymlink != 0 {
+					continue // Do not follow or remove symlinks
+				}
+				if !isOwnedByCurrentUser(info) {
+					continue // Refuse to delete items owned by other users
+				}
+				if safety.IsCoreBlacklisted(sub) || IsWhitelisted(sub) {
+					continue
+				}
+
+				// Check process status for leaf bundle/app if applicable
+				bundleID := filepath.Base(sub)
+				running, uncertain := IsBundleProcessRunning(ctx, c.exec, bundleID)
+				if running || uncertain {
+					continue // Skip active leaf directory
+				}
+
+				_ = os.RemoveAll(sub)
+			}
+			continue
+		}
+
+		// Guarantee root container preservation: never call os.RemoveAll on consolidated target roots (REQ-OWN-02, D-06)
+		if t.IsConsolidated {
+			continue
+		}
+
 		// Pre-deletion safety verification: Symlink Guard & Ownership (D-16)
 		info, err := os.Lstat(t.Path)
 		if err != nil {
