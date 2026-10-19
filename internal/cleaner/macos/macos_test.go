@@ -211,3 +211,151 @@ func TestMacOSCleaner_CleanTrashDirect(t *testing.T) {
 		t.Errorf("root .Trash directory must still exist as a directory, err: %v", err)
 	}
 }
+
+func TestMacOSCleaner_CleanConsolidatedSubPaths(t *testing.T) {
+	t.Run("SurgicalLeafDeletionAndRootPreservation", func(t *testing.T) {
+		tempDir := t.TempDir()
+		cachesRoot := filepath.Join(tempDir, "Library", "Caches")
+		leaf1 := filepath.Join(cachesRoot, "com.test.leaf1")
+		leaf2 := filepath.Join(cachesRoot, "com.test.leaf2")
+		sibling := filepath.Join(cachesRoot, "go-build")
+
+		if err := os.MkdirAll(leaf1, 0o755); err != nil {
+			t.Fatalf("failed to create leaf1: %v", err)
+		}
+		if err := os.MkdirAll(leaf2, 0o755); err != nil {
+			t.Fatalf("failed to create leaf2: %v", err)
+		}
+		if err := os.MkdirAll(sibling, 0o755); err != nil {
+			t.Fatalf("failed to create sibling: %v", err)
+		}
+
+		if err := os.WriteFile(filepath.Join(leaf1, "cache1.bin"), []byte("data1"), 0o644); err != nil {
+			t.Fatalf("failed to write leaf1 dummy file: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(leaf2, "cache2.bin"), []byte("data2"), 0o644); err != nil {
+			t.Fatalf("failed to write leaf2 dummy file: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(sibling, "keep.bin"), []byte("important build cache"), 0o644); err != nil {
+			t.Fatalf("failed to write sibling dummy file: %v", err)
+		}
+
+		c := NewWithDirAndExecutor(tempDir, newMockProcessExecutor())
+		target := domain.Target{
+			ID:             "macos-user-app-caches-consolidated",
+			Name:           "macOS User App Caches (consolidated)",
+			Path:           cachesRoot,
+			IsConsolidated: true,
+			SubPaths:       []string{leaf1, leaf2},
+		}
+
+		if err := c.Clean(context.Background(), []domain.Target{target}); err != nil {
+			t.Fatalf("Clean failed: %v", err)
+		}
+
+		// Assert leaves removed
+		if _, err := os.Stat(leaf1); !os.IsNotExist(err) {
+			t.Errorf("expected leaf1 to be removed, got err: %v", err)
+		}
+		if _, err := os.Stat(leaf2); !os.IsNotExist(err) {
+			t.Errorf("expected leaf2 to be removed, got err: %v", err)
+		}
+
+		// Assert root container preserved
+		if fi, err := os.Stat(cachesRoot); err != nil || !fi.IsDir() {
+			t.Errorf("cachesRoot must still exist as a directory, err: %v", err)
+		}
+
+		// Assert excluded sibling directory preserved
+		if fi, err := os.Stat(sibling); err != nil || !fi.IsDir() {
+			t.Errorf("sibling directory go-build must be preserved, err: %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(sibling, "keep.bin")); err != nil {
+			t.Errorf("sibling file keep.bin must still exist, err: %v", err)
+		}
+	})
+
+	t.Run("EmptySubPaths_StrictNoop", func(t *testing.T) {
+		tempDir := t.TempDir()
+		cachesRoot := filepath.Join(tempDir, "Library", "Caches")
+		sibling := filepath.Join(cachesRoot, "go-build")
+
+		if err := os.MkdirAll(sibling, 0o755); err != nil {
+			t.Fatalf("failed to create sibling: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(sibling, "keep.bin"), []byte("important build cache"), 0o644); err != nil {
+			t.Fatalf("failed to write sibling dummy file: %v", err)
+		}
+
+		c := NewWithDirAndExecutor(tempDir, newMockProcessExecutor())
+		target := domain.Target{
+			ID:             "macos-user-app-caches-consolidated",
+			Name:           "macOS User App Caches (consolidated)",
+			Path:           cachesRoot,
+			IsConsolidated: true,
+			SubPaths:       []string{},
+		}
+
+		if err := c.Clean(context.Background(), []domain.Target{target}); err != nil {
+			t.Fatalf("Clean failed: %v", err)
+		}
+
+		// Assert root and contents remain completely untouched
+		if fi, err := os.Stat(cachesRoot); err != nil || !fi.IsDir() {
+			t.Errorf("cachesRoot must be preserved when SubPaths is empty, err: %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(sibling, "keep.bin")); err != nil {
+			t.Errorf("sibling file must be preserved, err: %v", err)
+		}
+	})
+
+	t.Run("ActiveProcess_SkipsActiveLeafOnly", func(t *testing.T) {
+		tempDir := t.TempDir()
+		cachesRoot := filepath.Join(tempDir, "Library", "Caches")
+		leafActive := filepath.Join(cachesRoot, "runningapp")
+		leafInactive := filepath.Join(cachesRoot, "stoppedapp")
+
+		if err := os.MkdirAll(leafActive, 0o755); err != nil {
+			t.Fatalf("failed to create leafActive: %v", err)
+		}
+		if err := os.MkdirAll(leafInactive, 0o755); err != nil {
+			t.Fatalf("failed to create leafInactive: %v", err)
+		}
+
+		if err := os.WriteFile(filepath.Join(leafActive, "data.bin"), []byte("active"), 0o644); err != nil {
+			t.Fatalf("failed to write leafActive dummy file: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(leafInactive, "data.bin"), []byte("inactive"), 0o644); err != nil {
+			t.Fatalf("failed to write leafInactive dummy file: %v", err)
+		}
+
+		mockExec := newMockProcessExecutor()
+		mockExec.runningProcesses["runningapp"] = true
+
+		c := NewWithDirAndExecutor(tempDir, mockExec)
+		target := domain.Target{
+			ID:             "macos-user-app-caches-consolidated",
+			Name:           "macOS User App Caches (consolidated)",
+			Path:           cachesRoot,
+			IsConsolidated: true,
+			SubPaths:       []string{leafActive, leafInactive},
+		}
+
+		if err := c.Clean(context.Background(), []domain.Target{target}); err != nil {
+			t.Fatalf("Clean failed: %v", err)
+		}
+
+		// Assert leafActive is preserved due to running process
+		if _, err := os.Stat(leafActive); err != nil {
+			t.Errorf("expected active leaf directory %s to be preserved, err: %v", leafActive, err)
+		}
+		// Assert leafInactive is deleted
+		if _, err := os.Stat(leafInactive); !os.IsNotExist(err) {
+			t.Errorf("expected inactive leaf directory %s to be deleted, err: %v", leafInactive, err)
+		}
+		// Assert cachesRoot is preserved
+		if fi, err := os.Stat(cachesRoot); err != nil || !fi.IsDir() {
+			t.Errorf("cachesRoot must still exist as a directory, err: %v", err)
+		}
+	})
+}
