@@ -25,9 +25,10 @@ func Defaults() Config {
 			Terraform: EcosystemConfig{Enabled: true, MaxAgeDays: 30, FailMode: "continue", ExcludePaths: []string{}},
 			CocoaPods: EcosystemConfig{Enabled: true, MaxAgeDays: 14, FailMode: "continue", ExcludePaths: []string{}},
 			Elixir:    EcosystemConfig{Enabled: true, MaxAgeDays: 14, FailMode: "continue", ExcludePaths: []string{}},
-			Shell:     EcosystemConfig{Enabled: true, MaxAgeDays: 30, FailMode: "continue", ExcludePaths: []string{}},
-			MacOS:     EcosystemConfig{Enabled: true, MaxAgeDays: 14, FailMode: "continue", ExcludePaths: []string{}},
-			Browsers:  EcosystemConfig{Enabled: true, MaxAgeDays: 14, FailMode: "continue", ExcludePaths: []string{}},
+			// Ephemeral caches and system logs default to 0d for immediate cache eligibility parity (REQ-CLI-02, D-10)
+			Shell:     EcosystemConfig{Enabled: true, MaxAgeDays: 0, FailMode: "continue", ExcludePaths: []string{}},
+			MacOS:     EcosystemConfig{Enabled: true, MaxAgeDays: 0, FailMode: "continue", ExcludePaths: []string{}},
+			Browsers:  EcosystemConfig{Enabled: true, MaxAgeDays: 0, FailMode: "continue", ExcludePaths: []string{}},
 			Leftovers: EcosystemConfig{Enabled: true, MaxAgeDays: 0, FailMode: "continue", ExcludePaths: []string{}},
 		},
 		Safety: SafetyConfig{
