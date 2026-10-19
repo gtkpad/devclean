@@ -79,11 +79,17 @@ func TestLoad_NoFile_ReturnsDefaults(t *testing.T) {
 	if cfg.Ecosystems.Elixir.MaxAgeDays != 14 {
 		t.Errorf("Elixir.MaxAgeDays = %d, want 14", cfg.Ecosystems.Elixir.MaxAgeDays)
 	}
-	if cfg.Ecosystems.Shell.MaxAgeDays != 30 {
-		t.Errorf("Shell.MaxAgeDays = %d, want 30", cfg.Ecosystems.Shell.MaxAgeDays)
+	if cfg.Ecosystems.Shell.MaxAgeDays != 0 {
+		t.Errorf("Shell.MaxAgeDays = %d, want 0", cfg.Ecosystems.Shell.MaxAgeDays)
 	}
-	if cfg.Ecosystems.Browsers.MaxAgeDays != 14 {
-		t.Errorf("Browsers.MaxAgeDays = %d, want 14", cfg.Ecosystems.Browsers.MaxAgeDays)
+	if cfg.Ecosystems.MacOS.MaxAgeDays != 0 {
+		t.Errorf("MacOS.MaxAgeDays = %d, want 0", cfg.Ecosystems.MacOS.MaxAgeDays)
+	}
+	if cfg.Ecosystems.Browsers.MaxAgeDays != 0 {
+		t.Errorf("Browsers.MaxAgeDays = %d, want 0", cfg.Ecosystems.Browsers.MaxAgeDays)
+	}
+	if cfg.Ecosystems.Leftovers.MaxAgeDays != 0 {
+		t.Errorf("Leftovers.MaxAgeDays = %d, want 0", cfg.Ecosystems.Leftovers.MaxAgeDays)
 	}
 	if !cfg.Ecosystems.Browsers.Enabled {
 		t.Error("Browsers.Enabled should be true by default")
@@ -232,7 +238,10 @@ func TestDefaults_AllEcosystemsEnabled(t *testing.T) {
 		{"Terraform", d.Ecosystems.Terraform, 30},
 		{"CocoaPods", d.Ecosystems.CocoaPods, 14},
 		{"Elixir", d.Ecosystems.Elixir, 14},
-		{"Shell", d.Ecosystems.Shell, 30},
+		{"Shell", d.Ecosystems.Shell, 0},
+		{"MacOS", d.Ecosystems.MacOS, 0},
+		{"Browsers", d.Ecosystems.Browsers, 0},
+		{"Leftovers", d.Ecosystems.Leftovers, 0},
 	}
 
 	for _, ec := range ecosystems {
@@ -242,6 +251,93 @@ func TestDefaults_AllEcosystemsEnabled(t *testing.T) {
 		if ec.cfg.MaxAgeDays != ec.wantTTL {
 			t.Errorf("%s.MaxAgeDays = %d, want %d", ec.name, ec.cfg.MaxAgeDays, ec.wantTTL)
 		}
+	}
+}
+
+func TestConfig_ZeroAllMaxAgeDays_All22Ecosystems(t *testing.T) {
+	cfg := Defaults()
+
+	// Verify baseline has non-zero values on standard compilers
+	if cfg.Ecosystems.Go.MaxAgeDays == 0 || cfg.Ecosystems.Docker.MaxAgeDays == 0 {
+		t.Fatalf("expected non-zero initial TTLs in Defaults()")
+	}
+
+	cfg.ZeroAllMaxAgeDays()
+
+	all22 := []struct {
+		name string
+		ttl  int
+	}{
+		{"Docker", cfg.Ecosystems.Docker.MaxAgeDays},
+		{"Node", cfg.Ecosystems.Node.MaxAgeDays},
+		{"Go", cfg.Ecosystems.Go.MaxAgeDays},
+		{"DotNet", cfg.Ecosystems.DotNet.MaxAgeDays},
+		{"Python", cfg.Ecosystems.Python.MaxAgeDays},
+		{"Rust", cfg.Ecosystems.Rust.MaxAgeDays},
+		{"Java", cfg.Ecosystems.Java.MaxAgeDays},
+		{"AI", cfg.Ecosystems.AI.MaxAgeDays},
+		{"Pnpm", cfg.Ecosystems.Pnpm.MaxAgeDays},
+		{"Bun", cfg.Ecosystems.Bun.MaxAgeDays},
+		{"NextJS", cfg.Ecosystems.NextJS.MaxAgeDays},
+		{"Xcode", cfg.Ecosystems.Xcode.MaxAgeDays},
+		{"Homebrew", cfg.Ecosystems.Homebrew.MaxAgeDays},
+		{"CPP", cfg.Ecosystems.CPP.MaxAgeDays},
+		{"Flutter", cfg.Ecosystems.Flutter.MaxAgeDays},
+		{"Terraform", cfg.Ecosystems.Terraform.MaxAgeDays},
+		{"CocoaPods", cfg.Ecosystems.CocoaPods.MaxAgeDays},
+		{"Elixir", cfg.Ecosystems.Elixir.MaxAgeDays},
+		{"Shell", cfg.Ecosystems.Shell.MaxAgeDays},
+		{"MacOS", cfg.Ecosystems.MacOS.MaxAgeDays},
+		{"Browsers", cfg.Ecosystems.Browsers.MaxAgeDays},
+		{"Leftovers", cfg.Ecosystems.Leftovers.MaxAgeDays},
+	}
+
+	if len(all22) != 22 {
+		t.Fatalf("expected 22 ecosystems, got %d", len(all22))
+	}
+
+	for _, item := range all22 {
+		if item.ttl != 0 {
+			t.Errorf("ecosystem %s MaxAgeDays = %d after ZeroAllMaxAgeDays(), want 0", item.name, item.ttl)
+		}
+	}
+}
+
+func TestDefaults_ImmediateCacheParityEphemeralTTLs(t *testing.T) {
+	d := Defaults()
+
+	// Ephemeral caches must be 0d for immediate cache eligibility parity (REQ-CLI-02, D-10)
+	if d.Ecosystems.Browsers.MaxAgeDays != 0 {
+		t.Errorf("Browsers.MaxAgeDays = %d, want 0", d.Ecosystems.Browsers.MaxAgeDays)
+	}
+	if d.Ecosystems.MacOS.MaxAgeDays != 0 {
+		t.Errorf("MacOS.MaxAgeDays = %d, want 0", d.Ecosystems.MacOS.MaxAgeDays)
+	}
+	if d.Ecosystems.Shell.MaxAgeDays != 0 {
+		t.Errorf("Shell.MaxAgeDays = %d, want 0", d.Ecosystems.Shell.MaxAgeDays)
+	}
+	if d.Ecosystems.Leftovers.MaxAgeDays != 0 {
+		t.Errorf("Leftovers.MaxAgeDays = %d, want 0", d.Ecosystems.Leftovers.MaxAgeDays)
+	}
+
+	// Compiler / Developer toolchains must preserve standard retentions (D-10)
+	if d.Ecosystems.Go.MaxAgeDays != 60 {
+		t.Errorf("Go.MaxAgeDays = %d, want 60", d.Ecosystems.Go.MaxAgeDays)
+	}
+	if d.Ecosystems.Rust.MaxAgeDays != 30 {
+		t.Errorf("Rust.MaxAgeDays = %d, want 30", d.Ecosystems.Rust.MaxAgeDays)
+	}
+	if d.Ecosystems.Docker.MaxAgeDays != 30 {
+		t.Errorf("Docker.MaxAgeDays = %d, want 30", d.Ecosystems.Docker.MaxAgeDays)
+	}
+	if d.Ecosystems.Node.MaxAgeDays != 14 {
+		t.Errorf("Node.MaxAgeDays = %d, want 14", d.Ecosystems.Node.MaxAgeDays)
+	}
+	if d.Ecosystems.DotNet.MaxAgeDays != 45 {
+		t.Errorf("DotNet.MaxAgeDays = %d, want 45", d.Ecosystems.DotNet.MaxAgeDays)
+	}
+	if d.Ecosystems.Python.MaxAgeDays != 30 {
+		t.Errorf("Python.MaxAgeDays = %d, want 30", d.Ecosystems.Python.MaxAgeDays)
 	}
 }
 

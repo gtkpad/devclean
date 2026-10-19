@@ -1180,6 +1180,112 @@ ecosystems:
 	}
 }
 
+func TestCleanCmd_PresetAggressive_ZerosTTL_All22Ecosystems(t *testing.T) {
+	// Verify that ZeroAllMaxAgeDays zeroes all 22 ecosystems (REQ-CLI-01, D-09)
+	cfg := &config.Config{
+		Ecosystems: config.EcosystemsConfig{
+			Docker:    config.EcosystemConfig{MaxAgeDays: 30},
+			Node:      config.EcosystemConfig{MaxAgeDays: 14},
+			Go:        config.EcosystemConfig{MaxAgeDays: 60},
+			DotNet:    config.EcosystemConfig{MaxAgeDays: 45},
+			Python:    config.EcosystemConfig{MaxAgeDays: 30},
+			Rust:      config.EcosystemConfig{MaxAgeDays: 30},
+			Java:      config.EcosystemConfig{MaxAgeDays: 30},
+			AI:        config.EcosystemConfig{MaxAgeDays: 30},
+			Pnpm:      config.EcosystemConfig{MaxAgeDays: 30},
+			Bun:       config.EcosystemConfig{MaxAgeDays: 14},
+			NextJS:    config.EcosystemConfig{MaxAgeDays: 7},
+			Xcode:     config.EcosystemConfig{MaxAgeDays: 14},
+			Homebrew:  config.EcosystemConfig{MaxAgeDays: 30},
+			CPP:       config.EcosystemConfig{MaxAgeDays: 14},
+			Flutter:   config.EcosystemConfig{MaxAgeDays: 14},
+			Terraform: config.EcosystemConfig{MaxAgeDays: 30},
+			CocoaPods: config.EcosystemConfig{MaxAgeDays: 14},
+			Elixir:    config.EcosystemConfig{MaxAgeDays: 14},
+			Shell:     config.EcosystemConfig{MaxAgeDays: 30},
+			MacOS:     config.EcosystemConfig{MaxAgeDays: 14},
+			Browsers:  config.EcosystemConfig{MaxAgeDays: 14},
+			Leftovers: config.EcosystemConfig{MaxAgeDays: 7},
+		},
+	}
+
+	cfg.ZeroAllMaxAgeDays()
+
+	allEcosystems := []string{
+		"docker", "node", "go", "dotnet", "python", "rust", "java", "ai",
+		"pnpm", "bun", "nextjs", "xcode", "homebrew", "cpp", "flutter",
+		"terraform", "cocoapods", "elixir", "shell", "macos", "browsers", "leftovers",
+	}
+
+	for _, eco := range allEcosystems {
+		if got := getMaxAgeDays(cfg, eco); got != 0 {
+			t.Errorf("expected 0 TTL for ecosystem %s after ZeroAllMaxAgeDays, got %d", eco, got)
+		}
+	}
+
+	// Verify CLI integration with Shell / Ephemeral caches under --preset aggressive and --all
+	tmpDir := t.TempDir()
+	appDir := filepath.Join(tmpDir, "node-app")
+	nodeModules := filepath.Join(appDir, "node_modules")
+	_ = os.MkdirAll(nodeModules, 0755)
+	_ = os.WriteFile(filepath.Join(appDir, "package.json"), []byte("{}"), 0644)
+	_ = os.WriteFile(filepath.Join(nodeModules, "temp.log"), []byte("log-data"), 0644)
+	recent := time.Now().Add(-10 * time.Minute)
+	_ = os.Chtimes(nodeModules, recent, recent)
+
+	content := fmt.Sprintf(`scan_paths:
+  - %q
+safety:
+  trash_enabled: false
+ecosystems:
+  node:
+    enabled: true
+    max_age_days: 14
+  shell:
+    enabled: true
+    max_age_days: 30
+  macos:
+    enabled: true
+    max_age_days: 14
+  browsers:
+    enabled: true
+    max_age_days: 14
+  leftovers:
+    enabled: true
+    max_age_days: 10
+`, tmpDir)
+	cfgPath := filepath.Join(tmpDir, "config.yaml")
+	_ = os.WriteFile(cfgPath, []byte(content), 0644)
+
+	origConfigPath := configPath
+	configPath = cfgPath
+	defer func() { configPath = origConfigPath }()
+
+	// Under --all and --auto, ZeroAllMaxAgeDays is invoked and targets recent node target
+	cmdAll := newCleanCmd()
+	var outBufAll bytes.Buffer
+	cmdAll.SetOut(&outBufAll)
+	cmdAll.SetArgs([]string{"--auto", "--all", "-e", "node", "--dry-run"})
+	if err := cmdAll.Execute(); err != nil {
+		t.Fatalf("--all --auto should succeed and target recent item: %v", err)
+	}
+	if !strings.Contains(outBufAll.String(), "Clean Dry-Run Summary") {
+		t.Errorf("expected clean summary in output for --all, got %s", outBufAll.String())
+	}
+
+	// Under --preset aggressive, ZeroAllMaxAgeDays is invoked and targets recent node target
+	cmdAggressive := newCleanCmd()
+	var outBufAggressive bytes.Buffer
+	cmdAggressive.SetOut(&outBufAggressive)
+	cmdAggressive.SetArgs([]string{"--preset", "aggressive", "-e", "node", "--dry-run"})
+	if err := cmdAggressive.Execute(); err != nil {
+		t.Fatalf("--preset aggressive should succeed and target recent item: %v", err)
+	}
+	if !strings.Contains(outBufAggressive.String(), "Clean Dry-Run Summary") {
+		t.Errorf("expected clean summary in output for --preset aggressive, got %s", outBufAggressive.String())
+	}
+}
+
 func TestCleanCmd_PresetSafe_FiltersLocalBuilds(t *testing.T) {
 	targets := []domain.Target{
 		{ID: "cmake", Category: "cmake-build", Risk: domain.RiskLow},
