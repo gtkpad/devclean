@@ -45,6 +45,7 @@ func scanGroupContainers(ctx context.Context, homeDir string) ([]domain.Target, 
 	var targets []domain.Target
 	var consolidatedSize, consolidatedEligible int64
 	var consolidatedCount int
+	var consolidatedSubPaths []string
 
 	for _, entry := range entries {
 		select {
@@ -125,21 +126,24 @@ func scanGroupContainers(ctx context.Context, homeDir string) ([]domain.Target, 
 				consolidatedSize += size
 				consolidatedEligible += size
 				consolidatedCount++
+				consolidatedSubPaths = append(consolidatedSubPaths, subPath)
 			}
 		}
 	}
 
 	if consolidatedCount > 0 || consolidatedSize > 0 {
 		targets = append(targets, domain.Target{
-			ID:            "macos-group-containers-consolidated",
-			Name:          "macOS Group Container Caches & Logs",
-			Path:          groupsRoot,
-			SizeBytes:     consolidatedSize,
-			EligibleBytes: consolidatedEligible,
-			TTLEligible:   true,
-			ReviewOnly:    false,
-			Risk:          domain.RiskLow,
-			Category:      "macos-group-caches",
+			ID:             "macos-group-containers-consolidated",
+			Name:           "macOS Group Container Caches & Logs",
+			Path:           groupsRoot,
+			SizeBytes:      consolidatedSize,
+			EligibleBytes:  consolidatedEligible,
+			TTLEligible:    true,
+			ReviewOnly:     false,
+			Risk:           domain.RiskLow,
+			Category:       "macos-group-caches",
+			IsConsolidated: true,
+			SubPaths:       consolidatedSubPaths,
 		})
 	}
 

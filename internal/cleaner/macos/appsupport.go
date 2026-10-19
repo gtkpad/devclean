@@ -86,6 +86,7 @@ func scanApplicationSupport(ctx context.Context, exec cleaner.CommandExecutor, h
 
 	var consolidatedSize, consolidatedEligible int64
 	var consolidatedCount int
+	var consolidatedSubPaths []string
 
 	for _, entry := range entries {
 		select {
@@ -158,6 +159,7 @@ func scanApplicationSupport(ctx context.Context, exec cleaner.CommandExecutor, h
 				consolidatedSize += size
 				consolidatedEligible += size
 				consolidatedCount++
+				consolidatedSubPaths = append(consolidatedSubPaths, subPath)
 			} else if lowerSub == "crashpad" {
 				completedDir := filepath.Join(subPath, "completed")
 				info, err := os.Stat(completedDir)
@@ -181,6 +183,7 @@ func scanApplicationSupport(ctx context.Context, exec cleaner.CommandExecutor, h
 					consolidatedSize += size
 					consolidatedEligible += size
 					consolidatedCount++
+					consolidatedSubPaths = append(consolidatedSubPaths, completedDir)
 				}
 			}
 		}
@@ -188,15 +191,17 @@ func scanApplicationSupport(ctx context.Context, exec cleaner.CommandExecutor, h
 
 	if consolidatedCount > 0 || consolidatedSize > 0 {
 		targets = append(targets, domain.Target{
-			ID:            "macos-appsupport-leaves-consolidated",
-			Name:          "macOS Application Support Caches & Logs",
-			Path:          appSupportRoot,
-			SizeBytes:     consolidatedSize,
-			EligibleBytes: consolidatedEligible,
-			TTLEligible:   true,
-			ReviewOnly:    false,
-			Risk:          domain.RiskLow,
-			Category:      "macos-appsupport-caches",
+			ID:             "macos-appsupport-leaves-consolidated",
+			Name:           "macOS Application Support Caches & Logs",
+			Path:           appSupportRoot,
+			SizeBytes:      consolidatedSize,
+			EligibleBytes:  consolidatedEligible,
+			TTLEligible:    true,
+			ReviewOnly:     false,
+			Risk:           domain.RiskLow,
+			Category:       "macos-appsupport-caches",
+			IsConsolidated: true,
+			SubPaths:       consolidatedSubPaths,
 		})
 	}
 

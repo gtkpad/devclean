@@ -77,6 +77,7 @@ func scanUserCaches(ctx context.Context, exec cleaner.CommandExecutor, homeDir s
 	var targets []domain.Target
 	var consolidatedSize, consolidatedEligible int64
 	var consolidatedCount int
+	var consolidatedSubPaths []string
 
 	for _, entry := range entries {
 		select {
@@ -153,20 +154,23 @@ func scanUserCaches(ctx context.Context, exec cleaner.CommandExecutor, homeDir s
 			consolidatedSize += size
 			consolidatedEligible += size
 			consolidatedCount++
+			consolidatedSubPaths = append(consolidatedSubPaths, fullPath)
 		}
 	}
 
 	if consolidatedCount > 0 || consolidatedSize > 0 {
 		targets = append(targets, domain.Target{
-			ID:            "macos-user-app-caches-consolidated",
-			Name:          "macOS User App Caches (consolidated)",
-			Path:          cachesRoot,
-			SizeBytes:     consolidatedSize,
-			EligibleBytes: consolidatedEligible,
-			TTLEligible:   true,
-			ReviewOnly:    false,
-			Risk:          domain.RiskLow,
-			Category:      "macos-app-caches",
+			ID:             "macos-user-app-caches-consolidated",
+			Name:           "macOS User App Caches (consolidated)",
+			Path:           cachesRoot,
+			SizeBytes:      consolidatedSize,
+			EligibleBytes:  consolidatedEligible,
+			TTLEligible:    true,
+			ReviewOnly:     false,
+			Risk:           domain.RiskLow,
+			Category:       "macos-app-caches",
+			IsConsolidated: true,
+			SubPaths:       consolidatedSubPaths,
 		})
 	}
 
@@ -187,6 +191,7 @@ func scanUserLogs(ctx context.Context, homeDir string) ([]domain.Target, error) 
 	var targets []domain.Target
 	var consolidatedSize, consolidatedEligible int64
 	var consolidatedCount int
+	var consolidatedSubPaths []string
 
 	for _, entry := range entries {
 		select {
@@ -248,20 +253,23 @@ func scanUserLogs(ctx context.Context, homeDir string) ([]domain.Target, error) 
 			consolidatedSize += size
 			consolidatedEligible += size
 			consolidatedCount++
+			consolidatedSubPaths = append(consolidatedSubPaths, fullPath)
 		}
 	}
 
 	if consolidatedCount > 0 || consolidatedSize > 0 {
 		targets = append(targets, domain.Target{
-			ID:            "macos-user-app-logs-consolidated",
-			Name:          "macOS User App Logs (consolidated)",
-			Path:          logsRoot,
-			SizeBytes:     consolidatedSize,
-			EligibleBytes: consolidatedEligible,
-			TTLEligible:   true,
-			ReviewOnly:    false,
-			Risk:          domain.RiskLow,
-			Category:      "macos-app-logs",
+			ID:             "macos-user-app-logs-consolidated",
+			Name:           "macOS User App Logs (consolidated)",
+			Path:           logsRoot,
+			SizeBytes:      consolidatedSize,
+			EligibleBytes:  consolidatedEligible,
+			TTLEligible:    true,
+			ReviewOnly:     false,
+			Risk:           domain.RiskLow,
+			Category:       "macos-app-logs",
+			IsConsolidated: true,
+			SubPaths:       consolidatedSubPaths,
 		})
 	}
 
