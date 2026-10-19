@@ -168,17 +168,18 @@ func scanClaudeVersions(home string, rules domain.EcosystemRules) []domain.Targe
 			Category:     "ai-claude-versions",
 		}
 
-		if res.missingSymlink {
+		switch {
+		case res.missingSymlink:
 			target.ReviewOnly = true
 			target.ReviewReason = domain.ReviewReasonActiveVersion
 			target.EligibleBytes = 0
 			target.TTLEligible = false
-		} else if res.brokenSymlink || res.ambiguous {
+		case res.brokenSymlink || res.ambiguous:
 			target.ReviewOnly = true
 			target.ReviewReason = domain.ReviewReasonAmbiguous
 			target.EligibleBytes = 0
 			target.TTLEligible = false
-		} else {
+		default:
 			// Confirmed inactive version
 			if rules.MaxAgeDays == 0 || info.ModTime().Before(cutoff) {
 				target.TTLEligible = true

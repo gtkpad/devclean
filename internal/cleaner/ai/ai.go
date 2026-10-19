@@ -252,8 +252,10 @@ func cleanEditorVirtualTarget(homeDir string, t domain.Target) error {
 		if ed.appSupportDir != nil {
 			appSupport := ed.appSupportDir(homeDir)
 			if appSupport != "" {
-				candidateDirs = append(candidateDirs, filepath.Join(appSupport, "logs"))
-				candidateDirs = append(candidateDirs, filepath.Join(appSupport, "Sentry"))
+				candidateDirs = append(candidateDirs,
+					filepath.Join(appSupport, "logs"),
+					filepath.Join(appSupport, "Sentry"),
+				)
 				crashpadCompleted := filepath.Join(appSupport, "Crashpad", "completed")
 				crashpadRoot := filepath.Join(appSupport, "Crashpad")
 				if info, err := os.Stat(crashpadCompleted); err == nil && info.IsDir() {

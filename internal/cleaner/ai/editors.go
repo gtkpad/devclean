@@ -303,8 +303,10 @@ func scanEditorLogs(ed editorDef, home string, cutoff time.Time, maxAgeDays int)
 	if ed.appSupportDir != nil {
 		appSupport := ed.appSupportDir(home)
 		if appSupport != "" {
-			candidateDirs = append(candidateDirs, filepath.Join(appSupport, "logs"))
-			candidateDirs = append(candidateDirs, filepath.Join(appSupport, "Sentry"))
+			candidateDirs = append(candidateDirs,
+				filepath.Join(appSupport, "logs"),
+				filepath.Join(appSupport, "Sentry"),
+			)
 
 			crashpadCompleted := filepath.Join(appSupport, "Crashpad", "completed")
 			crashpadRoot := filepath.Join(appSupport, "Crashpad")
