@@ -180,7 +180,7 @@ func TestBrowsers_ScanSafari_PermissionErrors(t *testing.T) {
 	}
 
 	// 1. Non-existent cache dir returns nil cleanly
-	targets, err := scanSafari(context.Background(), tempHome, safariDef, false, time.Time{}, 0)
+	targets, err := scanSafari(context.Background(), tempHome, "darwin", safariDef, false, time.Time{}, 0)
 	if err != nil {
 		t.Fatalf("scanSafari with nonexistent dir error = %v, want nil", err)
 	}
@@ -195,7 +195,7 @@ func TestBrowsers_ScanSafari_PermissionErrors(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err = scanSafari(ctx, tempHome, safariDef, false, time.Time{}, 0)
+	_, err = scanSafari(ctx, tempHome, "darwin", safariDef, false, time.Time{}, 0)
 	if err == nil {
 		t.Errorf("expected error on canceled context, got nil")
 	}

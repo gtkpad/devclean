@@ -5,7 +5,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -18,13 +17,13 @@ import (
 // scanSafari scans strictly ~/Library/Caches/com.apple.Safari on Darwin.
 func scanSafari(
 	ctx context.Context,
-	homeDir string,
+	homeDir, goos string,
 	bDef BrowserDef,
 	isProcessBlocked bool,
 	cutoff time.Time,
 	maxAgeDays int,
 ) ([]domain.Target, error) {
-	if runtime.GOOS != "darwin" {
+	if goos != "darwin" {
 		return nil, nil
 	}
 	if bDef.CacheDir == nil {
