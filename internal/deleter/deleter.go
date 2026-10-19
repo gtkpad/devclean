@@ -162,11 +162,12 @@ func (c *Coordinator) Delete(
 		var directTargets []domain.Target
 		var virtualTargets []domain.Target
 		for _, t := range safeTargets {
-			if t.IsVirtual() {
+			switch {
+			case t.IsVirtual():
 				virtualTargets = append(virtualTargets, t)
-			} else if t.Category == "macos-trash" {
+			case t.Category == "macos-trash":
 				directTargets = append(directTargets, t)
-			} else {
+			default:
 				fsTargets = append(fsTargets, t)
 			}
 		}

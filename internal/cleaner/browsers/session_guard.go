@@ -43,41 +43,6 @@ var protectedSessionTokens = []string{
 	"cloudtabs",
 }
 
-// Allowlisted regenerable leaf directories for Chromium profiles.
-var allowlistedChromiumLeaves = map[string]bool{
-	"GPUCache":                                      true,
-	"DawnCache":                                     true,
-	"DawnWebGPUCache":                               true,
-	"DawnGraphiteCache":                             true,
-	"Code Cache":                                    true,
-	filepath.Join("Service Worker", "CacheStorage"): true,
-	"Cache_Data":                                    true,
-	"Media Cache":                                   true,
-	"data_0":                                        true,
-	"data_1":                                        true,
-	"data_2":                                        true,
-	"data_3":                                        true,
-	"index":                                         true,
-}
-
-// Allowlisted regenerable leaf directories for Firefox profiles.
-var allowlistedFirefoxLeaves = map[string]bool{
-	"cache2":          true,
-	"startupCache":    true,
-	"jumpListCache":   true,
-	"thumbnails":      true,
-	"activity-stream": true,
-}
-
-// Allowlisted regenerable leaf directories and files for Safari.
-var allowlistedSafariLeaves = map[string]bool{
-	"WebKitCache":  true,
-	"Cache.db":     true,
-	"Cache.db-wal": true,
-	"Cache.db-shm": true,
-	"fsCachedData": true,
-}
-
 // IsSessionOrProtectedData returns true if the candidate path matches any personal,
 // authentication, browsing history, session database pattern, or the private Safari library.
 func IsSessionOrProtectedData(path string) bool {

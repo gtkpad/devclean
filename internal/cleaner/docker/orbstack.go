@@ -104,11 +104,9 @@ func scanOrbStack(ctx context.Context, exec cleaner.CommandExecutor, rules domai
 				}
 				target.EligibleBytes = 0
 				target.TTLEligible = false
-			} else {
-				if rules.MaxAgeDays == 0 || c.info.ModTime().Before(cutoff) {
-					target.TTLEligible = true
-					target.EligibleBytes = size
-				}
+			} else if rules.MaxAgeDays == 0 || c.info.ModTime().Before(cutoff) {
+				target.TTLEligible = true
+				target.EligibleBytes = size
 			}
 
 			targets = append(targets, target)
