@@ -61,6 +61,11 @@ type Target struct {
 	AI              *AIAssessment    `json:"ai_assessment,omitempty"`
 	SmartScore      float64          `json:"smart_score,omitempty"`
 	ProviderMetrics *ProviderMetrics `json:"provider_metrics,omitempty"`
+	// IsConsolidated designates targets representing pre-aggregated leaf directories
+	// whose sizes already excluded dedicated children.
+	IsConsolidated bool `json:"is_consolidated,omitempty"`
+	// SubPaths holds the list of constituent directory paths for surgical deletion.
+	SubPaths []string `json:"sub_paths,omitempty"`
 }
 
 // IsReviewOnly reports whether the target is restricted to inventory inspection only.

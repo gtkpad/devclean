@@ -208,5 +208,57 @@ func TestTarget_BackwardCompatibility(t *testing.T) {
 	if decoded.TTLEligible != false {
 		t.Errorf("decoded.TTLEligible = %v, want false", decoded.TTLEligible)
 	}
+	if decoded.IsConsolidated != false {
+		t.Errorf("decoded.IsConsolidated = %v, want false", decoded.IsConsolidated)
+	}
+	if len(decoded.SubPaths) != 0 {
+		t.Errorf("decoded.SubPaths = %v, want nil/empty", decoded.SubPaths)
+	}
+}
+
+func TestTarget_ConsolidatedFields(t *testing.T) {
+	target := Target{
+		ID:             "macos-caches-1",
+		Name:           "macOS User Caches",
+		Path:           "/Users/test/Library/Caches",
+		SizeBytes:      68 * 1024 * 1024,
+		EligibleBytes:  68 * 1024 * 1024,
+		TTLEligible:    true,
+		IsConsolidated: true,
+		SubPaths: []string{
+			"/Users/test/Library/Caches/com.apple.Safari",
+			"/Users/test/Library/Caches/com.apple.finder",
+		},
+	}
+
+	data, err := json.Marshal(target)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	var raw map[string]interface{}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("Unmarshal to map failed: %v", err)
+	}
+
+	if raw["is_consolidated"] != true {
+		t.Errorf("raw is_consolidated = %v, want true", raw["is_consolidated"])
+	}
+	subPaths, ok := raw["sub_paths"].([]interface{})
+	if !ok || len(subPaths) != 2 {
+		t.Errorf("raw sub_paths = %v, want 2 items", raw["sub_paths"])
+	}
+
+	var decoded Target
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal to Target failed: %v", err)
+	}
+
+	if !decoded.IsConsolidated {
+		t.Errorf("decoded.IsConsolidated = false, want true")
+	}
+	if len(decoded.SubPaths) != 2 || decoded.SubPaths[0] != target.SubPaths[0] {
+		t.Errorf("decoded.SubPaths = %v, want %v", decoded.SubPaths, target.SubPaths)
+	}
 }
 
