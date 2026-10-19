@@ -130,7 +130,7 @@ func (c *browsersCleaner) Scan(ctx context.Context, rules domain.EcosystemRules)
 
 		switch bDef.Engine {
 		case EngineWebKit:
-			targets, err = scanSafari(ctx, c.homeDir, bDef, isBlocked, cutoff, rules.MaxAgeDays)
+			targets, err = scanSafari(ctx, c.homeDir, c.goos, bDef, isBlocked, cutoff, rules.MaxAgeDays)
 		case EngineGecko:
 			targets, err = scanFirefox(ctx, c.homeDir, c.goos, bDef, isBlocked, cutoff, rules.MaxAgeDays)
 		case EngineChromium:

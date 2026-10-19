@@ -20,7 +20,7 @@ func TestBrowsers_Safari_Isolation(t *testing.T) {
 		t.Fatal("safari definition not found")
 	}
 
-	targets, err := scanSafari(context.Background(), tempDir, safariDef, false, time.Time{}, 0)
+	targets, err := scanSafari(context.Background(), tempDir, "darwin", safariDef, false, time.Time{}, 0)
 	if err != nil {
 		t.Fatalf("scanSafari error: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestBrowsers_Safari_TCCGracefulDegradation(t *testing.T) {
 	})
 
 	safariDef, _ := FindBrowserDef("safari")
-	targets, err := scanSafari(context.Background(), tempDir, safariDef, false, time.Time{}, 0)
+	targets, err := scanSafari(context.Background(), tempDir, "darwin", safariDef, false, time.Time{}, 0)
 	if err != nil {
 		t.Fatalf("scanSafari should degrade gracefully without error on permission denial, got: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestBrowsers_Safari_ZeroScriptCache(t *testing.T) {
 	setupBrowserTestFixtures(t, tempDir)
 
 	safariDef, _ := FindBrowserDef("safari")
-	targets, err := scanSafari(context.Background(), tempDir, safariDef, false, time.Time{}, 0)
+	targets, err := scanSafari(context.Background(), tempDir, "darwin", safariDef, false, time.Time{}, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func TestBrowsers_Safari_ProcessBlocked(t *testing.T) {
 	setupBrowserTestFixtures(t, tempDir)
 
 	safariDef, _ := FindBrowserDef("safari")
-	targets, err := scanSafari(context.Background(), tempDir, safariDef, true, time.Time{}, 0)
+	targets, err := scanSafari(context.Background(), tempDir, "darwin", safariDef, true, time.Time{}, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,12 +183,12 @@ func TestBrowsers_ConsolidatedTargets(t *testing.T) {
 
 	// 3. Safari: exactly 1 target, ZERO scriptcache
 	safariDef, _ := FindBrowserDef("safari")
-	safTargets, err := scanSafari(ctx, tempDir, safariDef, false, time.Time{}, 0)
+	safTargets, err := scanSafari(ctx, tempDir, "darwin", safariDef, false, time.Time{}, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(safTargets) != 1 {
-		t.Errorf("expected Safari to emit exactly 1 target, got %d", len(safTargets))
+		t.Fatalf("expected Safari to emit exactly 1 target, got %d", len(safTargets))
 	}
 	if safTargets[0].Path != "browser://safari/caches" {
 		t.Errorf("expected browser://safari/caches, got %s", safTargets[0].Path)

@@ -1,18 +1,17 @@
 ---
 gsd_state_version: "1.0"
 milestone: v2.3
-milestone_name: Phases 6–14 (planned)
-status: Awaiting next milestone
+status: "Milestone v2.3 shipped — PR #2"
 stopped_at: Phase 14 complete — all phases complete
-last_updated: "2026-10-19T11:12:32.681Z"
+last_updated: "2026-10-19T11:33:28.123Z"
 last_activity: 2026-10-19
-last_activity_desc: Milestone v2.3 completed and archived
-state_head: d0345a782ffb01737755919073adac6a475500a8
+state_head: d14a84641ae9c34aa4aeacb0ed3118560c67758b
 progress:
   total_phases: 9
   completed_phases: 9
   total_plans: 32
   completed_plans: 32
+milestone_name: Phases 6–14 (planned)
 current_phase: 14
 ---
 
@@ -29,8 +28,8 @@ See: .planning/PROJECT.md (updated 2026-10-19)
 
 Phase: Milestone v2.3 complete
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-10-19 — Milestone v2.3 completed and archived
+Status: Milestone v2.3 shipped — PR #2
+Last activity: 2026-10-19
 
 ## Performance Metrics
 
