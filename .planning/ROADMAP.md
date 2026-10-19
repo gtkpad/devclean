@@ -19,7 +19,7 @@ Milestone v2.3 makes DevClean's inventory complete and its cleanup decisions exp
 - [x] **Phase 11: macOS User/System Caches & Logs** - Add allowlisted user/system coverage with process, permission, ownership, and overlap guards. (completed 2026-10-16)
 - [x] **Phase 12: Browsers, Session Exclusions & ScriptCache Gate** - Inventory six browsers while protecting session data and gating ScriptCache eligibility. (completed 2026-10-17)
 - [x] **Phase 13: App Leftovers & LaunchAgents** - Produce evidence-based review candidates without automatic removal. (completed 2026-10-18)
-- [ ] **Phase 14: Integrated Validation & macOS Acceptance** - Prove safety, coverage, portability, and read-only benchmark parity on a real macOS host.
+- [x] **Phase 14: Integrated Validation & macOS Acceptance** - Prove safety, coverage, portability, and read-only benchmark parity on a real macOS host. (completed 2026-10-18)
 
 ## Phase Details
 
@@ -200,4 +200,4 @@ Phases execute in numeric order: 6 → 7 → 8 → 9 → 10 → 11 → 12 → 13
 | 11. macOS User/System Caches & Logs | 4/4 | Complete    | 2026-10-16 |
 | 12. Browsers, Session Exclusions & ScriptCache Gate | 3/3 | Complete    | 2026-10-17 |
 | 13. App Leftovers & LaunchAgents | 3/3 | Complete    | 2026-10-18 |
-| 14. Integrated Validation & macOS Acceptance | 3/3 | In Progress | - |
+| 14. Integrated Validation & macOS Acceptance | 3/3 | Complete    | 2026-10-18 |

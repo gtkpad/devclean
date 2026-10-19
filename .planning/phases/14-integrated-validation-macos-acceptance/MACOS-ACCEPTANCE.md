@@ -1,6 +1,6 @@
 # DevClean v2.3 — macOS Parity Acceptance Receipt
 
-**Generated:** `2026-10-18T23:12:15Z`  
+**Generated:** `2026-10-19T11:03:36Z`  
 **Host Environment:** Darwin `27.0.1` (arm64 Apple Silicon) | APFS: `true` | Full Disk Access: `true` (`Full Disk Access granted`)  
 **Mole Baseline Source:** Normative snapshot per .planning/SPEC-v2.3-MOLE-PARITY.md §1  
 **Status:** ✅ ALL GATES PASSED (VAL-01, VAL-02, VAL-03)
@@ -15,7 +15,7 @@
 | **Architecture** | `arm64` | `runtime.GOARCH` |
 | **Filesystem Type** | `apfs` (APFS: `true`) | Pure Go `unix.Statfs` inspecting `Fstypename` |
 | **Full Disk Access / TCC** | `true` (Full Disk Access granted) | Direct probing of `~/Library/Safari` with `os.Open` / `Readdirnames` |
-| **Active Protected Apps** | `Google Chrome, OrbStack` | Process Guard verification via `pgrep` check |
+| **Active Protected Apps** | `OrbStack` | Process Guard verification via `pgrep` check |
 
 ---
 
@@ -23,17 +23,17 @@
 
 | Category | Mole Benchmark | DevClean Occupied | DevClean Eligible | Status & Safety Classification |
 |---|---|---|---|---|
-| **User essentials** | 3.75 GB | 455.02 MB | 434.45 MB | ✅ Full Parity (Eligible) |
-| **System** | 850.00 MB | 85.51 MB | 700.27 KB | ✅ Full Parity (Partial on TCC paths per D-15) |
-| **App caches** | 120.00 MB | 42.61 MB | 87.89 MB | ✅ Full Parity (Safe daemon & group containers) |
-| **Browsers** | 802.00 MB | 111.13 MB | 0 B | ✅ Gated: ScriptCache ReviewOnly per D-16 |
-| **Developer tools** | 780.00 MB | 13.56 GB | 8.81 GB | ✅ Full Parity (Automated dev cache cleanup) |
+| **User essentials** | 3.75 GB | 466.04 MB | 434.45 MB | ✅ Full Parity (Eligible) |
+| **System** | 850.00 MB | 91.26 MB | 720.17 KB | ✅ Full Parity (Partial on TCC paths per D-15) |
+| **App caches** | 120.00 MB | 42.61 MB | 91.62 MB | ✅ Full Parity (Safe daemon & group containers) |
+| **Browsers** | 802.00 MB | 130.14 MB | 0 B | ✅ Gated: ScriptCache ReviewOnly per D-16 |
+| **Developer tools** | 780.00 MB | 15.02 GB | 8.81 GB | ✅ Full Parity (Automated dev cache cleanup) |
 | **Apps & utilities** | 45.00 MB | 627.77 MB | 627.77 MB | ✅ Full Parity (Spotify & helper caches) |
 | **Application Support** | 18.00 MB | 0 B | 0 B | ✅ Full Parity (Subfolder safe whitelist) |
-| **App leftovers** | 2.00 MB | 36.40 GB | 0 B | 🛡️ ReviewOnly: true (Prevent daemon disruption) |
+| **App leftovers** | 2.00 MB | 36.41 GB | 0 B | 🛡️ ReviewOnly: true (Prevent daemon disruption) |
 | **Large files** | 19.14 GB | 12.39 GB | 0 B | 🛡️ ReviewOnly: true (Docker/OrbStack container storage) |
 
-**Inventory Totals:** Scanned **315 targets** (63.64 GB total space occupied). Eligible for automated safe cleanup: **9.94 GB**. ReviewOnly preserved: **49.00 GB** across 108 review items.
+**Inventory Totals:** Scanned **325 targets** (65.14 GB total space occupied). Eligible for automated safe cleanup: **9.94 GB**. ReviewOnly preserved: **48.99 GB** across 120 review items.
 
 ---
 

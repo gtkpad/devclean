@@ -3,16 +3,16 @@
   "category_metrics": {
     "App caches": {
       "occupied_bytes": 44675072,
-      "eligible_bytes": 92156096,
+      "eligible_bytes": 96071872,
       "review_only_bytes": 0,
       "target_count": 2,
       "mole_bytes": 125829120,
       "status_note": "✅ Full Parity (Safe daemon \u0026 group containers)"
     },
     "App leftovers": {
-      "occupied_bytes": 39082789249,
+      "occupied_bytes": 39093471617,
       "eligible_bytes": 0,
-      "review_only_bytes": 39082789249,
+      "review_only_bytes": 39093471617,
       "target_count": 83,
       "mole_bytes": 2097152,
       "status_note": "🛡️ ReviewOnly: true (Prevent daemon disruption)"
@@ -34,55 +34,55 @@
       "status_note": "✅ Full Parity (Spotify \u0026 helper caches)"
     },
     "Browsers": {
-      "occupied_bytes": 116529246,
+      "occupied_bytes": 136459406,
       "eligible_bytes": 0,
-      "review_only_bytes": 116529246,
+      "review_only_bytes": 78090796,
       "target_count": 2,
       "mole_bytes": 840957952,
       "status_note": "✅ Gated: ScriptCache ReviewOnly per D-16"
     },
     "Developer tools": {
-      "occupied_bytes": 14560634269,
+      "occupied_bytes": 16128887621,
       "eligible_bytes": 9463070368,
       "review_only_bytes": 0,
-      "target_count": 197,
+      "target_count": 194,
       "mole_bytes": 817889280,
       "status_note": "✅ Full Parity (Automated dev cache cleanup)"
     },
     "Large files": {
-      "occupied_bytes": 13299637987,
+      "occupied_bytes": 13299646179,
       "eligible_bytes": 0,
-      "review_only_bytes": 13299637987,
+      "review_only_bytes": 13299646179,
       "target_count": 8,
       "mole_bytes": 20552089600,
       "status_note": "🛡️ ReviewOnly: true (Docker/OrbStack container storage)"
     },
     "System": {
-      "occupied_bytes": 89662262,
-      "eligible_bytes": 717080,
-      "review_only_bytes": 88945182,
+      "occupied_bytes": 95691930,
+      "eligible_bytes": 737449,
+      "review_only_bytes": 94954481,
       "target_count": 3,
       "mole_bytes": 891289600,
       "status_note": "✅ Full Parity (Partial on TCC paths per D-15)"
     },
     "User essentials": {
-      "occupied_bytes": 477126656,
-      "eligible_bytes": 455548928,
-      "review_only_bytes": 21577728,
-      "target_count": 18,
+      "occupied_bytes": 488677376,
+      "eligible_bytes": 455557120,
+      "review_only_bytes": 33120256,
+      "target_count": 31,
       "mole_bytes": 4026531840,
       "status_note": "✅ Full Parity (Eligible)"
     }
   },
   "devclean_summary": {
-    "review_only_bytes": 52609479392,
-    "review_only_formatted": "49.00 GB",
-    "review_only_targets": 108,
-    "total_eligible_bytes": 10669756536,
+    "review_only_bytes": 52599283329,
+    "review_only_formatted": "48.99 GB",
+    "review_only_targets": 120,
+    "total_eligible_bytes": 10673700873,
     "total_eligible_formatted": "9.94 GB",
-    "total_occupied_bytes": 68329318805,
-    "total_occupied_formatted": "63.64 GB",
-    "total_targets": 315
+    "total_occupied_bytes": 69945773265,
+    "total_occupied_formatted": "65.14 GB",
+    "total_targets": 325
   },
   "devclean_targets": [
     {
@@ -94,7 +94,7 @@
       "ttl_eligible": false,
       "review_only": false,
       "risk": "medium",
-      "last_accessed": "2026-10-18T15:52:08.575224783-03:00",
+      "last_accessed": "2026-10-19T07:59:09.538139316-03:00",
       "category": "shell-pre-commit-cache"
     },
     {
@@ -106,7 +106,7 @@
       "ttl_eligible": false,
       "review_only": false,
       "risk": "low",
-      "last_accessed": "2026-10-18T19:37:51.003328458-03:00",
+      "last_accessed": "2026-10-19T07:59:46.085754252-03:00",
       "category": "shell-zsh-compdump"
     },
     {
@@ -120,18 +120,6 @@
       "risk": "low",
       "last_accessed": "0001-01-01T00:00:00Z",
       "category": "virtual-xcode-simulators"
-    },
-    {
-      "id": "homebrew-cleanup-cache",
-      "name": "Homebrew cache (stale bottles \u0026 downloads)",
-      "path": "brew://cleanup",
-      "size_bytes": 41644542,
-      "eligible_bytes": 0,
-      "ttl_eligible": false,
-      "review_only": false,
-      "risk": "low",
-      "last_accessed": "2026-10-18T12:15:32.074769763-03:00",
-      "category": "virtual-homebrew-cache"
     },
     {
       "id": "docker-images",
@@ -202,7 +190,7 @@
       "id": "orbstack-data-014b2501",
       "name": "OrbStack VM/Data (allocated: 4.8 GB, apparent: 461.4 GB)",
       "path": "/Users/gabrielvp/Library/Group Containers/HUAQ24HBR6.dev.orbstack/data",
-      "size_bytes": 5147938816,
+      "size_bytes": 5147947008,
       "eligible_bytes": 0,
       "ttl_eligible": false,
       "review_only": true,
@@ -211,21 +199,32 @@
       "last_accessed": "2026-10-15T17:10:22.60049866-03:00",
       "category": "orbstack-data",
       "provider_metrics": {
-        "size_bytes": 5147938816,
+        "size_bytes": 5147947008,
         "apparent_bytes": 495459517467,
-        "allocated_bytes": 5147938816,
+        "allocated_bytes": 5147947008,
         "status_note": "OrbStack virtual machines and persistent container storage"
       }
+    },
+    {
+      "id": "homebrew-cleanup-cache",
+      "name": "Homebrew cache (stale bottles \u0026 downloads)",
+      "path": "brew://cleanup",
+      "size_bytes": 41644542,
+      "eligible_bytes": 0,
+      "ttl_eligible": false,
+      "review_only": false,
+      "risk": "low",
+      "last_accessed": "2026-10-18T12:15:32.074769763-03:00",
+      "category": "virtual-homebrew-cache"
     },
     {
       "id": "448f1539483a7dbc",
       "name": "Google Chrome Caches",
       "path": "browser://chrome/caches",
-      "size_bytes": 38438450,
+      "size_bytes": 58368610,
       "eligible_bytes": 0,
       "ttl_eligible": false,
-      "review_only": true,
-      "review_reason": "active_process",
+      "review_only": false,
       "risk": "low",
       "last_accessed": "2026-10-18T18:39:27.940098219-03:00",
       "category": "browser-cache"
@@ -242,42 +241,6 @@
       "risk": "medium",
       "last_accessed": "2026-10-18T12:45:11.278416551-03:00",
       "category": "browser-scriptcache"
-    },
-    {
-      "id": "cb9b4b9cc3a5",
-      "name": "VS Code: Chromium \u0026 GPU Caches",
-      "path": "editor://code/chromium-cache",
-      "size_bytes": 17583171,
-      "eligible_bytes": 0,
-      "ttl_eligible": false,
-      "review_only": false,
-      "risk": "low",
-      "last_accessed": "2026-10-18T19:33:00.200234259-03:00",
-      "category": "editor-chromium-cache"
-    },
-    {
-      "id": "a3bd2399354f",
-      "name": "VS Code: Logs \u0026 Crash Reports",
-      "path": "editor://code/logs",
-      "size_bytes": 403774,
-      "eligible_bytes": 0,
-      "ttl_eligible": false,
-      "review_only": false,
-      "risk": "low",
-      "last_accessed": "2026-10-18T19:32:29.196422526-03:00",
-      "category": "editor-logs"
-    },
-    {
-      "id": "0102889d2072",
-      "name": "VS Code: Workspace State Backups",
-      "path": "editor://code/workspace-backups",
-      "size_bytes": 6291456,
-      "eligible_bytes": 0,
-      "ttl_eligible": false,
-      "review_only": false,
-      "risk": "medium",
-      "last_accessed": "2026-10-18T20:11:52.21318-03:00",
-      "category": "editor-workspace-backups"
     },
     {
       "id": "pnpm-store-075980b5",
@@ -323,8 +286,8 @@
       "id": "macos-cache-GeoServices",
       "name": "macOS App Cache: GeoServices",
       "path": "/Users/gabrielvp/Library/Caches/GeoServices",
-      "size_bytes": 57704448,
-      "eligible_bytes": 57704448,
+      "size_bytes": 57712640,
+      "eligible_bytes": 57712640,
       "ttl_eligible": true,
       "review_only": false,
       "risk": "low",
@@ -345,10 +308,23 @@
       "category": "macos-app-caches"
     },
     {
+      "id": "macos-cache-com.apple.AMPLibraryAgent",
+      "name": "macOS App Cache: com.apple.AMPLibraryAgent",
+      "path": "/Users/gabrielvp/Library/Caches/com.apple.AMPLibraryAgent",
+      "size_bytes": 2473984,
+      "eligible_bytes": 0,
+      "ttl_eligible": false,
+      "review_only": true,
+      "review_reason": "active_process",
+      "risk": "low",
+      "last_accessed": "0001-01-01T00:00:00Z",
+      "category": "macos-app-caches"
+    },
+    {
       "id": "macos-cache-com.apple.AppleMediaServices",
       "name": "macOS App Cache: com.apple.AppleMediaServices",
       "path": "/Users/gabrielvp/Library/Caches/com.apple.AppleMediaServices",
-      "size_bytes": 2052096,
+      "size_bytes": 2424832,
       "eligible_bytes": 0,
       "ttl_eligible": false,
       "review_only": true,
@@ -361,7 +337,7 @@
       "id": "macos-cache-com.apple.FeatureAccessAgent",
       "name": "macOS App Cache: com.apple.FeatureAccessAgent",
       "path": "/Users/gabrielvp/Library/Caches/com.apple.FeatureAccessAgent",
-      "size_bytes": 430080,
+      "size_bytes": 561152,
       "eligible_bytes": 0,
       "ttl_eligible": false,
       "review_only": true,
@@ -374,7 +350,7 @@
       "id": "macos-cache-com.apple.akd",
       "name": "macOS App Cache: com.apple.akd",
       "path": "/Users/gabrielvp/Library/Caches/com.apple.akd",
-      "size_bytes": 307200,
+      "size_bytes": 462848,
       "eligible_bytes": 0,
       "ttl_eligible": false,
       "review_only": true,
@@ -387,7 +363,20 @@
       "id": "macos-cache-com.apple.amsaccountsd",
       "name": "macOS App Cache: com.apple.amsaccountsd",
       "path": "/Users/gabrielvp/Library/Caches/com.apple.amsaccountsd",
-      "size_bytes": 606208,
+      "size_bytes": 737280,
+      "eligible_bytes": 0,
+      "ttl_eligible": false,
+      "review_only": true,
+      "review_reason": "active_process",
+      "risk": "low",
+      "last_accessed": "0001-01-01T00:00:00Z",
+      "category": "macos-app-caches"
+    },
+    {
+      "id": "macos-cache-com.apple.amsengagementd",
+      "name": "macOS App Cache: com.apple.amsengagementd",
+      "path": "/Users/gabrielvp/Library/Caches/com.apple.amsengagementd",
+      "size_bytes": 4288512,
       "eligible_bytes": 0,
       "ttl_eligible": false,
       "review_only": true,
@@ -401,6 +390,19 @@
       "name": "macOS App Cache: com.apple.appleaccountd",
       "path": "/Users/gabrielvp/Library/Caches/com.apple.appleaccountd",
       "size_bytes": 237568,
+      "eligible_bytes": 0,
+      "ttl_eligible": false,
+      "review_only": true,
+      "review_reason": "active_process",
+      "risk": "low",
+      "last_accessed": "0001-01-01T00:00:00Z",
+      "category": "macos-app-caches"
+    },
+    {
+      "id": "macos-cache-com.apple.appstoreagent",
+      "name": "macOS App Cache: com.apple.appstoreagent",
+      "path": "/Users/gabrielvp/Library/Caches/com.apple.appstoreagent",
+      "size_bytes": 602112,
       "eligible_bytes": 0,
       "ttl_eligible": false,
       "review_only": true,
@@ -449,6 +451,71 @@
       "category": "macos-app-caches"
     },
     {
+      "id": "macos-cache-com.apple.geoanalyticsd",
+      "name": "macOS App Cache: com.apple.geoanalyticsd",
+      "path": "/Users/gabrielvp/Library/Caches/com.apple.geoanalyticsd",
+      "size_bytes": 237568,
+      "eligible_bytes": 0,
+      "ttl_eligible": false,
+      "review_only": true,
+      "review_reason": "active_process",
+      "risk": "low",
+      "last_accessed": "0001-01-01T00:00:00Z",
+      "category": "macos-app-caches"
+    },
+    {
+      "id": "macos-cache-com.apple.homed",
+      "name": "macOS App Cache: com.apple.homed",
+      "path": "/Users/gabrielvp/Library/Caches/com.apple.homed",
+      "size_bytes": 303104,
+      "eligible_bytes": 0,
+      "ttl_eligible": false,
+      "review_only": true,
+      "review_reason": "active_process",
+      "risk": "low",
+      "last_accessed": "0001-01-01T00:00:00Z",
+      "category": "macos-app-caches"
+    },
+    {
+      "id": "macos-cache-com.apple.iCloudNotificationAgent",
+      "name": "macOS App Cache: com.apple.iCloudNotificationAgent",
+      "path": "/Users/gabrielvp/Library/Caches/com.apple.iCloudNotificationAgent",
+      "size_bytes": 233472,
+      "eligible_bytes": 0,
+      "ttl_eligible": false,
+      "review_only": true,
+      "review_reason": "active_process",
+      "risk": "low",
+      "last_accessed": "0001-01-01T00:00:00Z",
+      "category": "macos-app-caches"
+    },
+    {
+      "id": "macos-cache-com.apple.itunescloudd",
+      "name": "macOS App Cache: com.apple.itunescloudd",
+      "path": "/Users/gabrielvp/Library/Caches/com.apple.itunescloudd",
+      "size_bytes": 819200,
+      "eligible_bytes": 0,
+      "ttl_eligible": false,
+      "review_only": true,
+      "review_reason": "active_process",
+      "risk": "low",
+      "last_accessed": "0001-01-01T00:00:00Z",
+      "category": "macos-app-caches"
+    },
+    {
+      "id": "macos-cache-com.apple.managedappdistributionagent",
+      "name": "macOS App Cache: com.apple.managedappdistributionagent",
+      "path": "/Users/gabrielvp/Library/Caches/com.apple.managedappdistributionagent",
+      "size_bytes": 319488,
+      "eligible_bytes": 0,
+      "ttl_eligible": false,
+      "review_only": true,
+      "review_reason": "active_process",
+      "risk": "low",
+      "last_accessed": "0001-01-01T00:00:00Z",
+      "category": "macos-app-caches"
+    },
+    {
       "id": "macos-cache-com.apple.nsurlsessiond",
       "name": "macOS App Cache: com.apple.nsurlsessiond",
       "path": "/Users/gabrielvp/Library/Caches/com.apple.nsurlsessiond",
@@ -466,6 +533,71 @@
       "name": "macOS App Cache: com.apple.parsecd",
       "path": "/Users/gabrielvp/Library/Caches/com.apple.parsecd",
       "size_bytes": 17170432,
+      "eligible_bytes": 0,
+      "ttl_eligible": false,
+      "review_only": true,
+      "review_reason": "active_process",
+      "risk": "low",
+      "last_accessed": "0001-01-01T00:00:00Z",
+      "category": "macos-app-caches"
+    },
+    {
+      "id": "macos-cache-com.apple.remindd",
+      "name": "macOS App Cache: com.apple.remindd",
+      "path": "/Users/gabrielvp/Library/Caches/com.apple.remindd",
+      "size_bytes": 176128,
+      "eligible_bytes": 0,
+      "ttl_eligible": false,
+      "review_only": true,
+      "review_reason": "active_process",
+      "risk": "low",
+      "last_accessed": "0001-01-01T00:00:00Z",
+      "category": "macos-app-caches"
+    },
+    {
+      "id": "macos-cache-com.apple.sirittsd",
+      "name": "macOS App Cache: com.apple.sirittsd",
+      "path": "/Users/gabrielvp/Library/Caches/com.apple.sirittsd",
+      "size_bytes": 0,
+      "eligible_bytes": 0,
+      "ttl_eligible": false,
+      "review_only": true,
+      "review_reason": "active_process",
+      "risk": "low",
+      "last_accessed": "0001-01-01T00:00:00Z",
+      "category": "macos-app-caches"
+    },
+    {
+      "id": "macos-cache-com.apple.textunderstandingd",
+      "name": "macOS App Cache: com.apple.textunderstandingd",
+      "path": "/Users/gabrielvp/Library/Caches/com.apple.textunderstandingd",
+      "size_bytes": 81920,
+      "eligible_bytes": 0,
+      "ttl_eligible": false,
+      "review_only": true,
+      "review_reason": "active_process",
+      "risk": "low",
+      "last_accessed": "0001-01-01T00:00:00Z",
+      "category": "macos-app-caches"
+    },
+    {
+      "id": "macos-cache-com.apple.tipsd",
+      "name": "macOS App Cache: com.apple.tipsd",
+      "path": "/Users/gabrielvp/Library/Caches/com.apple.tipsd",
+      "size_bytes": 958464,
+      "eligible_bytes": 0,
+      "ttl_eligible": false,
+      "review_only": true,
+      "review_reason": "active_process",
+      "risk": "low",
+      "last_accessed": "0001-01-01T00:00:00Z",
+      "category": "macos-app-caches"
+    },
+    {
+      "id": "macos-cache-com.apple.translationd",
+      "name": "macOS App Cache: com.apple.translationd",
+      "path": "/Users/gabrielvp/Library/Caches/com.apple.translationd",
+      "size_bytes": 258048,
       "eligible_bytes": 0,
       "ttl_eligible": false,
       "review_only": true,
@@ -565,7 +697,7 @@
       "name": "macOS Group Container Caches \u0026 Logs",
       "path": "/Users/gabrielvp/Library/Group Containers",
       "size_bytes": 0,
-      "eligible_bytes": 47481024,
+      "eligible_bytes": 51396800,
       "ttl_eligible": true,
       "review_only": false,
       "risk": "low",
@@ -600,22 +732,22 @@
       "id": "macos-user-diagnostic-reports",
       "name": "macOS User Diagnostic Reports",
       "path": "/Users/gabrielvp/Library/Logs/DiagnosticReports",
-      "size_bytes": 717080,
-      "eligible_bytes": 717080,
+      "size_bytes": 737449,
+      "eligible_bytes": 737449,
       "ttl_eligible": true,
       "review_only": false,
       "risk": "low",
       "last_accessed": "0001-01-01T00:00:00Z",
       "category": "macos-diagnostic-reports",
       "provider_metrics": {
-        "size_bytes": 717080
+        "size_bytes": 737449
       }
     },
     {
       "id": "macos-system-diagnostic-reports",
       "name": "macOS System Diagnostic Reports",
       "path": "/Library/Logs/DiagnosticReports",
-      "size_bytes": 24393325,
+      "size_bytes": 25970249,
       "eligible_bytes": 0,
       "ttl_eligible": false,
       "review_only": true,
@@ -624,14 +756,14 @@
       "last_accessed": "0001-01-01T00:00:00Z",
       "category": "macos-diagnostic-reports",
       "provider_metrics": {
-        "size_bytes": 24393325
+        "size_bytes": 25970249
       }
     },
     {
       "id": "macos-system-logs",
       "name": "macOS System Logs (/private/var/log)",
       "path": "/private/var/log",
-      "size_bytes": 64551857,
+      "size_bytes": 68984232,
       "eligible_bytes": 0,
       "ttl_eligible": false,
       "review_only": true,
@@ -640,7 +772,7 @@
       "last_accessed": "0001-01-01T00:00:00Z",
       "category": "macos-system-logs",
       "provider_metrics": {
-        "size_bytes": 64551857
+        "size_bytes": 68984232
       }
     },
     {
@@ -962,7 +1094,7 @@
       "id": "app-leftover-ai-memory",
       "name": "App Leftover: ai-memory",
       "path": "/Users/gabrielvp/Library/Application Support/ai-memory",
-      "size_bytes": 315265024,
+      "size_bytes": 316452864,
       "eligible_bytes": 0,
       "ttl_eligible": false,
       "review_only": true,
@@ -972,9 +1104,9 @@
       "category": "leftovers-app",
       "provider_metrics": {
         "total_count": 1,
-        "size_bytes": 315265024,
-        "apparent_bytes": 291346506,
-        "allocated_bytes": 315265024,
+        "size_bytes": 316452864,
+        "apparent_bytes": 296129497,
+        "allocated_bytes": 316452864,
         "status_note": "residual directories: /Users/gabrielvp/Library/Application Support/ai-memory"
       }
     },
@@ -1079,7 +1211,7 @@
       "id": "app-leftover-caramelo",
       "name": "App Leftover: caramelo",
       "path": "/Users/gabrielvp/Library/Application Support/caramelo",
-      "size_bytes": 30039207936,
+      "size_bytes": 30048649216,
       "eligible_bytes": 0,
       "ttl_eligible": false,
       "review_only": true,
@@ -1089,9 +1221,9 @@
       "category": "leftovers-app",
       "provider_metrics": {
         "total_count": 1,
-        "size_bytes": 30039207936,
-        "apparent_bytes": 30026927505,
-        "allocated_bytes": 30039207936,
+        "size_bytes": 30048649216,
+        "apparent_bytes": 30036828086,
+        "allocated_bytes": 30048649216,
         "status_note": "residual directories: /Users/gabrielvp/Library/Application Support/caramelo"
       }
     },
@@ -1761,7 +1893,7 @@
       "id": "app-leftover-networkserviceproxy",
       "name": "App Leftover: networkserviceproxy",
       "path": "/Users/gabrielvp/Library/Application Support/networkserviceproxy",
-      "size_bytes": 1015808,
+      "size_bytes": 1146880,
       "eligible_bytes": 0,
       "ttl_eligible": false,
       "review_only": true,
@@ -1771,9 +1903,9 @@
       "category": "leftovers-app",
       "provider_metrics": {
         "total_count": 1,
-        "size_bytes": 1015808,
-        "apparent_bytes": 967680,
-        "allocated_bytes": 1015808,
+        "size_bytes": 1146880,
+        "apparent_bytes": 1099520,
+        "allocated_bytes": 1146880,
         "status_note": "residual directories: /Users/gabrielvp/Library/Application Support/networkserviceproxy"
       }
     },
@@ -1898,7 +2030,7 @@
       "id": "app-leftover-rtk",
       "name": "App Leftover: rtk",
       "path": "/Users/gabrielvp/Library/Application Support/rtk",
-      "size_bytes": 22327296,
+      "size_bytes": 22237184,
       "eligible_bytes": 0,
       "ttl_eligible": false,
       "review_only": true,
@@ -1908,9 +2040,9 @@
       "category": "leftovers-app",
       "provider_metrics": {
         "total_count": 1,
-        "size_bytes": 22327296,
-        "apparent_bytes": 21453053,
-        "allocated_bytes": 22327296,
+        "size_bytes": 22237184,
+        "apparent_bytes": 21544102,
+        "allocated_bytes": 22237184,
         "status_note": "residual directories: /Users/gabrielvp/Library/Application Support/rtk"
       }
     },
@@ -1918,7 +2050,7 @@
       "id": "app-leftover-sentry",
       "name": "App Leftover: sentry",
       "path": "/Users/gabrielvp/Library/Application Support/io.sentry",
-      "size_bytes": 4096,
+      "size_bytes": 16384,
       "eligible_bytes": 0,
       "ttl_eligible": false,
       "review_only": true,
@@ -1928,9 +2060,9 @@
       "category": "leftovers-app",
       "provider_metrics": {
         "total_count": 2,
-        "size_bytes": 4096,
-        "apparent_bytes": 299,
-        "allocated_bytes": 4096,
+        "size_bytes": 16384,
+        "apparent_bytes": 640,
+        "allocated_bytes": 16384,
         "status_note": "residual directories: /Users/gabrielvp/Library/Application Support/io.sentry, /Users/gabrielvp/Library/Caches/io.sentry"
       }
     },
@@ -2223,7 +2355,7 @@
       "id": "go-mod-cache:/Users/gabrielvp/go/pkg/mod",
       "name": "go-mod-cache",
       "path": "/Users/gabrielvp/go/pkg/mod",
-      "size_bytes": 1957591029,
+      "size_bytes": 1957591488,
       "eligible_bytes": 0,
       "ttl_eligible": false,
       "review_only": false,
@@ -2235,7 +2367,7 @@
       "id": "go-build-cache:/Users/gabrielvp/Library/Caches/go-build",
       "name": "go-build-cache",
       "path": "/Users/gabrielvp/Library/Caches/go-build",
-      "size_bytes": 2567915527,
+      "size_bytes": 4173579398,
       "eligible_bytes": 0,
       "ttl_eligible": false,
       "review_only": false,
@@ -3945,7 +4077,7 @@
       "ttl_eligible": true,
       "review_only": false,
       "risk": "low",
-      "last_accessed": "2026-10-18T20:12:13.991047-03:00",
+      "last_accessed": "2026-10-19T08:03:34.831937-03:00",
       "category": "python-pycache"
     },
     {
@@ -4468,7 +4600,7 @@
       "id": "ad9121f27c38",
       "name": "npm cache",
       "path": "/Users/gabrielvp/.npm/_cacache",
-      "size_bytes": 400204195,
+      "size_bytes": 402741729,
       "eligible_bytes": 0,
       "ttl_eligible": false,
       "review_only": false,
@@ -4480,24 +4612,24 @@
       "id": "8e834a5000d7",
       "name": "npx cache",
       "path": "/Users/gabrielvp/.npm/_npx",
-      "size_bytes": 59551241,
+      "size_bytes": 43822621,
       "eligible_bytes": 0,
       "ttl_eligible": false,
       "review_only": false,
       "risk": "low",
-      "last_accessed": "2026-10-18T18:38:06.065743014-03:00",
+      "last_accessed": "2026-10-19T07:59:45.301941466-03:00",
       "category": "npx-cache"
     },
     {
       "id": "10dcbd7dff90",
       "name": "npm logs",
       "path": "/Users/gabrielvp/.npm/_logs",
-      "size_bytes": 12406,
+      "size_bytes": 70915,
       "eligible_bytes": 0,
       "ttl_eligible": false,
       "review_only": false,
       "risk": "low",
-      "last_accessed": "2026-10-18T20:11:02.87145718-03:00",
+      "last_accessed": "2026-10-19T08:02:46.921657948-03:00",
       "category": "npm-logs"
     },
     {
@@ -4509,11 +4641,11 @@
       "ttl_eligible": false,
       "review_only": false,
       "risk": "low",
-      "last_accessed": "2026-10-18T15:41:26.62977021-03:00",
+      "last_accessed": "2026-10-19T07:58:21.925955278-03:00",
       "category": "corepack-cache"
     }
   ],
-  "generated_at": "2026-10-18T23:12:15Z",
+  "generated_at": "2026-10-19T11:03:36Z",
   "host_diagnostics": {
     "os_version": "27.0.1",
     "architecture": "arm64",
@@ -4522,7 +4654,6 @@
     "full_disk_access": true,
     "fda_note": "Full Disk Access granted",
     "active_protected_apps": [
-      "Google Chrome",
       "OrbStack"
     ]
   },
