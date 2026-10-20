@@ -378,3 +378,182 @@ func TestBrowsers_Chromium_HashBrowserPath(t *testing.T) {
 		t.Errorf("expected 16 hex characters, got %d (%s)", len(h1), h1)
 	}
 }
+
+func TestBrowsers_Chromium_RootAppSupportCaches(t *testing.T) {
+	tempDir := t.TempDir()
+	appSupportRoot := filepath.Join(tempDir, "Library", "Application Support", "Google", "Chrome")
+
+	// Create dummy files for all 12 root AppSupport leaves
+	rootLeaves := []struct {
+		relPath string
+		size    int64
+	}{
+		{"OptGuideOnDeviceModel/weights.bin", 1000},
+		{"OptGuideOnDeviceClassifierModel/classifier.bin", 2000},
+		{"optimization_guide_model_store/model.bin", 3000},
+		{"OptimizationGuideModelsManifest/manifest.json", 400},
+		{"OptimizationHints/hints.pb", 500},
+		{"component_crx_cache/comp.crx", 600},
+		{"extensions_crx_cache/ext.crx", 700},
+		{"GraphiteDawnCache/data.bin", 800},
+		{"GPUPersistentCache/cache.bin", 900},
+		{"ShaderCache/shader.bin", 100},
+		{"GrShaderCache/grshader.bin", 200},
+		{filepath.Join("Crashpad", "completed", "minidump.dmp"), 300},
+	}
+
+	var expectedTotal int64
+	for _, rl := range rootLeaves {
+		expectedTotal += rl.size
+		fullPath := filepath.Join(appSupportRoot, rl.relPath)
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(fullPath, make([]byte, rl.size), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Also add a dummy profile with Preferences so profile discovery doesn't produce 0 profiles
+	profDir := filepath.Join(appSupportRoot, "Default")
+	_ = os.MkdirAll(profDir, 0755)
+	_ = os.WriteFile(filepath.Join(profDir, "Preferences"), []byte("{}"), 0644)
+
+	chromeDef, _ := FindBrowserDef("chrome")
+	targets, err := scanChromiumBrowser(context.Background(), tempDir, "darwin", chromeDef, false, time.Time{}, 0)
+	if err != nil {
+		t.Fatalf("scanChromiumBrowser failed: %v", err)
+	}
+
+	if len(targets) != 1 {
+		t.Fatalf("expected 1 consolidated target, got %d", len(targets))
+	}
+	trg := targets[0]
+	if trg.SizeBytes != expectedTotal {
+		t.Errorf("expected SizeBytes %d, got %d", expectedTotal, trg.SizeBytes)
+	}
+	if !trg.IsConsolidated {
+		t.Errorf("expected IsConsolidated = true")
+	}
+	if len(trg.SubPaths) != len(rootLeaves) {
+		t.Errorf("expected %d SubPaths, got %d", len(rootLeaves), len(trg.SubPaths))
+	}
+
+	// Clean via cleanChromiumBrowser with trg.SubPaths
+	if err := cleanChromiumBrowser(tempDir, "darwin", chromeDef, trg.SubPaths); err != nil {
+		t.Fatalf("cleanChromiumBrowser failed: %v", err)
+	}
+
+	// Verify all root leaves are deleted
+	for _, rl := range rootLeaves {
+		fullPath := filepath.Join(appSupportRoot, rl.relPath)
+		if _, err := os.Stat(fullPath); !os.IsNotExist(err) {
+			t.Errorf("expected file %s to be deleted, but it exists", rl.relPath)
+		}
+	}
+
+	// Verify root container directory still exists
+	if _, err := os.Stat(appSupportRoot); os.IsNotExist(err) {
+		t.Errorf("expected appSupportRoot %s to be preserved, but was deleted", appSupportRoot)
+	}
+}
+
+func TestBrowsers_Chromium_NestedOSCaches(t *testing.T) {
+	tempDir := t.TempDir()
+	appSupportRoot := filepath.Join(tempDir, "Library", "Application Support", "Google", "Chrome")
+	cacheRoot := filepath.Join(tempDir, "Library", "Caches", "Google", "Chrome")
+
+	// Profile 1: Nested Cache layout (macOS)
+	p1Cache := filepath.Join(cacheRoot, "Profile 1", "Cache")
+	_ = os.MkdirAll(filepath.Join(p1Cache, "Cache_Data"), 0755)
+	_ = os.MkdirAll(filepath.Join(p1Cache, "No_Vary_Search"), 0755)
+	_ = os.WriteFile(filepath.Join(p1Cache, "index"), make([]byte, 100), 0644)
+	_ = os.WriteFile(filepath.Join(p1Cache, "Cache_Data", "f_0001"), make([]byte, 500), 0644)
+	_ = os.WriteFile(filepath.Join(p1Cache, "No_Vary_Search", "nv_001"), make([]byte, 200), 0644)
+	// Expected P1 size = 800 bytes
+
+	// Profile 2: Flat Cache_Data layout (fallback / Linux style)
+	p2CacheData := filepath.Join(cacheRoot, "Profile 2", "Cache_Data")
+	_ = os.MkdirAll(p2CacheData, 0755)
+	_ = os.WriteFile(filepath.Join(p2CacheData, "f_0002"), make([]byte, 400), 0644)
+	// Expected P2 size = 400 bytes
+
+	// Add dummy appSupportRoot profiles with Preferences
+	for _, prof := range []string{"Profile 1", "Profile 2"} {
+		pDir := filepath.Join(appSupportRoot, prof)
+		_ = os.MkdirAll(pDir, 0755)
+		_ = os.WriteFile(filepath.Join(pDir, "Preferences"), []byte("{}"), 0644)
+	}
+
+	chromeDef, _ := FindBrowserDef("chrome")
+	targets, err := scanChromiumBrowser(context.Background(), tempDir, "darwin", chromeDef, false, time.Time{}, 0)
+	if err != nil {
+		t.Fatalf("scanChromiumBrowser failed: %v", err)
+	}
+
+	if len(targets) != 1 {
+		t.Fatalf("expected 1 target, got %d", len(targets))
+	}
+	trg := targets[0]
+	expectedSize := int64(800 + 400)
+	if trg.SizeBytes != expectedSize {
+		t.Errorf("expected SizeBytes %d, got %d", expectedSize, trg.SizeBytes)
+	}
+}
+
+func TestBrowsers_Chromium_ExtensionsProtection(t *testing.T) {
+	tempDir := t.TempDir()
+	appSupportRoot := filepath.Join(tempDir, "Library", "Application Support", "Google", "Chrome")
+
+	// Root extension CRX updater cache (disposable)
+	crxDir := filepath.Join(appSupportRoot, "extensions_crx_cache")
+	_ = os.MkdirAll(crxDir, 0755)
+	_ = os.WriteFile(filepath.Join(crxDir, "update.crx"), []byte("downloaded pkg"), 0644)
+
+	// User-installed extensions directory (INVIOLABLE: MUST BE PRESERVED)
+	userExtDir := filepath.Join(appSupportRoot, "Default", "Extensions", "cjpalhdlnbpafiamejdnhcphjbkeiagm", "1.52.0_0")
+	_ = os.MkdirAll(userExtDir, 0755)
+	manifestFile := filepath.Join(userExtDir, "manifest.json")
+	_ = os.WriteFile(manifestFile, []byte(`{"name":"uBlock Origin"}`), 0644)
+
+	// Preferences file so Default is recognized as a profile
+	_ = os.WriteFile(filepath.Join(appSupportRoot, "Default", "Preferences"), []byte("{}"), 0644)
+
+	chromeDef, _ := FindBrowserDef("chrome")
+
+	// First scan and clean with SubPaths
+	targets, err := scanChromiumBrowser(context.Background(), tempDir, "darwin", chromeDef, false, time.Time{}, 0)
+	if err != nil {
+		t.Fatalf("scanChromiumBrowser failed: %v", err)
+	}
+	if len(targets) != 1 {
+		t.Fatalf("expected 1 target, got %d", len(targets))
+	}
+
+	if err := cleanChromiumBrowser(tempDir, "darwin", chromeDef, targets[0].SubPaths); err != nil {
+		t.Fatalf("cleanChromiumBrowser failed: %v", err)
+	}
+
+	// Verify CRX update cache was cleaned
+	if _, err := os.Stat(crxDir); !os.IsNotExist(err) {
+		t.Errorf("expected extensions_crx_cache to be deleted, but exists")
+	}
+
+	// Verify installed extension is 100% intact
+	if _, err := os.Stat(manifestFile); err != nil {
+		t.Fatalf("CRITICAL REGRESSION: User installed extension manifest was deleted! %v", err)
+	}
+
+	// Also test fallback branch (calling without subPaths)
+	_ = os.MkdirAll(crxDir, 0755)
+	_ = os.WriteFile(filepath.Join(crxDir, "update2.crx"), []byte("downloaded pkg 2"), 0644)
+	if err := cleanChromiumBrowser(tempDir, "darwin", chromeDef); err != nil {
+		t.Fatalf("cleanChromiumBrowser fallback failed: %v", err)
+	}
+	if _, err := os.Stat(crxDir); !os.IsNotExist(err) {
+		t.Errorf("expected extensions_crx_cache to be deleted in fallback branch, but exists")
+	}
+	if _, err := os.Stat(manifestFile); err != nil {
+		t.Fatalf("CRITICAL REGRESSION: User installed extension manifest deleted in fallback branch! %v", err)
+	}
+}
