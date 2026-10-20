@@ -180,7 +180,7 @@ func (c *browsersCleaner) Clean(ctx context.Context, targets []domain.Target) er
 		case EngineGecko:
 			_ = cleanFirefox(c.homeDir, c.goos, bDef)
 		case EngineChromium:
-			_ = cleanChromiumBrowser(c.homeDir, c.goos, bDef)
+			_ = cleanChromiumBrowser(c.homeDir, c.goos, bDef, t.SubPaths)
 		}
 	}
 

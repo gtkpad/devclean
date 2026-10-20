@@ -14,6 +14,50 @@ import (
 	"github.com/gtkpad/devclean/internal/safety"
 )
 
+// chromiumRootAppSupportLeaves contains the 12 root leaves located directly under bDef.AppSupportDir.
+var chromiumRootAppSupportLeaves = []string{
+	"OptGuideOnDeviceModel",
+	"OptGuideOnDeviceClassifierModel",
+	"optimization_guide_model_store",
+	"OptimizationGuideModelsManifest",
+	"OptimizationHints",
+	"component_crx_cache",
+	"extensions_crx_cache",
+	"GraphiteDawnCache",
+	"GPUPersistentCache",
+	"ShaderCache",
+	"GrShaderCache",
+	filepath.Join("Crashpad", "completed"),
+}
+
+// chromiumProfileAppSupportLeaves contains the allowlisted leaves under prof.AppSupportPath.
+var chromiumProfileAppSupportLeaves = []string{
+	"GPUCache",
+	"DawnCache",
+	"DawnWebGPUCache",
+	"DawnGraphiteCache",
+	"GraphiteDawnCache",
+	"GrShaderCache",
+	"ShaderCache",
+	"Application Cache",
+	"AutofillAiModelCache",
+	"optimization_guide_hint_cache_store",
+	"Code Cache",
+	filepath.Join("Service Worker", "CacheStorage"),
+}
+
+// chromiumProfileOSCacheLeaves contains the allowlisted leaves under prof.CachePath.
+var chromiumProfileOSCacheLeaves = []string{
+	"Media Cache",
+	"GPUCache",
+	"Code Cache",
+	"image_cache",
+	"DawnGraphiteCache",
+	"GraphiteDawnCache",
+	"GrShaderCache",
+	"ShaderCache",
+}
+
 // discoverChromiumProfiles scans both Application Support/Config and OS Cache roots for profile directories.
 func discoverChromiumProfiles(appSupportRoot, cacheRoot string) []ProfileInfo {
 	var profiles []ProfileInfo
@@ -99,10 +143,8 @@ func scanChromiumBrowser(
 	}
 
 	profiles := discoverChromiumProfiles(appSupportRoot, cacheRoot)
-	if len(profiles) == 0 {
-		return nil, nil
-	}
 
+	var subPaths []string
 	var totalCacheSize, eligibleCacheBytes int64
 	var hasEligibleCache bool
 	var latestCacheTime time.Time
@@ -110,22 +152,47 @@ func scanChromiumBrowser(
 	var totalScriptCacheSize int64
 	var latestScriptCacheTime time.Time
 
+	// 1. Scan root AppSupport leaves (outside individual profiles)
+	if appSupportRoot != "" {
+		for _, leaf := range chromiumRootAppSupportLeaves {
+			p := filepath.Join(appSupportRoot, leaf)
+			if IsSessionOrProtectedData(p) {
+				continue
+			}
+			info, err := os.Stat(p)
+			if err != nil {
+				continue
+			}
+			var sz int64
+			if !info.IsDir() {
+				sz = info.Size()
+			} else {
+				sz, _ = devfs.CalcDirSize(p)
+			}
+			if sz == 0 {
+				continue
+			}
+
+			totalCacheSize += sz
+			if info.ModTime().After(latestCacheTime) {
+				latestCacheTime = info.ModTime()
+			}
+			if maxAgeDays == 0 || info.ModTime().Before(cutoff) {
+				eligibleCacheBytes += sz
+				hasEligibleCache = true
+			}
+			subPaths = append(subPaths, p)
+		}
+	}
+
 	for _, prof := range profiles {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 
-		// 1. Scan allowlisted AppSupport subfolders
+		// 2. Scan allowlisted AppSupport subfolders
 		if prof.AppSupportPath != "" {
-			appSupportSubLeaves := []string{
-				"GPUCache",
-				"DawnCache",
-				"DawnWebGPUCache",
-				"DawnGraphiteCache",
-				"Code Cache",
-				filepath.Join("Service Worker", "CacheStorage"),
-			}
-			for _, leaf := range appSupportSubLeaves {
+			for _, leaf := range chromiumProfileAppSupportLeaves {
 				p := filepath.Join(prof.AppSupportPath, leaf)
 				if IsSessionOrProtectedData(p) {
 					continue
@@ -152,6 +219,7 @@ func scanChromiumBrowser(
 					eligibleCacheBytes += sz
 					hasEligibleCache = true
 				}
+				subPaths = append(subPaths, p)
 			}
 
 			// Measure ScriptCache separately (BROW-04, D-05, D-06)
@@ -172,7 +240,7 @@ func scanChromiumBrowser(
 			}
 		}
 
-		// 2. Scan allowlisted OS Cache subfolders
+		// 3. Scan allowlisted OS Cache subfolders
 		if prof.CachePath != "" {
 			cacheSubLeaves := []string{
 				"Cache_Data",
@@ -207,6 +275,7 @@ func scanChromiumBrowser(
 					eligibleCacheBytes += sz
 					hasEligibleCache = true
 				}
+				subPaths = append(subPaths, p)
 			}
 		}
 	}
@@ -220,15 +289,17 @@ func scanChromiumBrowser(
 		}
 		vPath := "browser://" + bDef.ID + "/caches"
 		trg := domain.Target{
-			ID:            hashBrowserPath(vPath),
-			Name:          bDef.Name + " Caches",
-			Path:          vPath,
-			SizeBytes:     totalCacheSize,
-			EligibleBytes: eligibleCacheBytes,
-			TTLEligible:   hasEligibleCache,
-			Risk:          domain.RiskLow,
-			LastAccessed:  latestCacheTime,
-			Category:      "browser-cache",
+			ID:             hashBrowserPath(vPath),
+			Name:           bDef.Name + " Caches",
+			Path:           vPath,
+			SizeBytes:      totalCacheSize,
+			EligibleBytes:  eligibleCacheBytes,
+			TTLEligible:    hasEligibleCache,
+			Risk:           domain.RiskLow,
+			LastAccessed:   latestCacheTime,
+			Category:       "browser-cache",
+			IsConsolidated: true,
+			SubPaths:       subPaths,
 		}
 		if isProcessBlocked {
 			trg.ReviewOnly = true
@@ -265,7 +336,9 @@ func scanChromiumBrowser(
 }
 
 // cleanChromiumBrowser surgically unlinks allowlisted cache leaves across all profiles.
-func cleanChromiumBrowser(homeDir, goos string, bDef BrowserDef) error {
+// If subPaths is provided, it unlinks only those verified constituent paths.
+// Otherwise, it falls back to full allowlist traversal.
+func cleanChromiumBrowser(homeDir, goos string, bDef BrowserDef, subPaths ...[]string) error {
 	if bDef.DarwinOnly && goos != "darwin" {
 		return nil
 	}
@@ -275,20 +348,46 @@ func cleanChromiumBrowser(homeDir, goos string, bDef BrowserDef) error {
 
 	appSupportRoot := bDef.AppSupportDir(homeDir, goos)
 	cacheRoot := bDef.CacheDir(homeDir, goos)
-	profiles := discoverChromiumProfiles(appSupportRoot, cacheRoot)
 
-	for _, prof := range profiles {
-		// 1. AppSupport allowlisted leaves
-		if prof.AppSupportPath != "" {
-			appLeaves := []string{
-				"GPUCache",
-				"DawnCache",
-				"DawnWebGPUCache",
-				"DawnGraphiteCache",
-				"Code Cache",
-				filepath.Join("Service Worker", "CacheStorage"),
+	// Branch A: Surgical cleanup of provided constituent SubPaths
+	if len(subPaths) > 0 && len(subPaths[0]) > 0 {
+		for _, p := range subPaths[0] {
+			cleanP := filepath.Clean(p)
+			if err := VerifyCleanCandidate(cleanP); err != nil {
+				continue
 			}
-			for _, leaf := range appLeaves {
+			if isLink, err := safety.IsSymlink(cleanP); err != nil || isLink {
+				continue
+			}
+			// Strict root containment check: ensure cleanP is not container root and is within root
+			if (appSupportRoot != "" && cleanP != appSupportRoot && strings.HasPrefix(cleanP, appSupportRoot+string(filepath.Separator))) ||
+				(cacheRoot != "" && cleanP != cacheRoot && strings.HasPrefix(cleanP, cacheRoot+string(filepath.Separator))) {
+				_ = os.RemoveAll(cleanP)
+			}
+		}
+		return nil
+	}
+
+	// Branch B: Fallback traversal across root leaves and discovered profiles (backward compatibility)
+	// 1. Root AppSupport leaves
+	if appSupportRoot != "" {
+		for _, leaf := range chromiumRootAppSupportLeaves {
+			p := filepath.Join(appSupportRoot, leaf)
+			if err := VerifyCleanCandidate(p); err != nil {
+				continue
+			}
+			if isLink, err := safety.IsSymlink(p); err == nil && !isLink {
+				_ = os.RemoveAll(p)
+			}
+		}
+	}
+
+	// 2. Profile AppSupport & OS Cache leaves
+	profiles := discoverChromiumProfiles(appSupportRoot, cacheRoot)
+	for _, prof := range profiles {
+		// AppSupport allowlisted leaves
+		if prof.AppSupportPath != "" {
+			for _, leaf := range chromiumProfileAppSupportLeaves {
 				p := filepath.Join(prof.AppSupportPath, leaf)
 				if err := VerifyCleanCandidate(p); err != nil {
 					continue
@@ -299,7 +398,7 @@ func cleanChromiumBrowser(homeDir, goos string, bDef BrowserDef) error {
 			}
 		}
 
-		// 2. OS Cache allowlisted leaves
+		// OS Cache allowlisted leaves
 		if prof.CachePath != "" {
 			cacheLeaves := []string{
 				"Cache_Data",
