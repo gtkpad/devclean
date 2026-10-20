@@ -557,3 +557,196 @@ func TestBrowsers_Chromium_ExtensionsProtection(t *testing.T) {
 		t.Fatalf("CRITICAL REGRESSION: User installed extension manifest deleted in fallback branch! %v", err)
 	}
 }
+
+func TestBrowsers_Chromium_MultiBrowserParity(t *testing.T) {
+	ctx := context.Background()
+	chromiumIDs := []string{"chrome", "brave", "arc", "edge"}
+
+	t.Run("Darwin_Parity_ScanAndClean", func(t *testing.T) {
+		tempDir := t.TempDir()
+
+		for _, id := range chromiumIDs {
+			bDef, ok := FindBrowserDef(id)
+			if !ok {
+				t.Fatalf("browser definition not found: %s", id)
+			}
+
+			appSupportRoot := bDef.AppSupportDir(tempDir, "darwin")
+			cacheRoot := bDef.CacheDir(tempDir, "darwin")
+			if appSupportRoot == "" || cacheRoot == "" {
+				t.Fatalf("expected non-empty appSupportRoot and cacheRoot for %s on darwin", id)
+			}
+
+			// 1. Root model leaf in AppSupport
+			modelFile := filepath.Join(appSupportRoot, "OptGuideOnDeviceModel", "weights.bin")
+			if err := os.MkdirAll(filepath.Dir(modelFile), 0755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(modelFile, make([]byte, 1024), 0644); err != nil {
+				t.Fatal(err)
+			}
+
+			// Profile sentinel (Preferences) so profile is recognized
+			profDir := filepath.Join(appSupportRoot, "Default")
+			if err := os.MkdirAll(profDir, 0755); err != nil {
+				t.Fatal(err)
+			}
+			prefFile := filepath.Join(profDir, "Preferences")
+			if err := os.WriteFile(prefFile, []byte("{}"), 0644); err != nil {
+				t.Fatal(err)
+			}
+
+			// 2. Nested OS cache leaf in CacheDir
+			cacheFile := filepath.Join(cacheRoot, "Default", "Cache", "Cache_Data", "f_0001")
+			if err := os.MkdirAll(filepath.Dir(cacheFile), 0755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(cacheFile, make([]byte, 2048), 0644); err != nil {
+				t.Fatal(err)
+			}
+
+			// 3. Scan
+			targets, err := scanChromiumBrowser(ctx, tempDir, "darwin", bDef, false, time.Time{}, 0)
+			if err != nil {
+				t.Fatalf("scanChromiumBrowser failed for %s: %v", id, err)
+			}
+
+			expectedURI := "browser://" + id + "/caches"
+			if len(targets) != 1 {
+				t.Fatalf("[%s] expected 1 target, got %d", id, len(targets))
+			}
+			trg := targets[0]
+			if trg.Path != expectedURI {
+				t.Errorf("[%s] expected path %s, got %s", id, expectedURI, trg.Path)
+			}
+			if trg.SizeBytes != 3072 {
+				t.Errorf("[%s] expected SizeBytes 3072, got %d", id, trg.SizeBytes)
+			}
+			if trg.EligibleBytes != 3072 {
+				t.Errorf("[%s] expected EligibleBytes 3072, got %d", id, trg.EligibleBytes)
+			}
+			if !trg.IsConsolidated {
+				t.Errorf("[%s] expected IsConsolidated true", id)
+			}
+			if len(trg.SubPaths) != 2 {
+				t.Errorf("[%s] expected 2 SubPaths, got %d: %v", id, len(trg.SubPaths), trg.SubPaths)
+			}
+
+			// 4. Clean with SubPaths
+			if err := cleanChromiumBrowser(tempDir, "darwin", bDef, trg.SubPaths); err != nil {
+				t.Fatalf("[%s] cleanChromiumBrowser failed: %v", id, err)
+			}
+
+			// Cache files and model files deleted
+			if _, err := os.Stat(modelFile); !os.IsNotExist(err) {
+				t.Errorf("[%s] expected modelFile to be deleted, but exists", id)
+			}
+			if _, err := os.Stat(cacheFile); !os.IsNotExist(err) {
+				t.Errorf("[%s] expected cacheFile to be deleted, but exists", id)
+			}
+
+			// Parent directories and preferences remain intact
+			if _, err := os.Stat(appSupportRoot); os.IsNotExist(err) {
+				t.Errorf("[%s] appSupportRoot was deleted", id)
+			}
+			if _, err := os.Stat(cacheRoot); os.IsNotExist(err) {
+				t.Errorf("[%s] cacheRoot was deleted", id)
+			}
+			if _, err := os.Stat(prefFile); err != nil {
+				t.Errorf("[%s] user preferences file was deleted or corrupted: %v", id, err)
+			}
+		}
+	})
+
+	t.Run("EmptyBrowser_ReturnsZeroTargetsWithoutError", func(t *testing.T) {
+		tempDir := t.TempDir()
+		for _, id := range chromiumIDs {
+			bDef, ok := FindBrowserDef(id)
+			if !ok {
+				t.Fatalf("browser definition not found: %s", id)
+			}
+			targets, err := scanChromiumBrowser(ctx, tempDir, "darwin", bDef, false, time.Time{}, 0)
+			if err != nil {
+				t.Fatalf("expected nil error for empty browser %s, got: %v", id, err)
+			}
+			if len(targets) != 0 {
+				t.Errorf("expected 0 targets for empty browser %s, got %d", id, len(targets))
+			}
+		}
+	})
+
+	t.Run("SideBySideAdjacency_UniqueURIs", func(t *testing.T) {
+		tempDir := t.TempDir()
+		var uris []string
+		for _, id := range chromiumIDs {
+			bDef, ok := FindBrowserDef(id)
+			if !ok {
+				t.Fatalf("browser definition not found: %s", id)
+			}
+			appSupportRoot := bDef.AppSupportDir(tempDir, "darwin")
+			modelFile := filepath.Join(appSupportRoot, "ShaderCache", "shader.bin")
+			_ = os.MkdirAll(filepath.Dir(modelFile), 0755)
+			_ = os.WriteFile(modelFile, make([]byte, 100), 0644)
+
+			targets, err := scanChromiumBrowser(ctx, tempDir, "darwin", bDef, false, time.Time{}, 0)
+			if err != nil {
+				t.Fatalf("scan error for %s: %v", id, err)
+			}
+			if len(targets) != 1 {
+				t.Fatalf("expected 1 target for %s, got %d", id, len(targets))
+			}
+			uris = append(uris, targets[0].Path)
+		}
+
+		uriSet := make(map[string]bool)
+		for _, u := range uris {
+			if uriSet[u] {
+				t.Errorf("duplicate virtual URI found: %s", u)
+			}
+			uriSet[u] = true
+		}
+		if len(uriSet) != 4 {
+			t.Errorf("expected 4 distinct URIs, got %d: %v", len(uriSet), uris)
+		}
+	})
+
+	t.Run("Linux_PlatformConstraints", func(t *testing.T) {
+		tempDir := t.TempDir()
+		// Arc should return 0 targets on Linux
+		arcDef, _ := FindBrowserDef("arc")
+		arcTargets, err := scanChromiumBrowser(ctx, tempDir, "linux", arcDef, false, time.Time{}, 0)
+		if err != nil {
+			t.Fatalf("expected nil error on linux for arc, got: %v", err)
+		}
+		if len(arcTargets) != 0 {
+			t.Errorf("expected 0 targets for arc on linux, got %d", len(arcTargets))
+		}
+
+		// Chrome, Brave, Edge can scan on Linux
+		for _, id := range []string{"chrome", "brave", "edge"} {
+			bDef, _ := FindBrowserDef(id)
+			appSupportRoot := bDef.AppSupportDir(tempDir, "linux")
+			cacheRoot := bDef.CacheDir(tempDir, "linux")
+
+			// Write flat Linux Cache_Data
+			cacheFile := filepath.Join(cacheRoot, "Default", "Cache_Data", "f_linux")
+			_ = os.MkdirAll(filepath.Dir(cacheFile), 0755)
+			_ = os.WriteFile(cacheFile, make([]byte, 500), 0644)
+
+			// Write Preferences in AppSupport
+			_ = os.MkdirAll(filepath.Join(appSupportRoot, "Default"), 0755)
+			_ = os.WriteFile(filepath.Join(appSupportRoot, "Default", "Preferences"), []byte("{}"), 0644)
+
+			targets, err := scanChromiumBrowser(ctx, tempDir, "linux", bDef, false, time.Time{}, 0)
+			if err != nil {
+				t.Fatalf("[%s linux] scan failed: %v", id, err)
+			}
+			if len(targets) != 1 {
+				t.Fatalf("[%s linux] expected 1 target, got %d", id, len(targets))
+			}
+			if targets[0].SizeBytes != 500 {
+				t.Errorf("[%s linux] expected 500 bytes, got %d", id, targets[0].SizeBytes)
+			}
+		}
+	})
+}
