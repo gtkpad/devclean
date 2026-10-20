@@ -2,12 +2,14 @@ package browsers
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/gtkpad/devclean/internal/cleaner"
 	"github.com/gtkpad/devclean/internal/domain"
 )
 
@@ -747,6 +749,181 @@ func TestBrowsers_Chromium_MultiBrowserParity(t *testing.T) {
 			if targets[0].SizeBytes != 500 {
 				t.Errorf("[%s linux] expected 500 bytes, got %d", id, targets[0].SizeBytes)
 			}
+		}
+	})
+}
+
+func TestBrowsers_Chromium_ProcessGuard_FullParity(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("Scan_ProcessBlocked_FullParity", func(t *testing.T) {
+		tempDir := t.TempDir()
+		appSupportRoot := filepath.Join(tempDir, "Library", "Application Support", "Google", "Chrome")
+
+		// Root model: 3000 bytes
+		modelFile := filepath.Join(appSupportRoot, "OptGuideOnDeviceModel", "weights.bin")
+		if err := os.MkdirAll(filepath.Dir(modelFile), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(modelFile, make([]byte, 3000), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		// Profile cache: 2000 bytes
+		profileCache := filepath.Join(appSupportRoot, "Default", "GPUCache", "data_0")
+		if err := os.MkdirAll(filepath.Dir(profileCache), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(profileCache, make([]byte, 2000), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		// Preferences sentinel
+		if err := os.WriteFile(filepath.Join(appSupportRoot, "Default", "Preferences"), []byte("{}"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		chromeDef, ok := FindBrowserDef("chrome")
+		if !ok {
+			t.Fatal("chrome definition not found")
+		}
+
+		// Scan with isProcessBlocked = true
+		targets, err := scanChromiumBrowser(ctx, tempDir, "darwin", chromeDef, true, time.Time{}, 0)
+		if err != nil {
+			t.Fatalf("scanChromiumBrowser failed: %v", err)
+		}
+		if len(targets) != 1 {
+			t.Fatalf("expected 1 target, got %d", len(targets))
+		}
+
+		trg := targets[0]
+		// Invariant: full SizeBytes reported for complete inventory transparency
+		if trg.SizeBytes != 5000 {
+			t.Errorf("expected SizeBytes 5000, got %d", trg.SizeBytes)
+		}
+		// Invariant: EligibleBytes strictly 0 when process is blocked
+		if trg.EligibleBytes != 0 {
+			t.Errorf("expected EligibleBytes 0, got %d", trg.EligibleBytes)
+		}
+		// Invariant: TTLEligible false
+		if trg.TTLEligible {
+			t.Errorf("expected TTLEligible false")
+		}
+		// Invariant: ReviewOnly true
+		if !trg.ReviewOnly {
+			t.Errorf("expected ReviewOnly true")
+		}
+		// Invariant: ReviewReason active_process
+		if trg.ReviewReason != domain.ReviewReasonActiveProcess {
+			t.Errorf("expected ReviewReasonActiveProcess, got %s", trg.ReviewReason)
+		}
+		if !trg.IsConsolidated {
+			t.Errorf("expected IsConsolidated true")
+		}
+		if len(trg.SubPaths) != 2 {
+			t.Errorf("expected 2 SubPaths, got %d", len(trg.SubPaths))
+		}
+	})
+
+	t.Run("Clean_PreCleanRace_AbortsUnlinking", func(t *testing.T) {
+		tempDir := t.TempDir()
+		appSupportRoot := filepath.Join(tempDir, "Library", "Application Support", "Google", "Chrome")
+
+		// Create files totaling 5000 bytes
+		modelPath := filepath.Join(appSupportRoot, "OptGuideOnDeviceModel")
+		modelFile := filepath.Join(modelPath, "weights.bin")
+		if err := os.MkdirAll(modelPath, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(modelFile, make([]byte, 3000), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		profileCachePath := filepath.Join(appSupportRoot, "Default", "GPUCache")
+		profileCacheFile := filepath.Join(profileCachePath, "data_0")
+		if err := os.MkdirAll(profileCachePath, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(profileCacheFile, make([]byte, 2000), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		// Target previously scanned and eligible
+		vPath := "browser://chrome/caches"
+		target := domain.Target{
+			ID:             hashBrowserPath(vPath),
+			Name:           "Google Chrome Caches",
+			Path:           vPath,
+			SizeBytes:      5000,
+			EligibleBytes:  5000,
+			TTLEligible:    true,
+			ReviewOnly:     false,
+			Risk:           domain.RiskLow,
+			IsConsolidated: true,
+			SubPaths:       []string{modelPath, profileCachePath},
+		}
+
+		// Mock executor reporting browser is running at Clean time (exit code 0 with PID output)
+		mockExec := cleaner.NewMockExecutor()
+		mockExec.Outputs["pgrep -x Google Chrome"] = []byte("77777\n")
+
+		c := NewWithExecutorHomeAndOS(mockExec, tempDir, "darwin")
+		err := c.Clean(ctx, []domain.Target{target})
+		if err != nil {
+			t.Fatalf("Clean returned unexpected error: %v", err)
+		}
+
+		// Stage 3 atomic pre-clean revalidation must have aborted unlinking
+		// Both cache files must remain 100% intact on disk
+		if info, err := os.Stat(modelFile); err != nil || info.Size() != 3000 {
+			t.Errorf("modelFile was modified or deleted during pre-clean race! err: %v", err)
+		}
+		if info, err := os.Stat(profileCacheFile); err != nil || info.Size() != 2000 {
+			t.Errorf("profileCacheFile was modified or deleted during pre-clean race! err: %v", err)
+		}
+	})
+
+	t.Run("Clean_PreCleanUncertain_FailClosed", func(t *testing.T) {
+		tempDir := t.TempDir()
+		appSupportRoot := filepath.Join(tempDir, "Library", "Application Support", "Google", "Chrome")
+
+		modelPath := filepath.Join(appSupportRoot, "OptGuideOnDeviceModel")
+		modelFile := filepath.Join(modelPath, "weights.bin")
+		if err := os.MkdirAll(modelPath, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(modelFile, make([]byte, 3000), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		vPath := "browser://chrome/caches"
+		target := domain.Target{
+			ID:             hashBrowserPath(vPath),
+			Name:           "Google Chrome Caches",
+			Path:           vPath,
+			SizeBytes:      3000,
+			EligibleBytes:  3000,
+			TTLEligible:    true,
+			ReviewOnly:     false,
+			Risk:           domain.RiskLow,
+			IsConsolidated: true,
+			SubPaths:       []string{modelPath},
+		}
+
+		// Mock executor returning unexpected error -> uncertain status -> fail-closed!
+		mockExec := cleaner.NewMockExecutor()
+		mockExec.Errors["pgrep -x Google Chrome"] = errors.New("pgrep: permission denied")
+
+		c := NewWithExecutorHomeAndOS(mockExec, tempDir, "darwin")
+		err := c.Clean(ctx, []domain.Target{target})
+		if err != nil {
+			t.Fatalf("Clean returned unexpected error: %v", err)
+		}
+
+		// Fail closed: must abort unlinking
+		if info, err := os.Stat(modelFile); err != nil || info.Size() != 3000 {
+			t.Errorf("modelFile was deleted on uncertain process status! err: %v", err)
 		}
 	})
 }
