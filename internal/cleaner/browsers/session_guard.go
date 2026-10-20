@@ -70,6 +70,10 @@ func IsSessionOrProtectedData(path string) bool {
 		return r == '/' || r == '\\'
 	})
 	for _, part := range parts {
+		// Inviolable user-installed extensions directory (<Profile>/Extensions)
+		if part == "extensions" {
+			return true
+		}
 		for _, tok := range protectedSessionTokens {
 			if part == tok || strings.HasPrefix(part, tok) {
 				return true

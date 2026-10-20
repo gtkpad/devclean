@@ -37,6 +37,7 @@ func TestBrowsers_InviolableSessionShield(t *testing.T) {
 		{"Chromium Secure Preferences", "/Users/user/Library/Application Support/Google/Chrome/Default/Secure Preferences"},
 		{"Chromium Favicons", "/Users/user/Library/Application Support/Google/Chrome/Default/Favicons"},
 		{"Chromium Form History", "/Users/user/Library/Application Support/Google/Chrome/Default/Form History"},
+		{"Chromium User Extensions", "/Users/user/Library/Application Support/Google/Chrome/Default/Extensions/extension_id/manifest.json"},
 
 		// Firefox SQLite & JSON databases
 		{"Firefox Places SQLite", "/Users/user/Library/Application Support/Firefox/Profiles/x.default/places.sqlite"},
@@ -84,6 +85,12 @@ func TestBrowsers_InviolableSessionShield(t *testing.T) {
 		path string
 	}{
 		{"Chrome GPUCache", "/Users/user/Library/Application Support/Google/Chrome/Default/GPUCache/data_0"},
+		{"Chrome OptGuideOnDeviceModel", "/Users/user/Library/Application Support/Google/Chrome/OptGuideOnDeviceModel/weights.bin"},
+		{"Chrome OptGuideOnDeviceClassifierModel", "/Users/user/Library/Application Support/Google/Chrome/OptGuideOnDeviceClassifierModel/classifier.bin"},
+		{"Chrome component_crx_cache", "/Users/user/Library/Application Support/Google/Chrome/component_crx_cache/update.crx"},
+		{"Chrome extensions_crx_cache", "/Users/user/Library/Application Support/Google/Chrome/extensions_crx_cache/ext.crx"},
+		{"Chrome GraphiteDawnCache", "/Users/user/Library/Application Support/Google/Chrome/GraphiteDawnCache/data.bin"},
+		{"Chrome Crashpad Completed", "/Users/user/Library/Application Support/Google/Chrome/Crashpad/completed/dump.dmp"},
 		{"Chrome DawnCache", "/Users/user/Library/Application Support/Google/Chrome/Default/DawnCache/gpu_data"},
 		{"Chrome Code Cache JS", "/Users/user/Library/Application Support/Google/Chrome/Default/Code Cache/js/entry1"},
 		{"Chrome CacheStorage Index", "/Users/user/Library/Application Support/Google/Chrome/Default/Service Worker/CacheStorage/index"},

@@ -240,15 +240,47 @@ func scanChromiumBrowser(
 			}
 		}
 
-		// 3. Scan allowlisted OS Cache subfolders
+		// 3. Scan allowlisted OS Cache subfolders with hierarchical deduplication (D-05, D-06)
 		if prof.CachePath != "" {
-			cacheSubLeaves := []string{
-				"Cache_Data",
-				"Media Cache",
-				"GPUCache",
-				"Code Cache",
+			// Check for macOS/Chromium nested <Profile>/Cache directory first
+			profileCacheDir := filepath.Join(prof.CachePath, "Cache")
+			if info, err := os.Stat(profileCacheDir); err == nil && info.IsDir() {
+				if !IsSessionOrProtectedData(profileCacheDir) {
+					sz, _ := devfs.CalcDirSize(profileCacheDir)
+					if sz > 0 {
+						totalCacheSize += sz
+						if info.ModTime().After(latestCacheTime) {
+							latestCacheTime = info.ModTime()
+						}
+						if maxAgeDays == 0 || info.ModTime().Before(cutoff) {
+							eligibleCacheBytes += sz
+							hasEligibleCache = true
+						}
+						subPaths = append(subPaths, profileCacheDir)
+					}
+				}
+			} else {
+				// Fall back to flat <Profile>/Cache_Data (Linux or legacy layout)
+				profileCacheData := filepath.Join(prof.CachePath, "Cache_Data")
+				if info, err := os.Stat(profileCacheData); err == nil && info.IsDir() {
+					if !IsSessionOrProtectedData(profileCacheData) {
+						sz, _ := devfs.CalcDirSize(profileCacheData)
+						if sz > 0 {
+							totalCacheSize += sz
+							if info.ModTime().After(latestCacheTime) {
+								latestCacheTime = info.ModTime()
+							}
+							if maxAgeDays == 0 || info.ModTime().Before(cutoff) {
+								eligibleCacheBytes += sz
+								hasEligibleCache = true
+							}
+							subPaths = append(subPaths, profileCacheData)
+						}
+					}
+				}
 			}
-			for _, leaf := range cacheSubLeaves {
+
+			for _, leaf := range chromiumProfileOSCacheLeaves {
 				p := filepath.Join(prof.CachePath, leaf)
 				if IsSessionOrProtectedData(p) {
 					continue
@@ -398,15 +430,26 @@ func cleanChromiumBrowser(homeDir, goos string, bDef BrowserDef, subPaths ...[]s
 			}
 		}
 
-		// OS Cache allowlisted leaves
+		// OS Cache allowlisted leaves (including nested Cache / Cache_Data)
 		if prof.CachePath != "" {
-			cacheLeaves := []string{
-				"Cache_Data",
-				"Media Cache",
-				"GPUCache",
-				"Code Cache",
+			nestedCache := filepath.Join(prof.CachePath, "Cache")
+			if info, err := os.Stat(nestedCache); err == nil && info.IsDir() {
+				if err := VerifyCleanCandidate(nestedCache); err == nil {
+					if isLink, err := safety.IsSymlink(nestedCache); err == nil && !isLink {
+						_ = os.RemoveAll(nestedCache)
+					}
+				}
 			}
-			for _, leaf := range cacheLeaves {
+			flatCacheData := filepath.Join(prof.CachePath, "Cache_Data")
+			if info, err := os.Stat(flatCacheData); err == nil && info.IsDir() {
+				if err := VerifyCleanCandidate(flatCacheData); err == nil {
+					if isLink, err := safety.IsSymlink(flatCacheData); err == nil && !isLink {
+						_ = os.RemoveAll(flatCacheData)
+					}
+				}
+			}
+
+			for _, leaf := range chromiumProfileOSCacheLeaves {
 				p := filepath.Join(prof.CachePath, leaf)
 				if err := VerifyCleanCandidate(p); err != nil {
 					continue

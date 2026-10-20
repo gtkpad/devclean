@@ -14,9 +14,12 @@ func setupBrowserTestFixtures(t *testing.T, homeDir string) (disposableFiles []s
 	// 1. Disposable cache files
 	disposableFiles = []string{
 		// Chrome
+		filepath.Join(homeDir, "Library", "Application Support", "Google", "Chrome", "OptGuideOnDeviceModel", "weights.bin"),
+		filepath.Join(homeDir, "Library", "Application Support", "Google", "Chrome", "component_crx_cache", "component.crx"),
 		filepath.Join(homeDir, "Library", "Application Support", "Google", "Chrome", "Default", "GPUCache", "data_0"),
 		filepath.Join(homeDir, "Library", "Application Support", "Google", "Chrome", "Default", "Code Cache", "js", "entry1"),
 		filepath.Join(homeDir, "Library", "Application Support", "Google", "Chrome", "Default", "Service Worker", "CacheStorage", "index"),
+		filepath.Join(homeDir, "Library", "Caches", "Google", "Chrome", "Default", "Cache", "Cache_Data", "f_000001"),
 		filepath.Join(homeDir, "Library", "Caches", "Google", "Chrome", "Default", "Cache_Data", "f_000001"),
 		filepath.Join(homeDir, "Library", "Caches", "Google", "Chrome", "Profile 1", "Cache_Data", "f_000002"),
 		// Brave
@@ -39,6 +42,7 @@ func setupBrowserTestFixtures(t *testing.T, homeDir string) (disposableFiles []s
 	// 2. Protected session sentinels (MUST NEVER BE DELETED!)
 	protectedFiles = []string{
 		// Chrome
+		filepath.Join(homeDir, "Library", "Application Support", "Google", "Chrome", "Default", "Extensions", "extension_id", "manifest.json"),
 		filepath.Join(homeDir, "Library", "Application Support", "Google", "Chrome", "Default", "Cookies"),
 		filepath.Join(homeDir, "Library", "Application Support", "Google", "Chrome", "Default", "History"),
 		filepath.Join(homeDir, "Library", "Application Support", "Google", "Chrome", "Default", "Login Data"),
