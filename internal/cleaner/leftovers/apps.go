@@ -14,6 +14,14 @@ type AppIndex struct {
 	AppNames  map[string]bool
 }
 
+// defaultHomebrewRoots defines standard Homebrew Caskroom and Cellar directories across Apple Silicon and Intel paths (D-05, REQ-LFT-02).
+var defaultHomebrewRoots = []string{
+	"/opt/homebrew/Caskroom",
+	"/opt/homebrew/Cellar",
+	"/usr/local/Caskroom",
+	"/usr/local/Cellar",
+}
+
 // newAppIndex allocates an empty AppIndex.
 func newAppIndex() *AppIndex {
 	return &AppIndex{
@@ -76,11 +84,44 @@ func (idx *AppIndex) Matches(dirName string) bool {
 	return false
 }
 
+// scanHomebrewPackages indexes installed Homebrew Caskroom and Cellar packages in pure Go (D-05, REQ-LFT-02).
+func (idx *AppIndex) scanHomebrewPackages(ctx context.Context, roots []string) {
+	if roots == nil {
+		roots = defaultHomebrewRoots
+	}
+	for _, root := range roots {
+		if ctx.Err() != nil {
+			return
+		}
+		entries, err := os.ReadDir(root)
+		if err != nil {
+			continue // Root does not exist or inaccessible on this architecture
+		}
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			name := e.Name()
+			idx.addAppName(name)
+
+			// Version-stripped variant: if strings.Contains(name, "@"), extract prefix before @ (e.g. "dotnet-sdk@8" -> "dotnet-sdk")
+			if idxAt := strings.Index(name, "@"); idxAt > 0 {
+				idx.addAppName(name[:idxAt])
+			}
+			// Hyphen-to-space variant: if strings.Contains(name, "-"), replace hyphens with spaces (e.g. "copilot-cli" -> "copilot cli")
+			if strings.Contains(name, "-") {
+				idx.addAppName(strings.ReplaceAll(name, "-", " "))
+			}
+		}
+	}
+}
+
 // scanInstalledApps discovers installed .app bundles across the provided appRoots
 // bounded to depth 3, parses Info.plist via parseAppBundleInfoFile, and populates AppIndex.
 // Traversal immediately prunes upon encountering any directory ending in .app (D-05, D-06).
 func scanInstalledApps(ctx context.Context, appRoots []string) (*AppIndex, error) {
 	index := newAppIndex()
+	index.scanHomebrewPackages(ctx, nil)
 
 	for _, root := range appRoots {
 		if err := ctx.Err(); err != nil {

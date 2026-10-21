@@ -141,3 +141,49 @@ func TestLeftovers_AppIndexing_Matching(t *testing.T) {
 		}
 	}
 }
+
+func TestLeftovers_AppIndexing_HomebrewPackages(t *testing.T) {
+	tempDir := t.TempDir()
+	caskroom := filepath.Join(tempDir, "Caskroom")
+	cellar := filepath.Join(tempDir, "Cellar")
+
+	if err := os.MkdirAll(filepath.Join(caskroom, "dotnet-sdk@8"), 0755); err != nil {
+		t.Fatalf("failed to create mock caskroom dotnet-sdk@8: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(caskroom, "copilot-cli"), 0755); err != nil {
+		t.Fatalf("failed to create mock caskroom copilot-cli: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(cellar, "k9s"), 0755); err != nil {
+		t.Fatalf("failed to create mock cellar k9s: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(cellar, "rtk"), 0755); err != nil {
+		t.Fatalf("failed to create mock cellar rtk: %v", err)
+	}
+
+	idx := newAppIndex()
+	idx.scanHomebrewPackages(context.Background(), []string{caskroom, cellar})
+
+	expectedNames := []string{
+		"dotnet-sdk@8",
+		"dotnet-sdk",
+		"copilot-cli",
+		"copilot cli",
+		"k9s",
+		"rtk",
+	}
+	for _, name := range expectedNames {
+		if !idx.AppNames[name] {
+			t.Errorf("expected idx.AppNames to contain %q, got: %v", name, idx.AppNames)
+		}
+	}
+
+	if !idx.Matches("dotnet-sdk") {
+		t.Errorf("expected idx.Matches(\"dotnet-sdk\") to be true")
+	}
+	if !idx.Matches("copilot cli") {
+		t.Errorf("expected idx.Matches(\"copilot cli\") to be true")
+	}
+	if !idx.Matches("k9s") {
+		t.Errorf("expected idx.Matches(\"k9s\") to be true")
+	}
+}
