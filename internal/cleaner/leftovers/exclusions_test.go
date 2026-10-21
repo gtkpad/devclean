@@ -23,6 +23,39 @@ func TestLeftovers_Exclusions_Shield(t *testing.T) {
 		{"QuickLook", filepath.Join(tempDir, "QuickLook"), true},
 		{"ControlCenter", filepath.Join(tempDir, "ControlCenter"), true},
 
+		// Apple private daemons & background agents (D-01, REQ-LFT-01)
+		{"PassKit", filepath.Join(tempDir, "PassKit"), true},
+		{"Spotlight", filepath.Join(tempDir, "Spotlight"), true},
+		{"iCloud", filepath.Join(tempDir, "iCloud"), true},
+		{"icloudmailagent", filepath.Join(tempDir, "icloudmailagent"), true},
+		{"familycircled", filepath.Join(tempDir, "familycircled"), true},
+		{"contactsd", filepath.Join(tempDir, "contactsd"), true},
+		{"homeenergyd", filepath.Join(tempDir, "homeenergyd"), true},
+		{"icdd", filepath.Join(tempDir, "icdd"), true},
+		{"identityservicesd", filepath.Join(tempDir, "identityservicesd"), true},
+		{"IntelligenceFlow", filepath.Join(tempDir, "IntelligenceFlow"), true},
+		{"locationaccessstored", filepath.Join(tempDir, "locationaccessstored"), true},
+		{"networkserviceproxy", filepath.Join(tempDir, "networkserviceproxy"), true},
+		{"stickersd", filepath.Join(tempDir, "stickersd"), true},
+		{"tipsd", filepath.Join(tempDir, "tipsd"), true},
+
+		// Telemetry and system logging tokens
+		{"cctclearcutlogger", filepath.Join(tempDir, "cctclearcutlogger"), true},
+		{"gippseudonymousid", filepath.Join(tempDir, "gippseudonymousid"), true},
+		{"phtphenotype", filepath.Join(tempDir, "phtphenotype"), true},
+		{"ssu", filepath.Join(tempDir, "ssu"), true},
+
+		// OS and SDK debug symbol stores and persistent storage (D-03, REQ-LFT-01)
+		{"Symbols", filepath.Join(tempDir, "Symbols"), true},
+		{"RefSrcSymbols", filepath.Join(tempDir, "RefSrcSymbols"), true},
+		{"SymbolSourceSymbols", filepath.Join(tempDir, "SymbolSourceSymbols"), true},
+		{"SESStorage", filepath.Join(tempDir, "SESStorage"), true},
+		{"IsolatedStorage", filepath.Join(tempDir, "IsolatedStorage"), true},
+
+		// Prefix variations
+		{"group.com.apple.coreservices", filepath.Join(tempDir, "group.com.apple.coreservices"), true},
+		{"apple-push-service", filepath.Join(tempDir, "apple-push-service"), true},
+
 		// Dedicated DevClean cleaner directories
 		{"docker", filepath.Join(tempDir, "docker"), true},
 		{"pnpm", filepath.Join(tempDir, "pnpm"), true},

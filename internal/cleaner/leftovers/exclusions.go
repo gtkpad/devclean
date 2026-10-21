@@ -30,6 +30,35 @@ var appleSystemDirNames = map[string]bool{
 	"syncservices":            true,
 	"apple":                   true,
 	"apple push service":      true,
+
+	// Active macOS daemons and private background agents (D-01, REQ-LFT-01)
+	"passkit":              true,
+	"spotlight":            true,
+	"icloud":               true,
+	"icloudmailagent":      true,
+	"familycircled":        true,
+	"contactsd":            true,
+	"homeenergyd":          true,
+	"icdd":                 true,
+	"identityservicesd":    true,
+	"intelligenceflow":     true,
+	"locationaccessstored": true,
+	"networkserviceproxy":  true,
+	"stickersd":            true,
+	"tipsd":                true,
+
+	// Telemetry and system logging tokens
+	"cctclearcutlogger": true,
+	"gippseudonymousid": true,
+	"phtphenotype":      true,
+	"ssu":               true,
+
+	// OS and SDK debug symbol stores and persistent storage (D-03, REQ-LFT-01)
+	"symbols":             true,
+	"refsrcsymbols":       true,
+	"symbolsourcesymbols": true,
+	"sesstorage":          true,
+	"isolatedstorage":     true,
 }
 
 var dedicatedCleanerDirs = map[string]bool{
@@ -92,7 +121,10 @@ func isExcluded(name, fullPath string) bool {
 	if lower == "" {
 		return true
 	}
-	if strings.HasPrefix(lower, "com.apple.") || strings.HasPrefix(lower, "apple") || appleSystemDirNames[lower] {
+	if strings.HasPrefix(lower, "com.apple.") ||
+		strings.HasPrefix(lower, "apple") ||
+		strings.HasPrefix(lower, "group.com.apple.") ||
+		appleSystemDirNames[lower] {
 		return true
 	}
 	if dedicatedCleanerDirs[lower] || commonCLITools[lower] {
