@@ -118,6 +118,43 @@ func (c *macosCleaner) Clean(ctx context.Context, targets []domain.Target) error
 			continue
 		}
 
+		// Intercept macos-daemon-caches targets (D-09, D-11, REQ-MAC-01, REQ-MAC-02)
+		if t.Category == "macos-daemon-caches" {
+			paths := t.SubPaths
+			if len(paths) == 0 && t.Path != "" {
+				paths = []string{t.Path}
+			}
+			for _, sub := range paths {
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				default:
+				}
+
+				info, err := os.Lstat(sub)
+				if err != nil {
+					continue
+				}
+				if info.Mode()&os.ModeSymlink != 0 {
+					continue // Do not follow or remove symlinks
+				}
+				if !isOwnedByCurrentUser(info) {
+					continue // Refuse to delete items owned by other users
+				}
+				if safety.IsCoreBlacklisted(sub) || IsWhitelisted(sub) {
+					continue
+				}
+
+				// Always-on daemons: do NOT call IsBundleProcessRunning (D-09)
+				if isChildOnlyPurge(sub) {
+					_ = purgeDirectoryContents(ctx, sub)
+				} else {
+					_ = os.RemoveAll(sub)
+				}
+			}
+			continue
+		}
+
 		// Consolidated sub-path cleanup (REQ-OWN-02, D-06..D-08)
 		if len(t.SubPaths) > 0 {
 			for _, sub := range t.SubPaths {
@@ -187,6 +224,45 @@ func (c *macosCleaner) Clean(ctx context.Context, targets []domain.Target) error
 	return nil
 }
 
+// isChildOnlyPurge reports whether the directory container must be preserved.
+func isChildOnlyPurge(path string) bool {
+	cleanP := filepath.Clean(path)
+	dataTmpSuffix := string(filepath.Separator) + filepath.Join("Data", "tmp")
+	sharedPasteboardSuffix := string(filepath.Separator) + "shared-pasteboard"
+	return strings.HasSuffix(cleanP, dataTmpSuffix) ||
+		cleanP == filepath.Join("Data", "tmp") ||
+		strings.HasSuffix(cleanP, sharedPasteboardSuffix) ||
+		cleanP == "shared-pasteboard"
+}
+
+// purgeDirectoryContents unlinks all child items inside dir without deleting dir itself.
+func purgeDirectoryContents(ctx context.Context, dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	for _, entry := range entries {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+		childPath := filepath.Join(dir, entry.Name())
+		if safety.IsCoreBlacklisted(childPath) {
+			continue
+		}
+		isLink, err := safety.IsSymlink(childPath)
+		if err == nil && isLink {
+			continue
+		}
+		_ = os.RemoveAll(childPath)
+	}
+	return nil
+}
+
 func resolveTargetBundleID(t domain.Target) string {
 	if t.Category == "macos-spotify-cache" {
 		return "com.spotify.client"
@@ -203,8 +279,14 @@ func resolveTargetBundleID(t domain.Target) string {
 	if strings.HasPrefix(t.ID, "macos-daemon-") {
 		daemonID := strings.TrimPrefix(t.ID, "macos-daemon-")
 		for _, d := range canonicalDaemons {
-			if d.ID == daemonID {
-				return d.BundleID
+			if d.id == daemonID || d.ID == daemonID {
+				if d.bundleID != "" {
+					return d.bundleID
+				}
+				if d.BundleID != "" {
+					return d.BundleID
+				}
+				return d.id
 			}
 		}
 		return daemonID
