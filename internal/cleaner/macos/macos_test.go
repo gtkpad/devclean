@@ -359,3 +359,113 @@ func TestMacOSCleaner_CleanConsolidatedSubPaths(t *testing.T) {
 		}
 	})
 }
+
+func TestMacOSCleaner_CleanDaemons_ChildOnlyPurge(t *testing.T) {
+	tempDir := t.TempDir()
+	mockHome := filepath.Join(tempDir, "mock_home")
+
+	// 1. Setup sandboxed Data/tmp container with nested children
+	dataTmpDir := filepath.Join(mockHome, "Library", "Containers", "com.apple.mediaanalysisd", "Data", "tmp")
+	nestedSubdir := filepath.Join(dataTmpDir, "nested_tmp")
+	if err := os.MkdirAll(nestedSubdir, 0o755); err != nil {
+		t.Fatalf("failed to create dataTmpDir: %v", err)
+	}
+	file1 := filepath.Join(dataTmpDir, "temp1.dat")
+	file2 := filepath.Join(dataTmpDir, "temp2.dat")
+	nestedFile := filepath.Join(nestedSubdir, "file.bin")
+	_ = os.WriteFile(file1, []byte("temp1"), 0o644)
+	_ = os.WriteFile(file2, []byte("temp2"), 0o644)
+	_ = os.WriteFile(nestedFile, []byte("nested"), 0o644)
+
+	// 2. Setup standard daemon cache directory (Suggestions) that can be fully removed
+	suggDir := filepath.Join(mockHome, "Library", "Suggestions")
+	if err := os.MkdirAll(suggDir, 0o755); err != nil {
+		t.Fatalf("failed to create suggDir: %v", err)
+	}
+	_ = os.WriteFile(filepath.Join(suggDir, "suggest.dat"), []byte("suggestions"), 0o644)
+
+	mockExec := newMockProcessExecutor()
+	c := NewWithDirAndExecutor(mockHome, mockExec)
+
+	targets := []domain.Target{
+		{
+			ID:             "macos-daemon-mediaanalysisd",
+			Name:           "macOS Daemon: Media Analysis Daemon",
+			Path:           dataTmpDir,
+			Category:       "macos-daemon-caches",
+			Risk:           domain.RiskLow,
+			IsConsolidated: true,
+			SubPaths:       []string{dataTmpDir},
+		},
+		{
+			ID:       "macos-daemon-siri",
+			Name:     "macOS Daemon: Siri Suggestions & TTS",
+			Path:     suggDir,
+			Category: "macos-daemon-caches",
+			Risk:     domain.RiskLow,
+		},
+	}
+
+	if err := c.Clean(context.Background(), targets); err != nil {
+		t.Fatalf("Clean failed: %v", err)
+	}
+
+	// Assert Data/tmp parent folder is preserved
+	info, err := os.Stat(dataTmpDir)
+	if err != nil || !info.IsDir() {
+		t.Fatalf("expected Data/tmp container directory to still exist, err: %v", err)
+	}
+
+	// Assert child files and directories inside Data/tmp are removed
+	if _, err := os.Stat(file1); !os.IsNotExist(err) {
+		t.Errorf("expected child file %s to be deleted, got err: %v", file1, err)
+	}
+	if _, err := os.Stat(file2); !os.IsNotExist(err) {
+		t.Errorf("expected child file %s to be deleted, got err: %v", file2, err)
+	}
+	if _, err := os.Stat(nestedSubdir); !os.IsNotExist(err) {
+		t.Errorf("expected child subdir %s to be deleted, got err: %v", nestedSubdir, err)
+	}
+
+	// Assert Suggestions parent directory is completely removed
+	if _, err := os.Stat(suggDir); !os.IsNotExist(err) {
+		t.Errorf("expected Suggestions directory %s to be completely removed, got err: %v", suggDir, err)
+	}
+}
+
+func TestMacOSCleaner_CleanDaemons_ActiveDaemonDoesNotAbort(t *testing.T) {
+	tempDir := t.TempDir()
+	mockHome := filepath.Join(tempDir, "mock_home")
+
+	cacheDir := filepath.Join(mockHome, "Library", "Caches", "com.apple.mediaanalysisd")
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		t.Fatalf("failed to create cacheDir: %v", err)
+	}
+	dataFile := filepath.Join(cacheDir, "analysis.db")
+	_ = os.WriteFile(dataFile, []byte("data"), 0o644)
+
+	// Mock running daemon process
+	mockExec := newMockProcessExecutor()
+	mockExec.runningProcesses["mediaanalysisd"] = true
+	mockExec.runningProcesses["com.apple.mediaanalysisd"] = true
+
+	c := NewWithDirAndExecutor(mockHome, mockExec)
+
+	target := domain.Target{
+		ID:       "macos-daemon-mediaanalysisd",
+		Name:     "macOS Daemon: Media Analysis Daemon",
+		Path:     cacheDir,
+		Category: "macos-daemon-caches",
+		Risk:     domain.RiskLow,
+	}
+
+	if err := c.Clean(context.Background(), []domain.Target{target}); err != nil {
+		t.Fatalf("Clean failed: %v", err)
+	}
+
+	// Assert cache directory was successfully deleted, not aborted
+	if _, err := os.Stat(cacheDir); !os.IsNotExist(err) {
+		t.Errorf("expected active daemon cache directory %s to be deleted, got err: %v", cacheDir, err)
+	}
+}
+

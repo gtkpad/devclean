@@ -9,43 +9,54 @@ import (
 	"github.com/gtkpad/devclean/internal/domain"
 )
 
-func TestDaemons_CanonicalAllowlist8Daemons(t *testing.T) {
+func TestDaemons_CanonicalAllowlist9Daemons(t *testing.T) {
 	home := t.TempDir()
-	cachesDir := filepath.Join(home, "Library", "Caches")
-	if err := os.MkdirAll(cachesDir, 0755); err != nil {
-		t.Fatalf("failed to create caches dir: %v", err)
+	libDir := filepath.Join(home, "Library")
+
+	// Multi-root real paths for all 9 canonical daemons:
+	// 1. siri: Caches/com.apple.siri.context, Suggestions
+	// 2. mediaanalysisd: Caches/com.apple.mediaanalysisd, Containers/com.apple.mediaanalysisd/Data/tmp
+	// 3. geod: Caches/com.apple.geod, Containers/com.apple.geod/Data/tmp
+	// 4. geoservices: Caches/GeoServices
+	// 5. handoff: Caches/com.apple.coreservices.useractivityd, Group Containers/group.com.apple.coreservices.useractivityd/shared-pasteboard
+	// 6. wallpaper: Caches/com.apple.WallpaperAgent
+	// 7. helpd: Caches/com.apple.helpd
+	// 8. ams: Caches/com.apple.AppleMediaServices
+	// 9. parsecd: Caches/com.apple.parsecd
+	daemonSubPaths := []string{
+		"Caches/com.apple.siri.context",
+		"Suggestions",
+		"Caches/com.apple.mediaanalysisd",
+		"Containers/com.apple.mediaanalysisd/Data/tmp",
+		"Caches/com.apple.geod",
+		"Containers/com.apple.geod/Data/tmp",
+		"Caches/GeoServices",
+		"Caches/com.apple.coreservices.useractivityd",
+		"Group Containers/group.com.apple.coreservices.useractivityd/shared-pasteboard",
+		"Caches/com.apple.WallpaperAgent",
+		"Caches/com.apple.helpd",
+		"Caches/com.apple.AppleMediaServices",
+		"Caches/com.apple.parsecd",
 	}
 
-	// Create folders for all 8 canonical daemons with dummy data
-	daemonPaths := []string{
-		"com.apple.siri.context",
-		"com.apple.WallpaperAgent",
-		"com.apple.mediaanalysisd",
-		"com.apple.geod",
-		"com.apple.helpd",
-		"com.apple.AppleMediaServices",
-		"com.apple.parsecd",
-		"com.apple.coreservices.useractivityd",
-	}
-
-	for _, dPath := range daemonPaths {
-		dir := filepath.Join(cachesDir, dPath)
+	for _, rel := range daemonSubPaths {
+		dir := filepath.Join(libDir, rel)
 		if err := os.MkdirAll(dir, 0755); err != nil {
-			t.Fatalf("failed to create daemon dir %s: %v", dPath, err)
+			t.Fatalf("failed to create daemon dir %s: %v", rel, err)
 		}
 		if err := os.WriteFile(filepath.Join(dir, "cache.db"), []byte("sample cache content"), 0644); err != nil {
-			t.Fatalf("failed to create cache file: %v", err)
+			t.Fatalf("failed to create cache file in %s: %v", rel, err)
 		}
 	}
 
 	// Also create a non-daemon folder that must NOT be picked up by scanDaemons
-	nonDaemon := filepath.Join(cachesDir, "com.example.non-daemon")
+	nonDaemon := filepath.Join(libDir, "Caches", "com.example.non-daemon")
 	if err := os.MkdirAll(nonDaemon, 0755); err != nil {
 		t.Fatalf("failed to create non-daemon dir: %v", err)
 	}
 	_ = os.WriteFile(filepath.Join(nonDaemon, "file.bin"), []byte("other data"), 0644)
 
-	// Mock executor: all processes stopped (exit code 1)
+	// Mock executor
 	mockExec := newMockProcessExecutor()
 
 	targets, err := scanDaemons(context.Background(), mockExec, home)
@@ -53,13 +64,13 @@ func TestDaemons_CanonicalAllowlist8Daemons(t *testing.T) {
 		t.Fatalf("scanDaemons failed: %v", err)
 	}
 
-	if len(targets) != 8 {
-		t.Fatalf("expected exactly 8 targets for canonical daemons, got %d", len(targets))
+	if len(targets) != 9 {
+		t.Fatalf("expected exactly 9 targets for canonical daemons, got %d", len(targets))
 	}
 
-	foundIDs := make(map[string]bool)
+	foundIDs := make(map[string]domain.Target)
 	for _, target := range targets {
-		foundIDs[target.ID] = true
+		foundIDs[target.ID] = target
 
 		if target.Category != "macos-daemon-caches" {
 			t.Errorf("target %s category = %s, want macos-daemon-caches", target.ID, target.Category)
@@ -68,7 +79,7 @@ func TestDaemons_CanonicalAllowlist8Daemons(t *testing.T) {
 			t.Errorf("target %s risk = %s, want %s", target.ID, target.Risk, domain.RiskLow)
 		}
 		if target.ReviewOnly {
-			t.Errorf("target %s ReviewOnly = true, want false when stopped", target.ID)
+			t.Errorf("target %s ReviewOnly = true, want false (always-on unblocked)", target.ID)
 		}
 		if target.EligibleBytes == 0 || target.EligibleBytes != target.SizeBytes {
 			t.Errorf("target %s EligibleBytes = %d, want %d", target.ID, target.EligibleBytes, target.SizeBytes)
@@ -83,6 +94,7 @@ func TestDaemons_CanonicalAllowlist8Daemons(t *testing.T) {
 		"macos-daemon-wallpaper",
 		"macos-daemon-mediaanalysisd",
 		"macos-daemon-geod",
+		"macos-daemon-geoservices",
 		"macos-daemon-helpd",
 		"macos-daemon-ams",
 		"macos-daemon-parsecd",
@@ -90,66 +102,61 @@ func TestDaemons_CanonicalAllowlist8Daemons(t *testing.T) {
 	}
 
 	for _, expectedID := range expectedIDs {
-		if !foundIDs[expectedID] {
+		trg, ok := foundIDs[expectedID]
+		if !ok {
 			t.Errorf("expected daemon target ID %s was not found in targets", expectedID)
+			continue
+		}
+
+		// Verify multi-root aggregation
+		switch expectedID {
+		case "macos-daemon-siri", "macos-daemon-mediaanalysisd", "macos-daemon-geod", "macos-daemon-handoff":
+			if !trg.IsConsolidated {
+				t.Errorf("target %s should be consolidated (multi-root), got IsConsolidated=false", expectedID)
+			}
+			if len(trg.SubPaths) != 2 {
+				t.Errorf("target %s SubPaths count = %d, want 2", expectedID, len(trg.SubPaths))
+			}
+		case "macos-daemon-geoservices", "macos-daemon-wallpaper", "macos-daemon-helpd", "macos-daemon-ams", "macos-daemon-parsecd":
+			if trg.IsConsolidated {
+				t.Errorf("target %s should not be consolidated (single root), got IsConsolidated=true", expectedID)
+			}
+			if len(trg.SubPaths) != 1 {
+				t.Errorf("target %s SubPaths count = %d, want 1", expectedID, len(trg.SubPaths))
+			}
 		}
 	}
 }
 
-func TestDaemons_ActiveProcessGuard(t *testing.T) {
+func TestDaemons_AlwaysOnUnblocked_EvenIfProcessActive(t *testing.T) {
 	home := t.TempDir()
-	cachesDir := filepath.Join(home, "Library", "Caches")
+	libDir := filepath.Join(home, "Library")
 
-	// Create mediaanalysisd cache folder
-	mediaDir := filepath.Join(cachesDir, "com.apple.mediaanalysisd")
-	if err := os.MkdirAll(mediaDir, 0755); err != nil {
-		t.Fatalf("failed to create mediaanalysisd dir: %v", err)
+	daemonsToTest := []struct {
+		relPath string
+		id      string
+		proc    string
+	}{
+		{"Caches/com.apple.mediaanalysisd", "macos-daemon-mediaanalysisd", "mediaanalysisd"},
+		{"Caches/com.apple.geod", "macos-daemon-geod", "geod"},
+		{"Caches/com.apple.parsecd", "macos-daemon-parsecd", "parsecd"},
 	}
-	_ = os.WriteFile(filepath.Join(mediaDir, "analysis.db"), []byte("sample db data"), 0644)
 
-	// Mock executor returns exit 0 (process running)
+	for _, d := range daemonsToTest {
+		dir := filepath.Join(libDir, d.relPath)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("failed to create daemon dir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "cache.db"), []byte("sample db data"), 0644); err != nil {
+			t.Fatalf("failed to create cache file: %v", err)
+		}
+	}
+
+	// Mock executor where all these processes are actively running (exit code 0) or uncertain (exit code 2)
 	mockExec := newMockProcessExecutor()
 	mockExec.runningProcesses["mediaanalysisd"] = true
-
-	targets, err := scanDaemons(context.Background(), mockExec, home)
-	if err != nil {
-		t.Fatalf("scanDaemons failed: %v", err)
-	}
-
-	if len(targets) != 1 {
-		t.Fatalf("expected 1 target, got %d", len(targets))
-	}
-
-	target := targets[0]
-	if target.ID != "macos-daemon-mediaanalysisd" {
-		t.Fatalf("expected ID macos-daemon-mediaanalysisd, got %s", target.ID)
-	}
-	if !target.ReviewOnly {
-		t.Errorf("expected ReviewOnly == true for active daemon process")
-	}
-	if target.ReviewReason != domain.ReviewReasonActiveProcess {
-		t.Errorf("expected ReviewReason == %s, got %s", domain.ReviewReasonActiveProcess, target.ReviewReason)
-	}
-	if target.EligibleBytes != 0 {
-		t.Errorf("expected EligibleBytes == 0 for active daemon, got %d", target.EligibleBytes)
-	}
-	if target.TTLEligible {
-		t.Errorf("expected TTLEligible == false for active daemon, got true")
-	}
-}
-
-func TestDaemons_UncertainProcessGuard(t *testing.T) {
-	home := t.TempDir()
-	cachesDir := filepath.Join(home, "Library", "Caches")
-
-	geodDir := filepath.Join(cachesDir, "com.apple.geod")
-	if err := os.MkdirAll(geodDir, 0755); err != nil {
-		t.Fatalf("failed to create geod dir: %v", err)
-	}
-	_ = os.WriteFile(filepath.Join(geodDir, "geo.cache"), []byte("geo content"), 0644)
-
-	// Mock executor with exit code 2 (unexpected error -> fail-closed uncertain)
-	mockExec := newMockProcessExecutor()
+	mockExec.runningProcesses["geod"] = true
+	mockExec.runningProcesses["parsecd"] = true
 	mockExec.uncertainProcesses["geod"] = 2
 
 	targets, err := scanDaemons(context.Background(), mockExec, home)
@@ -157,19 +164,23 @@ func TestDaemons_UncertainProcessGuard(t *testing.T) {
 		t.Fatalf("scanDaemons failed: %v", err)
 	}
 
-	if len(targets) != 1 {
-		t.Fatalf("expected 1 target, got %d", len(targets))
+	if len(targets) != 3 {
+		t.Fatalf("expected 3 targets, got %d", len(targets))
 	}
 
-	target := targets[0]
-	if !target.ReviewOnly {
-		t.Errorf("expected ReviewOnly == true when process check is uncertain (fail-closed)")
-	}
-	if target.ReviewReason != domain.ReviewReasonActiveProcess {
-		t.Errorf("expected ReviewReason == %s, got %s", domain.ReviewReasonActiveProcess, target.ReviewReason)
-	}
-	if target.EligibleBytes != 0 {
-		t.Errorf("expected EligibleBytes == 0 when uncertain, got %d", target.EligibleBytes)
+	for _, target := range targets {
+		if target.ReviewOnly {
+			t.Errorf("target %s has ReviewOnly == true, expected false (always-on Apple daemons are unblocked)", target.ID)
+		}
+		if target.ReviewReason != "" {
+			t.Errorf("target %s has ReviewReason == %q, expected empty string", target.ID, target.ReviewReason)
+		}
+		if target.EligibleBytes == 0 || target.EligibleBytes != target.SizeBytes {
+			t.Errorf("target %s has EligibleBytes == %d, expected %d", target.ID, target.EligibleBytes, target.SizeBytes)
+		}
+		if !target.TTLEligible {
+			t.Errorf("target %s has TTLEligible == false, expected true", target.ID)
+		}
 	}
 }
 
