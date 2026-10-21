@@ -90,6 +90,7 @@ type xcodeTargetDef struct {
 	path       string
 	risk       domain.RiskLevel
 	simRelated bool
+	childOnly  bool
 }
 
 // checkProcessStatus returns running=true if pgrep finds matching processes.
@@ -125,6 +126,7 @@ func (c *xcodeCleaner) getExpandedTargetDefs() []xcodeTargetDef {
 	if devfs.DirExists(filepath.Join(c.baseDir, "CoreSimulator")) {
 		devDir = c.baseDir
 	}
+	libDir := filepath.Dir(devDir)
 
 	return []xcodeTargetDef{
 		{
@@ -133,6 +135,7 @@ func (c *xcodeCleaner) getExpandedTargetDefs() []xcodeTargetDef {
 			path:       filepath.Join(devDir, "CoreSimulator", "Caches"),
 			risk:       domain.RiskLow,
 			simRelated: true,
+			childOnly:  false,
 		},
 		{
 			category:   "xcode-coresimulator-temp",
@@ -140,6 +143,23 @@ func (c *xcodeCleaner) getExpandedTargetDefs() []xcodeTargetDef {
 			path:       filepath.Join(devDir, "CoreSimulator", "Temp"),
 			risk:       domain.RiskLow,
 			simRelated: true,
+			childOnly:  false,
+		},
+		{
+			category:   "xcode-coresimulator-logs",
+			name:       "CoreSimulator Logs",
+			path:       filepath.Join(libDir, "Logs", "CoreSimulator"),
+			risk:       domain.RiskLow,
+			simRelated: false,
+			childOnly:  true,
+		},
+		{
+			category:   "xcode-app-cache",
+			name:       "Xcode App Cache",
+			path:       filepath.Join(libDir, "Caches", "com.apple.dt.Xcode"),
+			risk:       domain.RiskLow,
+			simRelated: false,
+			childOnly:  false,
 		},
 		{
 			category:   "xcode-ios-devicesupport",
@@ -147,6 +167,7 @@ func (c *xcodeCleaner) getExpandedTargetDefs() []xcodeTargetDef {
 			path:       filepath.Join(c.baseDir, "iOS DeviceSupport"),
 			risk:       domain.RiskLow,
 			simRelated: false,
+			childOnly:  false,
 		},
 		{
 			category:   "xcode-watchos-devicesupport",
@@ -154,6 +175,7 @@ func (c *xcodeCleaner) getExpandedTargetDefs() []xcodeTargetDef {
 			path:       filepath.Join(c.baseDir, "watchOS DeviceSupport"),
 			risk:       domain.RiskLow,
 			simRelated: false,
+			childOnly:  false,
 		},
 		{
 			category:   "xcode-archives",
@@ -161,6 +183,7 @@ func (c *xcodeCleaner) getExpandedTargetDefs() []xcodeTargetDef {
 			path:       filepath.Join(c.baseDir, "Archives"),
 			risk:       domain.RiskHigh,
 			simRelated: false,
+			childOnly:  false,
 		},
 	}
 }
@@ -235,7 +258,10 @@ func (c *xcodeCleaner) Scan(ctx context.Context, rules domain.EcosystemRules) ([
 
 		eligibleBytes := int64(0)
 		ttlEligible := false
-		if rules.MaxAgeDays == 0 || info.ModTime().Before(cutoff) {
+		if def.category == "xcode-coresimulator-logs" || def.category == "xcode-app-cache" {
+			eligibleBytes = size
+			ttlEligible = true
+		} else if rules.MaxAgeDays == 0 || info.ModTime().Before(cutoff) {
 			eligibleBytes = size
 			ttlEligible = true
 		}
@@ -274,6 +300,21 @@ func (c *xcodeCleaner) Scan(ctx context.Context, rules domain.EcosystemRules) ([
 	simBlocked := simRunning || simUncertain
 
 	for i := range targets {
+		if targets[i].Category == "xcode-coresimulator-logs" {
+			// Non-blocking: logs can be safely rotated and cleaned even while Xcode or Simulator runs (D-14)
+			continue
+		}
+
+		if targets[i].Category == "xcode-app-cache" {
+			if xcodeBlocked {
+				targets[i].ReviewOnly = true
+				targets[i].ReviewReason = domain.ReviewReasonActiveProcess
+				targets[i].EligibleBytes = 0
+				targets[i].TTLEligible = false
+			}
+			continue
+		}
+
 		if xcodeBlocked {
 			targets[i].ReviewOnly = true
 			targets[i].ReviewReason = domain.ReviewReasonActiveProcess
@@ -304,6 +345,27 @@ func (c *xcodeCleaner) Clean(ctx context.Context, targets []domain.Target) error
 			continue
 		}
 		if isLink, err := safety.IsSymlink(t.Path); err == nil && isLink {
+			continue
+		}
+
+		if t.Category == "xcode-coresimulator-logs" {
+			entries, err := os.ReadDir(t.Path)
+			if err != nil {
+				if os.IsNotExist(err) {
+					continue
+				}
+				return err
+			}
+			for _, entry := range entries {
+				childPath := filepath.Join(t.Path, entry.Name())
+				if safety.IsCoreBlacklisted(childPath) {
+					continue
+				}
+				if isLink, err := safety.IsSymlink(childPath); err == nil && isLink {
+					continue
+				}
+				_ = os.RemoveAll(childPath)
+			}
 			continue
 		}
 

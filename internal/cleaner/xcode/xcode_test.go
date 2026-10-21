@@ -724,6 +724,176 @@ func TestXcodeCleaner_Clean_PermissionHandling(t *testing.T) {
 	_ = c.Clean(context.Background(), targets)
 }
 
+func TestXcode_AppCache_ScanAndClean(t *testing.T) {
+	tempLib := t.TempDir()
+	devDir := filepath.Join(tempLib, "Developer")
+	xcodeDir := filepath.Join(devDir, "Xcode")
+	cachesDir := filepath.Join(tempLib, "Caches", "com.apple.dt.Xcode")
+
+	if err := os.MkdirAll(cachesDir, 0o755); err != nil {
+		t.Fatalf("failed to create mock caches dir: %v", err)
+	}
+	cacheFile := filepath.Join(cachesDir, "compiler-cache.dat")
+	if err := os.WriteFile(cacheFile, []byte("compiler cache data"), 0o644); err != nil {
+		t.Fatalf("failed to write mock cache file: %v", err)
+	}
+
+	// 1. Stopped Xcode: target found, RiskLow, EligibleBytes == SizeBytes, TTLEligible == true
+	mockExec := cleaner.NewMockExecutor()
+	mockProcessesStopped(mockExec)
+	c := NewWithDirExecutorAndOS(xcodeDir, mockExec, "darwin")
+
+	targets, err := c.Scan(context.Background(), domain.EcosystemRules{MaxAgeDays: 14})
+	if err != nil {
+		t.Fatalf("unexpected scan error: %v", err)
+	}
+
+	var appCacheTarget *domain.Target
+	for i := range targets {
+		if targets[i].Category == "xcode-app-cache" {
+			appCacheTarget = &targets[i]
+			break
+		}
+	}
+	if appCacheTarget == nil {
+		t.Fatalf("expected xcode-app-cache target, but none found in %+v", targets)
+	}
+
+	if appCacheTarget.Risk != domain.RiskLow {
+		t.Errorf("expected RiskLow, got %v", appCacheTarget.Risk)
+	}
+	if appCacheTarget.SizeBytes <= 0 {
+		t.Errorf("expected SizeBytes > 0, got %d", appCacheTarget.SizeBytes)
+	}
+	if appCacheTarget.EligibleBytes != appCacheTarget.SizeBytes {
+		t.Errorf("expected immediate retention EligibleBytes (%d) == SizeBytes (%d)", appCacheTarget.EligibleBytes, appCacheTarget.SizeBytes)
+	}
+	if !appCacheTarget.TTLEligible {
+		t.Errorf("expected TTLEligible = true")
+	}
+	if appCacheTarget.ReviewOnly {
+		t.Errorf("expected ReviewOnly = false when Xcode stopped")
+	}
+
+	// 2. Active Xcode: ReviewOnly == true, EligibleBytes == 0
+	mockExecActive := cleaner.NewMockExecutor()
+	mockExecActive.Outputs["pgrep -x Xcode"] = []byte("12345\n")
+	mockExecActive.Errors["pgrep -x Simulator"] = &cleaner.MockExitError{Code: 1}
+	cActive := NewWithDirExecutorAndOS(xcodeDir, mockExecActive, "darwin")
+
+	activeTargets, err := cActive.Scan(context.Background(), domain.EcosystemRules{MaxAgeDays: 14})
+	if err != nil {
+		t.Fatalf("unexpected active scan error: %v", err)
+	}
+
+	var activeAppCache *domain.Target
+	for i := range activeTargets {
+		if activeTargets[i].Category == "xcode-app-cache" {
+			activeAppCache = &activeTargets[i]
+			break
+		}
+	}
+	if activeAppCache == nil {
+		t.Fatalf("expected active xcode-app-cache target, but none found")
+	}
+	if !activeAppCache.ReviewOnly {
+		t.Errorf("expected ReviewOnly = true when Xcode active")
+	}
+	if activeAppCache.ReviewReason != domain.ReviewReasonActiveProcess {
+		t.Errorf("expected ReviewReasonActiveProcess, got %q", activeAppCache.ReviewReason)
+	}
+	if activeAppCache.EligibleBytes != 0 {
+		t.Errorf("expected EligibleBytes = 0 when active, got %d", activeAppCache.EligibleBytes)
+	}
+	if activeAppCache.TTLEligible {
+		t.Errorf("expected TTLEligible = false when active")
+	}
+
+	// 3. Clean removes directory
+	if err := c.Clean(context.Background(), []domain.Target{*appCacheTarget}); err != nil {
+		t.Fatalf("Clean failed: %v", err)
+	}
+	if _, err := os.Stat(cachesDir); !os.IsNotExist(err) {
+		t.Errorf("expected %s to be deleted, stat err: %v", cachesDir, err)
+	}
+}
+
+func TestXcode_CoreSimulatorLogs_ScanAndClean(t *testing.T) {
+	tempLib := t.TempDir()
+	devDir := filepath.Join(tempLib, "Developer")
+	xcodeDir := filepath.Join(devDir, "Xcode")
+	logsDir := filepath.Join(tempLib, "Logs", "CoreSimulator")
+	nestedLogDir := filepath.Join(logsDir, "SimulatorChild")
+
+	if err := os.MkdirAll(nestedLogDir, 0o755); err != nil {
+		t.Fatalf("failed to create mock CoreSimulator logs dir: %v", err)
+	}
+	logFile1 := filepath.Join(logsDir, "core_sim.log")
+	logFile2 := filepath.Join(nestedLogDir, "nested_sim.log")
+	if err := os.WriteFile(logFile1, []byte("simulator log contents 1"), 0o644); err != nil {
+		t.Fatalf("failed to write log file 1: %v", err)
+	}
+	if err := os.WriteFile(logFile2, []byte("simulator log contents 2"), 0o644); err != nil {
+		t.Fatalf("failed to write log file 2: %v", err)
+	}
+
+	// 1. Running Xcode and Simulator: logs must NOT be blocked (ReviewOnly == false, EligibleBytes == SizeBytes)
+	mockExecRunning := cleaner.NewMockExecutor()
+	mockExecRunning.Outputs["pgrep -x Xcode"] = []byte("12345\n")
+	mockExecRunning.Outputs["pgrep -x Simulator"] = []byte("67890\n")
+	cRunning := NewWithDirExecutorAndOS(xcodeDir, mockExecRunning, "darwin")
+
+	targets, err := cRunning.Scan(context.Background(), domain.EcosystemRules{MaxAgeDays: 14})
+	if err != nil {
+		t.Fatalf("unexpected scan error: %v", err)
+	}
+
+	var simLogsTarget *domain.Target
+	for i := range targets {
+		if targets[i].Category == "xcode-coresimulator-logs" {
+			simLogsTarget = &targets[i]
+			break
+		}
+	}
+	if simLogsTarget == nil {
+		t.Fatalf("expected xcode-coresimulator-logs target, but none found in %+v", targets)
+	}
+
+	if simLogsTarget.Risk != domain.RiskLow {
+		t.Errorf("expected RiskLow, got %v", simLogsTarget.Risk)
+	}
+	if simLogsTarget.ReviewOnly {
+		t.Errorf("expected ReviewOnly = false even when Xcode and Simulator are running (non-blocking)")
+	}
+	if simLogsTarget.EligibleBytes != simLogsTarget.SizeBytes {
+		t.Errorf("expected immediate retention EligibleBytes (%d) == SizeBytes (%d)", simLogsTarget.EligibleBytes, simLogsTarget.SizeBytes)
+	}
+	if !simLogsTarget.TTLEligible {
+		t.Errorf("expected TTLEligible = true")
+	}
+
+	// 2. Clean removes children, but leaves the root ~/Library/Logs/CoreSimulator intact!
+	if err := cRunning.Clean(context.Background(), []domain.Target{*simLogsTarget}); err != nil {
+		t.Fatalf("Clean failed: %v", err)
+	}
+
+	if _, err := os.Stat(logFile1); !os.IsNotExist(err) {
+		t.Errorf("expected log file %s to be removed, stat err: %v", logFile1, err)
+	}
+	if _, err := os.Stat(nestedLogDir); !os.IsNotExist(err) {
+		t.Errorf("expected nested dir %s to be removed, stat err: %v", nestedLogDir, err)
+	}
+
+	rootInfo, err := os.Stat(logsDir)
+	if err != nil {
+		t.Fatalf("expected root CoreSimulator logs dir %s to still exist, but got err: %v", logsDir, err)
+	}
+	if !rootInfo.IsDir() {
+		t.Errorf("expected %s to be a directory", logsDir)
+	}
+}
+
+
 
 
 
