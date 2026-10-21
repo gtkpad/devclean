@@ -1,6 +1,7 @@
 package leftovers
 
 import (
+	"os/exec"
 	"strings"
 
 	"github.com/gtkpad/devclean/internal/cleaner/macos"
@@ -90,6 +91,23 @@ var dedicatedCleanerDirs = map[string]bool{
 	"claude":                 true,
 	"opencode":               true,
 	"zed":                    true,
+
+	// Developer toolchains, telemetry frameworks, and SDK folders (D-06, REQ-LFT-02)
+	"dotnet":                               true,
+	"microsoft":                            true,
+	"microsoft devdiv":                     true,
+	"xamarin":                              true,
+	"jetbrains":                            true,
+	"ai-memory":                            true,
+	"caramelo":                             true,
+	"archon":                               true,
+	"csdevkit":                             true,
+	"tabnine":                              true,
+	"iterative":                            true,
+	"io.branch":                            true,
+	"io.sentry":                            true,
+	"sentrycrash":                          true,
+	"com.github.domt4.homebrew-autoupdate": true,
 }
 
 var commonCLITools = map[string]bool{
@@ -112,6 +130,23 @@ var commonCLITools = map[string]bool{
 	"nvim":       true,
 	"vim":        true,
 	"subversion": true,
+
+	// Active command-line utilities lacking .app bundles (D-06, REQ-LFT-02)
+	"gopls":             true,
+	"golangci-lint":     true,
+	"copilot":           true,
+	"claude":            true,
+	"claude-3p":         true,
+	"claude-cli-nodejs": true,
+	"codex":             true,
+	"openai":            true,
+	"fastmcp":           true,
+	"firecrawl-cli":     true,
+	"gitkrakencli":      true,
+	"gk":                true,
+	"k9s":               true,
+	"rtk":               true,
+	"turborepo":         true,
 }
 
 // isExcluded evaluates whether a directory name or path represents an Apple component,
@@ -132,6 +167,12 @@ func isExcluded(name, fullPath string) bool {
 	}
 	if fullPath != "" {
 		if safety.IsCoreBlacklisted(fullPath) || macos.IsWhitelisted(fullPath) {
+			return true
+		}
+	}
+	// Dynamic LookPath fallback for dotless candidate names (D-06, REQ-LFT-02)
+	if !strings.Contains(lower, ".") {
+		if _, err := exec.LookPath(lower); err == nil {
 			return true
 		}
 	}

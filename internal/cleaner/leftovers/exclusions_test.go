@@ -100,3 +100,58 @@ func TestLeftovers_Exclusions_Shield(t *testing.T) {
 		}
 	}
 }
+
+func TestLeftovers_DeveloperTools_Exclusions(t *testing.T) {
+	tempDir := t.TempDir()
+
+	testCases := []struct {
+		name         string
+		fullPath     string
+		wantExcluded bool
+	}{
+		// Developer toolchains & SDKs (D-06, REQ-LFT-02)
+		{"dotnet", filepath.Join(tempDir, "dotnet"), true},
+		{"Microsoft", filepath.Join(tempDir, "Microsoft"), true},
+		{"Microsoft DevDiv", filepath.Join(tempDir, "Microsoft DevDiv"), true},
+		{"Xamarin", filepath.Join(tempDir, "Xamarin"), true},
+		{"JetBrains", filepath.Join(tempDir, "JetBrains"), true},
+		{"ai-memory", filepath.Join(tempDir, "ai-memory"), true},
+		{"caramelo", filepath.Join(tempDir, "caramelo"), true},
+		{"archon", filepath.Join(tempDir, "archon"), true},
+		{"csdevkit", filepath.Join(tempDir, "csdevkit"), true},
+		{"tabnine", filepath.Join(tempDir, "tabnine"), true},
+		{"iterative", filepath.Join(tempDir, "iterative"), true},
+		{"io.branch", filepath.Join(tempDir, "io.branch"), true},
+		{"io.sentry", filepath.Join(tempDir, "io.sentry"), true},
+		{"sentrycrash", filepath.Join(tempDir, "sentrycrash"), true},
+		{"com.github.domt4.homebrew-autoupdate", filepath.Join(tempDir, "com.github.domt4.homebrew-autoupdate"), true},
+
+		// Active CLI tools lacking .app bundles (D-06, REQ-LFT-02)
+		{"gopls", filepath.Join(tempDir, "gopls"), true},
+		{"golangci-lint", filepath.Join(tempDir, "golangci-lint"), true},
+		{"copilot", filepath.Join(tempDir, "copilot"), true},
+		{"Codex", filepath.Join(tempDir, "Codex"), true},
+		{"Claude-3p", filepath.Join(tempDir, "Claude-3p"), true},
+		{"claude-cli-nodejs", filepath.Join(tempDir, "claude-cli-nodejs"), true},
+		{"openai", filepath.Join(tempDir, "openai"), true},
+		{"k9s", filepath.Join(tempDir, "k9s"), true},
+		{"turborepo", filepath.Join(tempDir, "turborepo"), true},
+		{"fastmcp", filepath.Join(tempDir, "fastmcp"), true},
+		{"firecrawl-cli", filepath.Join(tempDir, "firecrawl-cli"), true},
+		{"gitkrakencli", filepath.Join(tempDir, "gitkrakencli"), true},
+		{"gk", filepath.Join(tempDir, "gk"), true},
+		{"rtk", filepath.Join(tempDir, "rtk"), true},
+
+		// Dynamic LookPath resolution: binary on PATH vs fictitious tool
+		{"ls", filepath.Join(tempDir, "ls"), true},
+		{"sh", filepath.Join(tempDir, "sh"), true},
+		{"fictitious_tool_xyz_not_on_path", filepath.Join(tempDir, "fictitious_tool_xyz_not_on_path"), false},
+	}
+
+	for _, tc := range testCases {
+		got := isExcluded(tc.name, tc.fullPath)
+		if got != tc.wantExcluded {
+			t.Errorf("isExcluded(%q, %q) = %v; want %v", tc.name, tc.fullPath, got, tc.wantExcluded)
+		}
+	}
+}
