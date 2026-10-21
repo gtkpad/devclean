@@ -438,3 +438,95 @@ func TestUserCachesAndLogs_NonExistentDirs(t *testing.T) {
 		t.Errorf("expected empty targets on non-existent logs dir, got %d", len(logs))
 	}
 }
+
+func TestUserCleaner_DedicatedExclusions_XcodeAndAI(t *testing.T) {
+	tempHome := t.TempDir()
+	cachesDir := filepath.Join(tempHome, "Library", "Caches")
+	if err := os.MkdirAll(cachesDir, 0o755); err != nil {
+		t.Fatalf("failed to create mock caches dir: %v", err)
+	}
+
+	excludedDirs := []string{
+		"com.apple.dt.Xcode",
+		"com.vscodium",
+		"com.rstudio.positron",
+	}
+
+	for _, dir := range excludedDirs {
+		dirPath := filepath.Join(cachesDir, dir)
+		if err := os.MkdirAll(dirPath, 0o755); err != nil {
+			t.Fatalf("failed to create dir %s: %v", dir, err)
+		}
+		if err := os.WriteFile(filepath.Join(dirPath, "cache.dat"), []byte("payload"), 0o644); err != nil {
+			t.Fatalf("failed to write file in %s: %v", dir, err)
+		}
+	}
+
+	ctx := context.Background()
+	mock := newMockProcessExecutor()
+	targets, err := scanUserCaches(ctx, mock, tempHome)
+	if err != nil {
+		t.Fatalf("scanUserCaches failed: %v", err)
+	}
+
+	for _, target := range targets {
+		for _, excluded := range excludedDirs {
+			if target.ID == "macos-cache-"+excluded || target.Path == filepath.Join(cachesDir, excluded) {
+				t.Errorf("found target %v for excluded dir %s", target, excluded)
+			}
+			for _, sub := range target.SubPaths {
+				if sub == filepath.Join(cachesDir, excluded) {
+					t.Errorf("found excluded dir %s in consolidated SubPaths", excluded)
+				}
+			}
+		}
+	}
+	if len(targets) != 0 {
+		t.Errorf("expected 0 targets when all cache folders are excluded, got %d: %+v", len(targets), targets)
+	}
+}
+
+func TestUserCleaner_DedicatedExclusions_Logs(t *testing.T) {
+	tempHome := t.TempDir()
+	logsDir := filepath.Join(tempHome, "Library", "Logs")
+	if err := os.MkdirAll(logsDir, 0o755); err != nil {
+		t.Fatalf("failed to create mock logs dir: %v", err)
+	}
+
+	excludedLogs := []string{
+		"CoreSimulator",
+		"Claude",
+	}
+
+	for _, dir := range excludedLogs {
+		dirPath := filepath.Join(logsDir, dir)
+		if err := os.MkdirAll(dirPath, 0o755); err != nil {
+			t.Fatalf("failed to create dir %s: %v", dir, err)
+		}
+		if err := os.WriteFile(filepath.Join(dirPath, "app.log"), []byte("log data"), 0o644); err != nil {
+			t.Fatalf("failed to write log in %s: %v", dir, err)
+		}
+	}
+
+	ctx := context.Background()
+	targets, err := scanUserLogs(ctx, tempHome)
+	if err != nil {
+		t.Fatalf("scanUserLogs failed: %v", err)
+	}
+
+	for _, target := range targets {
+		for _, excluded := range excludedLogs {
+			if target.ID == "macos-log-"+excluded || target.Path == filepath.Join(logsDir, excluded) {
+				t.Errorf("found target %v for excluded log %s", target, excluded)
+			}
+			for _, sub := range target.SubPaths {
+				if sub == filepath.Join(logsDir, excluded) {
+					t.Errorf("found excluded log %s in consolidated SubPaths", excluded)
+				}
+			}
+		}
+	}
+	if len(targets) != 0 {
+		t.Errorf("expected 0 targets when all log folders are excluded, got %d: %+v", len(targets), targets)
+	}
+}

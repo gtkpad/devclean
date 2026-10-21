@@ -27,6 +27,7 @@ var dedicatedEcosystemCaches = map[string]string{
 	"node":                  "node",
 	"Yarn":                  "node",
 	"dev.orbstack.OrbStack": "docker",
+	"com.apple.dt.Xcode":    "xcode",
 	"Google":                 "browsers",
 	"BraveSoftware":          "browsers",
 	"company.thebrowser.Arc": "browsers",
@@ -46,6 +47,8 @@ var dedicatedAIEditorPrefixes = []string{
 	"com.anthropic.claudefordesktop",
 	"opencode",
 	"dev.zed.Zed",
+	"com.vscodium",
+	"com.rstudio.positron",
 }
 
 const largeBundleThresholdBytes = 50 * 1024 * 1024 // 50MB threshold (D-06)
@@ -203,8 +206,8 @@ func scanUserLogs(ctx context.Context, homeDir string) ([]domain.Target, error) 
 		name := entry.Name()
 		fullPath := filepath.Join(logsRoot, name)
 
-		// Exclude DiagnosticReports (handled separately in system.go per D-12)
-		if name == "DiagnosticReports" {
+		// Exclude DiagnosticReports (handled in system.go) and dedicated logs (CoreSimulator, Claude per D-13, REQ-AIE-02, REQ-MAC-03)
+		if name == "DiagnosticReports" || name == "CoreSimulator" || name == "Claude" {
 			continue
 		}
 
