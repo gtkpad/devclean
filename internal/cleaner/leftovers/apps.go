@@ -185,6 +185,12 @@ func (idx *AppIndex) Matches(dirName string) bool {
 		if len(tokens) > 1 && idx.AppNames[tokens[0]] {
 			return true
 		}
+		// Match candidate that starts with an installed app name (e.g. "beepertexts" -> "beeper")
+		for appName := range idx.AppNames {
+			if len(appName) >= 4 && strings.HasPrefix(cand, appName) {
+				return true
+			}
+		}
 	}
 
 	return false

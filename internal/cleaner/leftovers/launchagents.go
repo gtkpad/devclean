@@ -147,6 +147,14 @@ func scanLaunchAgents(ctx context.Context, exec cleaner.CommandExecutor, dirs []
 			}
 
 			plistPath := filepath.Join(cleanDir, e.Name())
+			baseLower := strings.ToLower(e.Name())
+			noExtLower := strings.ToLower(strings.TrimSuffix(e.Name(), ".plist"))
+			if strings.HasPrefix(baseLower, "com.philandro.") ||
+				strings.HasPrefix(baseLower, "com.apple.") ||
+				dedicatedCleanerDirs[baseLower] ||
+				dedicatedCleanerDirs[noExtLower] {
+				continue
+			}
 			info, err := os.Lstat(plistPath)
 			if err != nil {
 				continue

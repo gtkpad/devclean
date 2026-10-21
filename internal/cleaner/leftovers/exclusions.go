@@ -60,6 +60,7 @@ var appleSystemDirNames = map[string]bool{
 	"symbolsourcesymbols": true,
 	"sesstorage":          true,
 	"isolatedstorage":     true,
+	"geoservices":         true,
 }
 
 var dedicatedCleanerDirs = map[string]bool{
@@ -77,11 +78,17 @@ var dedicatedCleanerDirs = map[string]bool{
 	"yarn":                   true,
 	"dev.orbstack.orbstack":  true,
 	"docker":                 true,
+	"com.docker.docker":      true,
 	"coresimulator":          true,
 	"developer":              true,
 	"google":                 true,
 	"bravesoftware":          true,
 	"company.thebrowser.arc": true,
+	"arc":                    true,
+	"chromium":               true,
+	"opera":                  true,
+	"com.operasoftware.opera": true,
+	"vivaldi":                true,
 	"microsoft edge":         true,
 	"firefox":                true,
 	"code":                   true,
@@ -108,6 +115,19 @@ var dedicatedCleanerDirs = map[string]bool{
 	"io.sentry":                            true,
 	"sentrycrash":                          true,
 	"com.github.domt4.homebrew-autoupdate": true,
+	"geoservices":                          true,
+	"paloaltonetworks":                     true,
+	"pangps":                               true,
+	"zohomeetingnative":                    true,
+	"zoho":                                 true,
+	"zoomupdater":                          true,
+	"zoom.us":                              true,
+	"beepertexts":                          true,
+	"beeper":                               true,
+	"anydesk":                              true,
+	"philandro":                            true,
+	"com.philandro.anydesk.frontend":       true,
+	"com.openai.sky.cuaservice":            true,
 }
 
 var commonCLITools = map[string]bool{
@@ -159,6 +179,9 @@ func isExcluded(name, fullPath string) bool {
 	if strings.HasPrefix(lower, "com.apple.") ||
 		strings.HasPrefix(lower, "apple") ||
 		strings.HasPrefix(lower, "group.com.apple.") ||
+		strings.HasPrefix(lower, "com.openai.") ||
+		strings.HasPrefix(lower, "com.docker.") ||
+		strings.HasPrefix(lower, "com.philandro.") ||
 		appleSystemDirNames[lower] {
 		return true
 	}
