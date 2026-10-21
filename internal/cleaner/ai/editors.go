@@ -162,6 +162,48 @@ func getEditorDefinitions() []editorDef {
 			},
 		},
 		{
+			id:            "vscodium",
+			name:          "VSCodium",
+			processNames:  []string{"VSCodium", "codium"},
+			hasExtensions: true,
+			hasWorkspaces: true,
+			appSupportDir: func(home string) string {
+				return resolveAppSupportDir(home, "VSCodium", "VSCodium")
+			},
+			cacheDirs: func(home string) []string {
+				return []string{
+					filepath.Join(home, "Library", "Caches", "com.vscodium"),
+					filepath.Join(home, "Library", "Caches", "com.vscodium.ShipIt"),
+					filepath.Join(home, ".cache", "VSCodium"),
+				}
+			},
+			logDirs: nil,
+			extRoots: func(home string) []string {
+				return []string{filepath.Join(home, ".vscode-oss", "extensions")}
+			},
+		},
+		{
+			id:            "positron",
+			name:          "Positron",
+			processNames:  []string{"Positron", "positron"},
+			hasExtensions: true,
+			hasWorkspaces: true,
+			appSupportDir: func(home string) string {
+				return resolveAppSupportDir(home, "Positron", "Positron")
+			},
+			cacheDirs: func(home string) []string {
+				return []string{
+					filepath.Join(home, "Library", "Caches", "com.rstudio.positron"),
+					filepath.Join(home, "Library", "Caches", "com.rstudio.positron.ShipIt"),
+					filepath.Join(home, ".cache", "Positron"),
+				}
+			},
+			logDirs: nil,
+			extRoots: func(home string) []string {
+				return []string{filepath.Join(home, ".positron", "extensions")}
+			},
+		},
+		{
 			id:            "claude-desktop",
 			name:          "Claude Desktop",
 			processNames:  []string{"Claude", "claude-desktop"},
@@ -224,6 +266,70 @@ func getEditorDefinitions() []editorDef {
 	}
 }
 
+func collectEditorChromiumDirs(appSupport string) []string {
+	if appSupport == "" {
+		return nil
+	}
+	subLeaves := []string{
+		"Cache",
+		"Code Cache",
+		"GPUCache",
+		"DawnCache",
+		"DawnWebGPUCache",
+		"DawnGraphiteCache",
+		filepath.Join("Service Worker", "CacheStorage"),
+		filepath.Join("Service Worker", "ScriptCache"),
+		"CachedData",
+		"webviewCache",
+	}
+	var dirs []string
+	for _, sub := range subLeaves {
+		dirs = append(dirs, filepath.Join(appSupport, sub))
+	}
+
+	// Walk WebStorage/*/CacheStorage
+	webStorageRoot := filepath.Join(appSupport, "WebStorage")
+	if entries, err := os.ReadDir(webStorageRoot); err == nil {
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			cs := filepath.Join(webStorageRoot, e.Name(), "CacheStorage")
+			if info, err := os.Stat(cs); err == nil && info.IsDir() {
+				dirs = append(dirs, cs)
+			}
+		}
+	}
+
+	// Walk Partitions/*/WebStorage/*/CacheStorage
+	partitionsRoot := filepath.Join(appSupport, "Partitions")
+	if pEntries, err := os.ReadDir(partitionsRoot); err == nil {
+		for _, pe := range pEntries {
+			if !pe.IsDir() {
+				continue
+			}
+			partDir := filepath.Join(partitionsRoot, pe.Name())
+			if info, err := os.Stat(filepath.Join(partDir, "CacheStorage")); err == nil && info.IsDir() {
+				dirs = append(dirs, filepath.Join(partDir, "CacheStorage"))
+			}
+			partWebStorage := filepath.Join(partDir, "WebStorage")
+			if subEntries, err := os.ReadDir(partWebStorage); err == nil {
+				for _, se := range subEntries {
+					if !se.IsDir() {
+						continue
+					}
+					cs := filepath.Join(partWebStorage, se.Name(), "CacheStorage")
+					if info, err := os.Stat(cs); err == nil && info.IsDir() {
+						dirs = append(dirs, cs)
+					}
+				}
+			}
+		}
+	}
+
+	return dirs
+}
+
 func scanEditorChromiumCaches(ed editorDef, home string, cutoff time.Time, maxAgeDays int) (int64, int64, bool, time.Time, []string) {
 	var totalSize int64
 	var eligibleBytes int64
@@ -235,21 +341,7 @@ func scanEditorChromiumCaches(ed editorDef, home string, cutoff time.Time, maxAg
 	if ed.appSupportDir != nil {
 		appSupport := ed.appSupportDir(home)
 		if appSupport != "" {
-			subLeaves := []string{
-				"Cache",
-				"Code Cache",
-				"GPUCache",
-				"DawnCache",
-				"DawnWebGPUCache",
-				"DawnGraphiteCache",
-				filepath.Join("Service Worker", "CacheStorage"),
-				filepath.Join("Service Worker", "ScriptCache"),
-				"CachedData",
-				"webviewCache",
-			}
-			for _, sub := range subLeaves {
-				candidateDirs = append(candidateDirs, filepath.Join(appSupport, sub))
-			}
+			candidateDirs = append(candidateDirs, collectEditorChromiumDirs(appSupport)...)
 		}
 	}
 	if ed.cacheDirs != nil {

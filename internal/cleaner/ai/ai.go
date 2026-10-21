@@ -226,21 +226,7 @@ func cleanEditorVirtualTarget(homeDir string, t domain.Target) error {
 		if ed.appSupportDir != nil {
 			appSupport := ed.appSupportDir(homeDir)
 			if appSupport != "" {
-				subLeaves := []string{
-					"Cache",
-					"Code Cache",
-					"GPUCache",
-					"DawnCache",
-					"DawnWebGPUCache",
-					"DawnGraphiteCache",
-					filepath.Join("Service Worker", "CacheStorage"),
-					filepath.Join("Service Worker", "ScriptCache"),
-					"CachedData",
-					"webviewCache",
-				}
-				for _, sub := range subLeaves {
-					candidateDirs = append(candidateDirs, filepath.Join(appSupport, sub))
-				}
+				candidateDirs = append(candidateDirs, collectEditorChromiumDirs(appSupport)...)
 			}
 		}
 		if ed.cacheDirs != nil {

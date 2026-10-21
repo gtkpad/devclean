@@ -18,7 +18,7 @@ func TestEditors_8Editors_Presence(t *testing.T) {
 
 	allEditorIDs := []string{
 		"code", "code-insiders", "cursor", "antigravity",
-		"windsurf", "claude-desktop", "opencode", "zed",
+		"windsurf", "vscodium", "positron", "claude-desktop", "opencode", "zed",
 	}
 
 	// 1. Create mock leaves for each editor based on platform
@@ -34,6 +34,10 @@ func TestEditors_8Editors_Presence(t *testing.T) {
 			setupMockEditor(t, home, "Antigravity", "Antigravity")
 		case "windsurf":
 			setupMockEditor(t, home, "Windsurf", "Windsurf")
+		case "vscodium":
+			setupMockEditor(t, home, "VSCodium", "com.vscodium")
+		case "positron":
+			setupMockEditor(t, home, "Positron", "com.rstudio.positron")
 		case "claude-desktop":
 			setupMockEditor(t, home, "Claude", "com.anthropic.claudefordesktop")
 		case "opencode":
@@ -726,6 +730,133 @@ func TestEditors_ProcessGuard_FailClosed(t *testing.T) {
 
 	if !foundCursor {
 		t.Fatal("expected Cursor targets to be found")
+	}
+}
+
+func TestEditorWebStorage_Discovery(t *testing.T) {
+	home := t.TempDir()
+	var appDir string
+	if runtime.GOOS == "darwin" {
+		appDir = filepath.Join(home, "Library", "Application Support", "Code")
+	} else {
+		appDir = filepath.Join(home, ".config", "Code")
+	}
+
+	// 1. WebStorage/1/CacheStorage
+	ws1 := filepath.Join(appDir, "WebStorage", "1", "CacheStorage")
+	if err := os.MkdirAll(ws1, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ws1, "cache1.bin"), []byte("webstorage-1-cache-bytes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 2. WebStorage/2/CacheStorage
+	ws2 := filepath.Join(appDir, "WebStorage", "2", "CacheStorage")
+	if err := os.MkdirAll(ws2, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ws2, "cache2.bin"), []byte("webstorage-2-cache-bytes-long"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 3. Partitions/ext-1/WebStorage/1/CacheStorage
+	partWs := filepath.Join(appDir, "Partitions", "ext-1", "WebStorage", "1", "CacheStorage")
+	if err := os.MkdirAll(partWs, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(partWs, "part-cache.bin"), []byte("partition-cache-bytes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	edDef, ok := findEditorDef("code")
+	if !ok {
+		t.Fatal("editor def 'code' not found")
+	}
+
+	cutoff := time.Now().AddDate(0, 0, -30)
+	totSz, eligBytes, hasElig, _, foundPaths := scanEditorChromiumCaches(edDef, home, cutoff, 0)
+	if totSz == 0 {
+		t.Fatal("expected scanEditorChromiumCaches to discover WebStorage CacheStorage directories")
+	}
+
+	foundMap := make(map[string]bool)
+	for _, p := range foundPaths {
+		foundMap[p] = true
+	}
+
+	if !foundMap[ws1] {
+		t.Errorf("missing discovered path: %s", ws1)
+	}
+	if !foundMap[ws2] {
+		t.Errorf("missing discovered path: %s", ws2)
+	}
+	if !foundMap[partWs] {
+		t.Errorf("missing discovered path: %s", partWs)
+	}
+
+	// Scan through scanEditors and verify target
+	mockExec := newMockExecutor()
+	targets, err := scanEditors(context.Background(), mockExec, home, domain.EcosystemRules{Enabled: true, MaxAgeDays: 0})
+	if err != nil {
+		t.Fatalf("scanEditors failed: %v", err)
+	}
+
+	var foundTarget bool
+	for _, trg := range targets {
+		if trg.Path == "editor://code/chromium-cache" {
+			foundTarget = true
+			if trg.SizeBytes != totSz {
+				t.Errorf("expected SizeBytes=%d, got %d", totSz, trg.SizeBytes)
+			}
+			if trg.EligibleBytes != eligBytes {
+				t.Errorf("expected EligibleBytes=%d, got %d", eligBytes, trg.EligibleBytes)
+			}
+			if !hasElig || !trg.TTLEligible {
+				t.Errorf("expected TTLEligible=true")
+			}
+		}
+	}
+	if !foundTarget {
+		t.Fatal("expected editor://code/chromium-cache target to be created from WebStorage")
+	}
+}
+
+func TestEditorProcessGuard_NonBlockingHelpers(t *testing.T) {
+	home := t.TempDir()
+	setupMockEditor(t, home, "Code", "com.microsoft.VSCode")
+
+	mockExec := newMockExecutor()
+	// Background helper processes are running, but main "Code" GUI is not
+	mockExec.runningProcesses["Code Helper"] = true
+	mockExec.runningProcesses["Code Helper (Renderer)"] = true
+	mockExec.runningProcesses["gopls"] = true
+	mockExec.runningProcesses["rust-analyzer"] = true
+	mockExec.runningProcesses["node"] = true
+
+	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 0}
+	targets, err := scanEditors(context.Background(), mockExec, home, rules)
+	if err != nil {
+		t.Fatalf("scanEditors failed: %v", err)
+	}
+
+	var foundCodeCache bool
+	for _, target := range targets {
+		if target.Path == "editor://code/chromium-cache" {
+			foundCodeCache = true
+			if target.ReviewOnly {
+				t.Errorf("expected ReviewOnly=false when only background helpers are running, got true (reason: %s)", target.ReviewReason)
+			}
+			if target.EligibleBytes == 0 {
+				t.Errorf("expected non-zero EligibleBytes when Code GUI is stopped, got 0")
+			}
+			if !target.TTLEligible {
+				t.Errorf("expected TTLEligible=true when Code GUI is stopped")
+			}
+		}
+	}
+	if !foundCodeCache {
+		t.Fatal("expected editor://code/chromium-cache target to be found")
 	}
 }
 
