@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/gtkpad/devclean/internal/cleaner"
 	"github.com/gtkpad/devclean/internal/domain"
 )
 
@@ -39,6 +40,21 @@ func extractExecutableCandidate(p *LaunchAgentPlist) string {
 	}
 	if len(p.ProgramArguments) > 0 {
 		return p.ProgramArguments[0]
+	}
+	return ""
+}
+
+// extractInterpreterScriptTarget inspects subsequent arguments to extract the first script/bundle path (D-10).
+func extractInterpreterScriptTarget(args []string) string {
+	for i := 1; i < len(args); i++ {
+		arg := strings.TrimSpace(args[i])
+		if arg == "" || strings.HasPrefix(arg, "-") {
+			continue // Skip flags like -c, --wait-apps, -e
+		}
+		// Return first non-flag argument that looks like an absolute path or bundle
+		if strings.HasPrefix(arg, "/") {
+			return arg
+		}
 	}
 	return ""
 }
@@ -80,7 +96,10 @@ func buildLaunchAgentTarget(plistPath string, size int64, reason, note string) d
 
 // scanLaunchAgents scans the specified LaunchAgents directories for stale or ambiguous launchd plists.
 // Strictly excludes /System/Library (D-03). Degrades gracefully on permission denial.
-func scanLaunchAgents(ctx context.Context, dirs []string) ([]domain.Target, error) {
+func scanLaunchAgents(ctx context.Context, exec cleaner.CommandExecutor, dirs []string) ([]domain.Target, error) {
+	if exec == nil {
+		exec = &cleaner.DefaultExecutor{}
+	}
 	var targets []domain.Target
 
 	for _, dir := range dirs {
@@ -96,6 +115,7 @@ func scanLaunchAgents(ctx context.Context, dirs []string) ([]domain.Target, erro
 			continue
 		}
 
+		isSystemDir := strings.HasPrefix(cleanDir, "/Library/LaunchAgents")
 		entries, err := os.ReadDir(cleanDir)
 		if err != nil {
 			if os.IsNotExist(err) {
@@ -132,12 +152,12 @@ func scanLaunchAgents(ctx context.Context, dirs []string) ([]domain.Target, erro
 				continue
 			}
 
-			// Symlink Guard & Ownership check (D-16)
+			// Symlink Guard & Ownership check (D-09, D-16)
 			if info.Mode()&os.ModeSymlink != 0 {
 				targets = append(targets, buildLaunchAgentTarget(plistPath, info.Size(), domain.ReviewReasonAmbiguous, "unsafe or external symlink target"))
 				continue
 			}
-			if !isOwnedByCurrentUser(info) {
+			if !isAllowedOwnership(info, isSystemDir) {
 				targets = append(targets, buildLaunchAgentTarget(plistPath, info.Size(), domain.ReviewReasonAmbiguous, "insecure ownership: not owned by current user"))
 				continue
 			}
@@ -152,25 +172,49 @@ func scanLaunchAgents(ctx context.Context, dirs []string) ([]domain.Target, erro
 
 			candidate := extractExecutableCandidate(p)
 			if candidate == "" {
+				// Empty plist (e.g. com.google.keystone.agent.plist <dict/>): benign migrated stub, skip
+				if len(p.ProgramArguments) == 0 && p.Program == "" {
+					continue
+				}
 				targets = append(targets, buildLaunchAgentTarget(plistPath, info.Size(), domain.ReviewReasonAmbiguous, "empty or missing Program/ProgramArguments"))
 				continue
 			}
 
+			// Non-absolute candidate resolution via LookPath (D-11)
+			resolvedExe := candidate
 			if !filepath.IsAbs(candidate) {
-				targets = append(targets, buildLaunchAgentTarget(plistPath, info.Size(), domain.ReviewReasonAmbiguous, fmt.Sprintf("relative or PATH-based executable: %s", candidate)))
+				if path, err := exec.LookPath(candidate); err == nil {
+					resolvedExe = path
+				} else {
+					targets = append(targets, buildLaunchAgentTarget(plistPath, info.Size(), domain.ReviewReasonAmbiguous, fmt.Sprintf("relative or PATH-based executable not found: %s", candidate)))
+					continue
+				}
+			}
+
+			// Interpreter / launcher wrapper check (D-10)
+			if isInterpreter(resolvedExe) || filepath.Base(resolvedExe) == "open" {
+				scriptTarget := extractInterpreterScriptTarget(p.ProgramArguments)
+				if scriptTarget != "" {
+					if _, err := os.Stat(scriptTarget); err == nil {
+						// Script or bundle exists on disk -> LaunchAgent is active and valid!
+						continue
+					} else if os.IsNotExist(err) {
+						targets = append(targets, buildLaunchAgentTarget(plistPath, info.Size(), domain.ReviewReasonStaleLaunchAgent, fmt.Sprintf("missing script target: %s", scriptTarget)))
+						continue
+					} else {
+						targets = append(targets, buildLaunchAgentTarget(plistPath, info.Size(), domain.ReviewReasonAmbiguous, fmt.Sprintf("script target check error: %v", err)))
+						continue
+					}
+				}
+				// If no script target is discernible, treat as ambiguous rather than stale
+				targets = append(targets, buildLaunchAgentTarget(plistPath, info.Size(), domain.ReviewReasonAmbiguous, fmt.Sprintf("interpreter or wrapper invocation without verifiable target: %s", candidate)))
 				continue
 			}
 
-			if isInterpreter(candidate) {
-				targets = append(targets, buildLaunchAgentTarget(plistPath, info.Size(), domain.ReviewReasonAmbiguous, fmt.Sprintf("interpreter or wrapper invocation: %s", candidate)))
-				continue
-			}
-
-			// Absolute direct executable check
-			if _, err := os.Stat(candidate); err != nil {
+			// Direct executable check
+			if _, err := os.Stat(resolvedExe); err != nil {
 				if os.IsNotExist(err) {
-					// STRONG STALE EVIDENCE (LEFT-02, D-02)
-					targets = append(targets, buildLaunchAgentTarget(plistPath, info.Size(), domain.ReviewReasonStaleLaunchAgent, fmt.Sprintf("missing executable: %s", candidate)))
+					targets = append(targets, buildLaunchAgentTarget(plistPath, info.Size(), domain.ReviewReasonStaleLaunchAgent, fmt.Sprintf("missing executable: %s", resolvedExe)))
 				} else {
 					targets = append(targets, buildLaunchAgentTarget(plistPath, info.Size(), domain.ReviewReasonAmbiguous, fmt.Sprintf("executable check error: %v", err)))
 				}

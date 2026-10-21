@@ -40,6 +40,9 @@ func NewWithConfig(
 	appRoots, launchAgentsDirs []string,
 	libraryDir string,
 ) domain.Cleaner {
+	if exec == nil {
+		exec = &cleaner.DefaultExecutor{}
+	}
 	if appRoots == nil {
 		appRoots = []string{
 			"/Applications",
@@ -90,7 +93,7 @@ func (c *leftoversCleaner) Scan(ctx context.Context, rules domain.EcosystemRules
 	var allTargets []domain.Target
 
 	// 1. Scan LaunchAgents (LEFT-01, LEFT-02)
-	launchTargets, err := scanLaunchAgents(ctx, c.launchAgentsDirs)
+	launchTargets, err := scanLaunchAgents(ctx, c.exec, c.launchAgentsDirs)
 	if err == nil {
 		allTargets = append(allTargets, launchTargets...)
 	}

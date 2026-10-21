@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gtkpad/devclean/internal/cleaner"
 	"github.com/gtkpad/devclean/internal/domain"
 )
 
@@ -26,7 +27,7 @@ func TestLeftovers_LaunchAgents_StaleClassification(t *testing.T) {
 	// 2. Plist with empty Program but ProgramArguments[0] set to missing path
 	createTestLaunchAgentBinary(t, launchAgentsDir, "com.test.args.plist", "com.test.args", "", []string{missingExe2, "--daemon"})
 
-	targets, err := scanLaunchAgents(context.Background(), []string{launchAgentsDir})
+	targets, err := scanLaunchAgents(context.Background(), &cleaner.DefaultExecutor{}, []string{launchAgentsDir})
 	if err != nil {
 		t.Fatalf("scanLaunchAgents failed: %v", err)
 	}
@@ -76,7 +77,7 @@ func TestLeftovers_LaunchAgents_ActivePreserved(t *testing.T) {
 
 	createTestLaunchAgentXML(t, launchAgentsDir, "com.test.active.plist", "com.test.active", realExe, nil)
 
-	targets, err := scanLaunchAgents(context.Background(), []string{launchAgentsDir})
+	targets, err := scanLaunchAgents(context.Background(), &cleaner.DefaultExecutor{}, []string{launchAgentsDir})
 	if err != nil {
 		t.Fatalf("scanLaunchAgents failed: %v", err)
 	}
@@ -110,7 +111,7 @@ func TestLeftovers_LaunchAgents_InterpretersAmbiguous(t *testing.T) {
 		createTestLaunchAgentXML(t, launchAgentsDir, tc.filename, tc.label, tc.prog, tc.args)
 	}
 
-	targets, err := scanLaunchAgents(context.Background(), []string{launchAgentsDir})
+	targets, err := scanLaunchAgents(context.Background(), &cleaner.DefaultExecutor{}, []string{launchAgentsDir})
 	if err != nil {
 		t.Fatalf("scanLaunchAgents failed: %v", err)
 	}
@@ -139,11 +140,29 @@ func TestLeftovers_LaunchAgents_RelativePathAmbiguous(t *testing.T) {
 		t.Fatalf("mkdir failed: %v", err)
 	}
 
-	createTestLaunchAgentXML(t, launchAgentsDir, "rel1.plist", "com.test.node", "", []string{"node", "server.js"})
-	createTestLaunchAgentXML(t, launchAgentsDir, "rel2.plist", "com.test.brew", "", []string{"brew", "services"})
-	createTestLaunchAgentXML(t, launchAgentsDir, "rel3.plist", "com.test.dot", "", []string{"./daemon.sh"})
+	// Create a real binary on disk for resolved test case
+	binDir := filepath.Join(tempDir, "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatalf("mkdir failed: %v", err)
+	}
+	realBinary := filepath.Join(binDir, "resolved-tool")
+	if err := os.WriteFile(realBinary, []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
+		t.Fatalf("write real binary failed: %v", err)
+	}
 
-	targets, err := scanLaunchAgents(context.Background(), []string{launchAgentsDir})
+	createTestLaunchAgentXML(t, launchAgentsDir, "rel1.plist", "com.test.missing1", "", []string{"missing-tool-1", "server.js"})
+	createTestLaunchAgentXML(t, launchAgentsDir, "rel2.plist", "com.test.missing2", "", []string{"missing-tool-2", "services"})
+	createTestLaunchAgentXML(t, launchAgentsDir, "rel3.plist", "com.test.dot", "", []string{"./daemon.sh"})
+	// 4. Relative tool that IS resolved on PATH and exists on disk -> should NOT produce target
+	createTestLaunchAgentXML(t, launchAgentsDir, "rel4.plist", "com.test.resolved", "", []string{"resolved-tool", "--daemon"})
+
+	mockExec := cleaner.NewMockExecutor()
+	mockExec.Errors["lookpath:missing-tool-1"] = os.ErrNotExist
+	mockExec.Errors["lookpath:missing-tool-2"] = os.ErrNotExist
+	mockExec.Errors["lookpath:./daemon.sh"] = os.ErrNotExist
+	mockExec.Outputs["lookpath:resolved-tool"] = []byte(realBinary)
+
+	targets, err := scanLaunchAgents(context.Background(), mockExec, []string{launchAgentsDir})
 	if err != nil {
 		t.Fatalf("scanLaunchAgents failed: %v", err)
 	}
@@ -174,7 +193,7 @@ func TestLeftovers_LaunchAgents_CorruptedPlist(t *testing.T) {
 		t.Fatalf("write corrupt plist failed: %v", err)
 	}
 
-	targets, err := scanLaunchAgents(context.Background(), []string{launchAgentsDir})
+	targets, err := scanLaunchAgents(context.Background(), &cleaner.DefaultExecutor{}, []string{launchAgentsDir})
 	if err != nil {
 		t.Fatalf("scanLaunchAgents failed: %v", err)
 	}
@@ -202,9 +221,9 @@ func TestLeftovers_LaunchAgents_EmptyExecutable(t *testing.T) {
 		t.Fatalf("mkdir failed: %v", err)
 	}
 
-	createTestLaunchAgentXML(t, launchAgentsDir, "empty.plist", "com.test.empty", "", nil)
+	createTestLaunchAgentXML(t, launchAgentsDir, "empty.plist", "com.test.empty", "", []string{""})
 
-	targets, err := scanLaunchAgents(context.Background(), []string{launchAgentsDir})
+	targets, err := scanLaunchAgents(context.Background(), &cleaner.DefaultExecutor{}, []string{launchAgentsDir})
 	if err != nil {
 		t.Fatalf("scanLaunchAgents failed: %v", err)
 	}
@@ -237,7 +256,7 @@ func TestLeftovers_LaunchAgents_PermissionDegradation(t *testing.T) {
 		_ = os.Chmod(unreadableDir, 0755)
 	})
 
-	targets, err := scanLaunchAgents(context.Background(), []string{unreadableDir})
+	targets, err := scanLaunchAgents(context.Background(), &cleaner.DefaultExecutor{}, []string{unreadableDir})
 	if err != nil {
 		t.Fatalf("scanLaunchAgents returned error instead of graceful degradation: %v", err)
 	}
@@ -271,7 +290,7 @@ func TestLeftovers_LaunchAgents_Symlinks(t *testing.T) {
 		t.Fatalf("symlink failed: %v", err)
 	}
 
-	targets, err := scanLaunchAgents(context.Background(), []string{launchAgentsDir})
+	targets, err := scanLaunchAgents(context.Background(), &cleaner.DefaultExecutor{}, []string{launchAgentsDir})
 	if err != nil {
 		t.Fatalf("scanLaunchAgents failed: %v", err)
 	}
@@ -298,12 +317,89 @@ func TestLeftovers_LaunchAgents_SystemLibraryExcluded(t *testing.T) {
 
 	createTestLaunchAgentXML(t, sysDir, "com.apple.fake.plist", "com.apple.fake", "/missing/bin", nil)
 
-	targets, err := scanLaunchAgents(context.Background(), []string{sysDir})
+	targets, err := scanLaunchAgents(context.Background(), &cleaner.DefaultExecutor{}, []string{sysDir})
 	if err != nil {
 		t.Fatalf("scanLaunchAgents failed: %v", err)
 	}
 
 	if len(targets) != 0 {
 		t.Fatalf("expected 0 targets because /System/Library is strictly excluded, got %d: %+v", len(targets), targets)
+	}
+}
+
+func TestLeftovers_LaunchAgents_InterpreterWithScriptTarget(t *testing.T) {
+	tempDir := t.TempDir()
+	launchAgentsDir := filepath.Join(tempDir, "LaunchAgents")
+	if err := os.MkdirAll(launchAgentsDir, 0755); err != nil {
+		t.Fatalf("mkdir failed: %v", err)
+	}
+
+	// 1. Valid script file that exists on disk
+	scriptsDir := filepath.Join(tempDir, "scripts")
+	if err := os.MkdirAll(scriptsDir, 0755); err != nil {
+		t.Fatalf("mkdir scripts failed: %v", err)
+	}
+	realScript := filepath.Join(scriptsDir, "daemon.sh")
+	if err := os.WriteFile(realScript, []byte("#!/bin/sh\necho ok\n"), 0755); err != nil {
+		t.Fatalf("write script failed: %v", err)
+	}
+
+	// 2. Valid bundle that exists on disk
+	appsDir := filepath.Join(tempDir, "Applications")
+	realApp := createTestAppBundle(t, appsDir, "RealApp", "com.test.realapp", "RealApp")
+
+	// Create plists
+	// Case A: /bin/sh pointing to existing script -> active (0 targets)
+	createTestLaunchAgentXML(t, launchAgentsDir, "sh_valid.plist", "com.test.shvalid", "/bin/sh", []string{"/bin/sh", realScript})
+	// Case B: /usr/bin/open with flags pointing to existing app -> active (0 targets)
+	createTestLaunchAgentXML(t, launchAgentsDir, "open_valid.plist", "com.test.openvalid", "/usr/bin/open", []string{"/usr/bin/open", "--wait-apps", realApp})
+	// Case C: /bin/sh pointing to missing script -> stale (1 target)
+	missingScript := filepath.Join(scriptsDir, "missing.sh")
+	createTestLaunchAgentXML(t, launchAgentsDir, "sh_missing.plist", "com.test.shmissing", "/bin/sh", []string{"/bin/sh", missingScript})
+
+	targets, err := scanLaunchAgents(context.Background(), &cleaner.DefaultExecutor{}, []string{launchAgentsDir})
+	if err != nil {
+		t.Fatalf("scanLaunchAgents failed: %v", err)
+	}
+
+	if len(targets) != 1 {
+		t.Fatalf("expected exactly 1 stale target, got %d: %+v", len(targets), targets)
+	}
+
+	tgt := targets[0]
+	if tgt.ReviewReason != domain.ReviewReasonStaleLaunchAgent {
+		t.Errorf("expected ReviewReasonStaleLaunchAgent, got %s", tgt.ReviewReason)
+	}
+	if tgt.ProviderMetrics == nil || !strings.Contains(tgt.ProviderMetrics.StatusNote, "missing script target") {
+		t.Errorf("expected StatusNote to contain 'missing script target', got %v", tgt.ProviderMetrics)
+	}
+}
+
+func TestLeftovers_LaunchAgents_EmptyStubIgnored(t *testing.T) {
+	tempDir := t.TempDir()
+	launchAgentsDir := filepath.Join(tempDir, "LaunchAgents")
+	if err := os.MkdirAll(launchAgentsDir, 0755); err != nil {
+		t.Fatalf("mkdir failed: %v", err)
+	}
+
+	// Create empty plist stub (<dict/>) like com.google.keystone.agent.plist
+	emptyStub := `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict/>
+</plist>
+`
+	stubPath := filepath.Join(launchAgentsDir, "com.google.keystone.agent.plist")
+	if err := os.WriteFile(stubPath, []byte(emptyStub), 0644); err != nil {
+		t.Fatalf("write stub failed: %v", err)
+	}
+
+	targets, err := scanLaunchAgents(context.Background(), &cleaner.DefaultExecutor{}, []string{launchAgentsDir})
+	if err != nil {
+		t.Fatalf("scanLaunchAgents failed: %v", err)
+	}
+
+	if len(targets) != 0 {
+		t.Errorf("expected 0 targets for empty migrated stub, got %d: %+v", len(targets), targets)
 	}
 }
