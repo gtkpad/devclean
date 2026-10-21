@@ -5,6 +5,48 @@ import (
 	"testing"
 )
 
+func TestVersionCmd(t *testing.T) {
+	cmd := newVersionCmd()
+	buf := &bytes.Buffer{}
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := buf.String()
+	if !bytes.Contains([]byte(out), []byte("devclean version")) {
+		t.Errorf("output missing 'devclean version':\n%s", out)
+	}
+}
+
+func TestVersionCmd_ExportedVersionOverride(t *testing.T) {
+	oldVersion := Version
+	oldInternal := version
+	defer func() {
+		Version = oldVersion
+		version = oldInternal
+	}()
+
+	version = "dev"
+	Version = "v2.4.0-test"
+
+	cmd := newVersionCmd()
+	buf := &bytes.Buffer{}
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := buf.String()
+	if !bytes.Contains([]byte(out), []byte("v2.4.0-test")) {
+		t.Errorf("output missing overridden Version 'v2.4.0-test':\n%s", out)
+	}
+}
+
 func TestNewVersionCmd_Use(t *testing.T) {
 	cmd := newVersionCmd()
 	if cmd.Use != "version" {

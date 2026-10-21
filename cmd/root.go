@@ -112,7 +112,11 @@ func init() {
 	rootCmd.AddCommand(newHistoryCmd())
 	rootCmd.AddCommand(newStatsCmd())
 	rootCmd.AddCommand(newWatchCmd())
-	rootCmd.Version = version
+	v := version
+	if v == "dev" && Version != "dev" {
+		v = Version
+	}
+	rootCmd.Version = v
 }
 
 func Execute() error {
