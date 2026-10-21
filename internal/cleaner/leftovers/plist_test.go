@@ -92,3 +92,52 @@ func TestLeftovers_Plist_CorruptHandling(t *testing.T) {
 		t.Errorf("expected error for nonexistent plist, got nil")
 	}
 }
+
+func TestLeftovers_ParseReceiptFile(t *testing.T) {
+	tempDir := t.TempDir()
+
+	xmlPath := createTestReceiptXML(t, tempDir, "test.xml.plist", "com.anthropic.claudefordesktop", "/Applications", "Claude.pkg")
+	binPath := createTestReceiptBinary(t, tempDir, "test.bin.plist", "com.microsoft.dotnet", "/usr/local/share/dotnet", "dotnet.pkg")
+
+	r1, err := parseReceiptFile(xmlPath)
+	if err != nil {
+		t.Fatalf("failed to parse XML receipt: %v", err)
+	}
+	if r1.PackageIdentifier != "com.anthropic.claudefordesktop" {
+		t.Errorf("PackageIdentifier = %q, want com.anthropic.claudefordesktop", r1.PackageIdentifier)
+	}
+	if r1.InstallPrefixPath != "/Applications" {
+		t.Errorf("InstallPrefixPath = %q, want /Applications", r1.InstallPrefixPath)
+	}
+	if r1.PackageFileName != "Claude.pkg" {
+		t.Errorf("PackageFileName = %q, want Claude.pkg", r1.PackageFileName)
+	}
+
+	r2, err := parseReceiptFile(binPath)
+	if err != nil {
+		t.Fatalf("failed to parse binary receipt: %v", err)
+	}
+	if r2.PackageIdentifier != "com.microsoft.dotnet" {
+		t.Errorf("PackageIdentifier = %q, want com.microsoft.dotnet", r2.PackageIdentifier)
+	}
+	if r2.InstallPrefixPath != "/usr/local/share/dotnet" {
+		t.Errorf("InstallPrefixPath = %q, want /usr/local/share/dotnet", r2.InstallPrefixPath)
+	}
+	if r2.PackageFileName != "dotnet.pkg" {
+		t.Errorf("PackageFileName = %q, want dotnet.pkg", r2.PackageFileName)
+	}
+
+	// Corrupt file
+	corruptPath := filepath.Join(tempDir, "corrupt.plist")
+	if err := os.WriteFile(corruptPath, []byte("invalid plist data"), 0644); err != nil {
+		t.Fatalf("failed to write corrupt receipt: %v", err)
+	}
+	if _, err := parseReceiptFile(corruptPath); err == nil {
+		t.Errorf("expected error parsing corrupt receipt file, got nil")
+	}
+
+	// Nonexistent file
+	if _, err := parseReceiptFile(filepath.Join(tempDir, "nonexistent.plist")); err == nil {
+		t.Errorf("expected error for nonexistent receipt file, got nil")
+	}
+}

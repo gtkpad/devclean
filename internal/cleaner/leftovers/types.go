@@ -14,3 +14,10 @@ type AppBundleInfoPlist struct {
 	CFBundleName       string `plist:"CFBundleName"`
 	CFBundleExecutable string `plist:"CFBundleExecutable"`
 }
+
+// ReceiptPlist represents metadata extracted from /var/db/receipts/*.plist (D-05, REQ-LFT-02).
+type ReceiptPlist struct {
+	PackageIdentifier string `plist:"PackageIdentifier"`
+	InstallPrefixPath string `plist:"InstallPrefixPath"`
+	PackageFileName   string `plist:"PackageFileName"`
+}

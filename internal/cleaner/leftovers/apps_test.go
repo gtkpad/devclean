@@ -187,3 +187,54 @@ func TestLeftovers_AppIndexing_HomebrewPackages(t *testing.T) {
 		t.Errorf("expected idx.Matches(\"k9s\") to be true")
 	}
 }
+
+func TestLeftovers_AppIndexing_PackageReceipts(t *testing.T) {
+	tempDir := t.TempDir()
+	receiptsDir := filepath.Join(tempDir, "receipts")
+	if err := os.MkdirAll(receiptsDir, 0755); err != nil {
+		t.Fatalf("failed to create receiptsDir: %v", err)
+	}
+
+	// Receipt 1: XML plist for Claude Desktop
+	createTestReceiptXML(t, receiptsDir, "com.anthropic.claudefordesktop.plist", "com.anthropic.claudefordesktop", "/Applications", "Claude.pkg")
+
+	// Receipt 2: Binary plist for DotNet pkg
+	createTestReceiptBinary(t, receiptsDir, "com.microsoft.dotnet.pkg.plist", "com.microsoft.dotnet", "/usr/local/share/dotnet", "dotnet.pkg")
+
+	// Receipt 3: Non-plist entry or directory (should be ignored gracefully)
+	if err := os.MkdirAll(filepath.Join(receiptsDir, "ignored.dir"), 0755); err != nil {
+		t.Fatalf("failed to create ignored dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(receiptsDir, "ignored.txt"), []byte("not a plist"), 0644); err != nil {
+		t.Fatalf("failed to write ignored txt: %v", err)
+	}
+
+	idx := newAppIndex()
+	idx.scanPackageReceipts(context.Background(), receiptsDir)
+
+	if !idx.BundleIDs["com.anthropic.claudefordesktop"] {
+		t.Errorf("expected bundle ID com.anthropic.claudefordesktop to be indexed")
+	}
+	if !idx.BundleIDs["com.microsoft.dotnet.pkg"] { // stripped from filename
+		t.Errorf("expected bundle ID com.microsoft.dotnet.pkg (from filename) to be indexed")
+	}
+	if !idx.BundleIDs["com.microsoft.dotnet"] { // from PackageIdentifier
+		t.Errorf("expected bundle ID com.microsoft.dotnet (from PackageIdentifier) to be indexed")
+	}
+	if !idx.AppNames["claude"] {
+		t.Errorf("expected app name claude (from Claude.pkg) to be indexed")
+	}
+	if !idx.AppNames["dotnet"] {
+		t.Errorf("expected app name dotnet (from dotnet.pkg) to be indexed")
+	}
+
+	if !idx.Matches("com.anthropic.claudefordesktop") {
+		t.Errorf("expected idx.Matches(\"com.anthropic.claudefordesktop\") to be true")
+	}
+	if !idx.Matches("claude") {
+		t.Errorf("expected idx.Matches(\"claude\") to be true")
+	}
+	if !idx.Matches("dotnet") {
+		t.Errorf("expected idx.Matches(\"dotnet\") to be true")
+	}
+}

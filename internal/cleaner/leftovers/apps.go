@@ -116,12 +116,50 @@ func (idx *AppIndex) scanHomebrewPackages(ctx context.Context, roots []string) {
 	}
 }
 
+// scanPackageReceipts ingests package identifiers and names from receiptsDir in pure Go (D-05, REQ-LFT-02).
+func (idx *AppIndex) scanPackageReceipts(ctx context.Context, receiptsDir string) {
+	if receiptsDir == "" {
+		receiptsDir = "/var/db/receipts"
+	}
+	entries, err := os.ReadDir(receiptsDir)
+	if err != nil {
+		return // Gracefully skip non-existent or inaccessible receipts directory
+	}
+	for _, e := range entries {
+		if ctx.Err() != nil {
+			return
+		}
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".plist") {
+			continue
+		}
+		bundleID := strings.TrimSuffix(e.Name(), ".plist")
+		idx.addBundleID(bundleID)
+
+		receiptPath := filepath.Join(receiptsDir, e.Name())
+		if r, err := parseReceiptFile(receiptPath); err == nil {
+			if r.PackageIdentifier != "" {
+				idx.addBundleID(r.PackageIdentifier)
+			}
+			if r.PackageFileName != "" {
+				base := strings.TrimSuffix(r.PackageFileName, ".pkg")
+				idx.addAppName(base)
+				if strings.Contains(base, "-") || strings.Contains(base, "_") {
+					normalized := strings.ReplaceAll(base, "-", " ")
+					normalized = strings.ReplaceAll(normalized, "_", " ")
+					idx.addAppName(normalized)
+				}
+			}
+		}
+	}
+}
+
 // scanInstalledApps discovers installed .app bundles across the provided appRoots
 // bounded to depth 3, parses Info.plist via parseAppBundleInfoFile, and populates AppIndex.
 // Traversal immediately prunes upon encountering any directory ending in .app (D-05, D-06).
 func scanInstalledApps(ctx context.Context, appRoots []string) (*AppIndex, error) {
 	index := newAppIndex()
 	index.scanHomebrewPackages(ctx, nil)
+	index.scanPackageReceipts(ctx, "")
 
 	for _, root := range appRoots {
 		if err := ctx.Err(); err != nil {

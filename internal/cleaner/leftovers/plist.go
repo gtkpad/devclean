@@ -36,3 +36,18 @@ func parseAppBundleInfoFile(path string) (*AppBundleInfoPlist, error) {
 
 	return &info, nil
 }
+
+// parseReceiptFile reads and decodes a package receipt plist file in pure Go (D-05, REQ-LFT-02).
+func parseReceiptFile(path string) (*ReceiptPlist, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("reading receipt plist %s: %w", path, err)
+	}
+
+	var r ReceiptPlist
+	if _, err := plist.Unmarshal(data, &r); err != nil {
+		return nil, fmt.Errorf("decoding receipt plist %s: %w", path, err)
+	}
+
+	return &r, nil
+}

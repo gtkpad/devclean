@@ -70,6 +70,44 @@ func createTestLaunchAgentBinary(t *testing.T, dir, filename, label, program str
 	return path
 }
 
+// createTestReceiptXML serializes and writes an XML format package receipt plist.
+func createTestReceiptXML(t *testing.T, dir, filename, pkgID, installPrefix, pkgFileName string) string {
+	t.Helper()
+	r := ReceiptPlist{
+		PackageIdentifier: pkgID,
+		InstallPrefixPath: installPrefix,
+		PackageFileName:   pkgFileName,
+	}
+	data, err := plist.Marshal(r, plist.XMLFormat)
+	if err != nil {
+		t.Fatalf("failed to marshal XML receipt plist: %v", err)
+	}
+	path := filepath.Join(dir, filename)
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		t.Fatalf("failed to write XML receipt plist: %v", err)
+	}
+	return path
+}
+
+// createTestReceiptBinary serializes and writes a binary format (bplist00) package receipt plist.
+func createTestReceiptBinary(t *testing.T, dir, filename, pkgID, installPrefix, pkgFileName string) string {
+	t.Helper()
+	r := ReceiptPlist{
+		PackageIdentifier: pkgID,
+		InstallPrefixPath: installPrefix,
+		PackageFileName:   pkgFileName,
+	}
+	data, err := plist.Marshal(r, plist.BinaryFormat)
+	if err != nil {
+		t.Fatalf("failed to marshal binary receipt plist: %v", err)
+	}
+	path := filepath.Join(dir, filename)
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		t.Fatalf("failed to write binary receipt plist: %v", err)
+	}
+	return path
+}
+
 // createTestDirWithSentinels creates a directory with sentinel files to verify non-deletion.
 func createTestDirWithSentinels(t *testing.T, parentDir, name string) (dirPath string, sentinels []string) {
 	t.Helper()
