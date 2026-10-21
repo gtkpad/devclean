@@ -99,7 +99,7 @@ func (c *leftoversCleaner) Scan(ctx context.Context, rules domain.EcosystemRules
 	}
 
 	// 2. Index installed applications and discover leftovers (LEFT-03)
-	appIndex, err := scanInstalledApps(ctx, c.appRoots)
+	appIndex, err := scanInstalledAppsWithExecutor(ctx, c.exec, c.appRoots)
 	if err == nil {
 		leftoverTargets, err := scanAppLeftovers(ctx, c.libraryDir, appIndex)
 		if err == nil {

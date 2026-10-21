@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/gtkpad/devclean/internal/cleaner"
 )
 
 func TestLeftovers_AppIndexing_Discovery(t *testing.T) {
@@ -236,5 +238,98 @@ func TestLeftovers_AppIndexing_PackageReceipts(t *testing.T) {
 	}
 	if !idx.Matches("dotnet") {
 		t.Errorf("expected idx.Matches(\"dotnet\") to be true")
+	}
+}
+
+func TestLeftovers_AppIndexing_NameNormalization(t *testing.T) {
+	idx := newAppIndex()
+	idx.addAppName("goland")
+	idx.addAppName("adspower global")
+	idx.addAppName("telegram")
+	idx.addAppName("teams")
+	idx.addAppName("node")
+
+	testCases := []struct {
+		candidate string
+		wantMatch bool
+	}{
+		// Version suffix trimming (GoLand2024.1 -> goland, teams2 -> teams, node-v20.10.0 -> node)
+		{"GoLand2024.1", true},
+		{"goland2024.2.1", true},
+		{"teams2", true},
+		{"node-v20.10.0", true},
+
+		// Underscore and hyphen normalization (adspower_global -> adspower global)
+		{"adspower_global", true},
+		{"adspower-global", true},
+		{"adspower global", true},
+
+		// Prefix token matching for dotless candidates (Telegram Desktop -> telegram)
+		{"Telegram Desktop", true},
+		{"telegram helper", true},
+
+		// Unrelated candidates
+		{"UnknownApp", false},
+		{"random_tool_name", false},
+	}
+
+	for _, tc := range testCases {
+		got := idx.Matches(tc.candidate)
+		if got != tc.wantMatch {
+			t.Errorf("idx.Matches(%q) = %v, want %v", tc.candidate, got, tc.wantMatch)
+		}
+	}
+}
+
+func TestLeftovers_SpotlightResolver_Memoization(t *testing.T) {
+	mockExec := cleaner.NewMockExecutor()
+	bundleID := "com.vendor.product"
+	query := fmt.Sprintf("kMDItemCFBundleIdentifier == %q", bundleID)
+	cmdKey := fmt.Sprintf("mdfind -onlyin / %s", query)
+	mockExec.Outputs[cmdKey] = []byte("/Applications/Product.app\n")
+
+	resolver := NewDefaultSpotlightResolver(mockExec)
+
+	// Call 1: should invoke mock executor
+	matched, err := resolver.ResolveBundleID(context.Background(), bundleID)
+	if err != nil {
+		t.Fatalf("unexpected error resolving bundle ID: %v", err)
+	}
+	if !matched {
+		t.Errorf("expected matched to be true")
+	}
+	if len(mockExec.Calls) != 1 {
+		t.Fatalf("expected 1 call to mock executor, got %d", len(mockExec.Calls))
+	}
+
+	// Call 2: should return cached result without invoking mock executor again
+	matched2, err := resolver.ResolveBundleID(context.Background(), bundleID)
+	if err != nil {
+		t.Fatalf("unexpected error on second call: %v", err)
+	}
+	if !matched2 {
+		t.Errorf("expected matched2 to be true")
+	}
+	if len(mockExec.Calls) != 1 {
+		t.Errorf("expected call count to remain 1 due to memoization, got %d", len(mockExec.Calls))
+	}
+
+	// Test via AppIndex
+	idx := newAppIndex()
+	idx.SetSpotlightResolver(resolver)
+
+	// Calling Matches with dot-containing bundle ID should trigger spotlight
+	if !idx.Matches("com.vendor.product") {
+		t.Errorf("idx.Matches(\"com.vendor.product\") = false, want true")
+	}
+
+	// Calling Matches with dotless candidate MUST NOT invoke Spotlight
+	callsBefore := len(mockExec.Calls)
+	if idx.Matches("dotlesscandidate") {
+		t.Errorf("idx.Matches(\"dotlesscandidate\") = true, want false")
+	}
+	callsAfter := len(mockExec.Calls)
+	if callsBefore != callsAfter {
+		t.Errorf("Spotlight was invoked for dotless candidate! calls before: %d, after: %d", callsBefore, callsAfter)
 	}
 }

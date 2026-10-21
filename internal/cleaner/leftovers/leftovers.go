@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -12,6 +13,13 @@ import (
 	"github.com/gtkpad/devclean/internal/fs"
 	"github.com/gtkpad/devclean/internal/safety"
 )
+
+// uuidRegex matches Apple sandbox container UUID directory names (D-04, REQ-LFT-01).
+var uuidRegex = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+func isUUIDContainer(name string) bool {
+	return uuidRegex.MatchString(name)
+}
 
 // AppLeftoverGroup aggregates residual directories belonging to the same uninstalled application.
 type AppLeftoverGroup struct {
@@ -110,6 +118,11 @@ func scanAppLeftovers(ctx context.Context, libraryDir string, index *AppIndex) (
 			}
 
 			dirName := e.Name()
+
+			// Skip raw Apple sandbox container UUID directories (D-04, REQ-LFT-01)
+			if strings.Contains(loc, "Containers") && isUUIDContainer(dirName) {
+				continue
+			}
 
 			// 1. Multi-tier exclusion shield (Apple system, dedicated cleaners, CLI tools, blacklists)
 			if isExcluded(dirName, fullPath) {

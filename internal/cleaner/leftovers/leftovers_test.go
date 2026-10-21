@@ -178,3 +178,41 @@ func TestLeftovers_AppLeftovers_SymlinkGuard(t *testing.T) {
 		t.Fatalf("expected 0 targets because unsafe symlink should be ignored, got %d: %+v", len(targets), targets)
 	}
 }
+
+func TestLeftovers_ContainerUUID_Filtered(t *testing.T) {
+	tempDir := t.TempDir()
+	libraryDir := filepath.Join(tempDir, "Library")
+	containersDir := filepath.Join(libraryDir, "Containers")
+
+	// Standard Apple sandbox UUID containers (should be skipped)
+	uuid1 := "0F97F48E-54A8-438B-BBD5-FE8B273F01C3"
+	uuid2 := "12345678-ABCD-EF01-2345-6789ABCDEF01"
+	createTestDirWithSentinels(t, containersDir, uuid1)
+	createTestDirWithSentinels(t, containersDir, uuid2)
+
+	// Legitimate orphaned non-UUID container (should be detected as leftover)
+	createTestDirWithSentinels(t, containersDir, "com.corp.orphanedapp")
+
+	index := newAppIndex()
+	targets, err := scanAppLeftovers(context.Background(), libraryDir, index)
+	if err != nil {
+		t.Fatalf("scanAppLeftovers failed: %v", err)
+	}
+
+	for _, target := range targets {
+		if strings.Contains(target.Name, uuid1) || strings.Contains(target.Name, uuid2) {
+			t.Errorf("UUID container was not filtered and surfaced as target: %s", target.Name)
+		}
+	}
+
+	foundOrphan := false
+	for _, target := range targets {
+		if target.Name == "App Leftover: orphanedapp" {
+			foundOrphan = true
+			break
+		}
+	}
+	if !foundOrphan {
+		t.Errorf("expected orphanedapp to be surfaced as leftover target, got targets: %+v", targets)
+	}
+}
