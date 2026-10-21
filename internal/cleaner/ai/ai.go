@@ -102,6 +102,16 @@ func (c *aiCleaner) Scan(ctx context.Context, rules domain.EcosystemRules) ([]do
 		targets = append(targets, hfTargets...)
 	}
 
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	// 5. Antigravity browser profile (~/.gemini/antigravity-browser-profile)
+	antigravityTargets, err := scanAntigravityBrowserProfile(ctx, c.exec, c.homeDir, rules)
+	if err == nil {
+		targets = append(targets, antigravityTargets...)
+	}
+
 	return targets, nil
 }
 
@@ -310,6 +320,32 @@ func (c *aiCleaner) Clean(ctx context.Context, targets []domain.Target) error {
 			if running || uncertain {
 				continue // Abort deleting Claude targets if CLI started after scan (D-07)
 			}
+		}
+
+		// Intercept Antigravity browser profile target for surgical unlinking
+		if t.Path == "ai://antigravity-browser-profile/cache" {
+			running, uncertain := checkProcessStatus(ctx, c.exec, "Antigravity", "antigravity", "antigravity-browser")
+			if running || uncertain {
+				continue // Abort deleting Antigravity browser cache while active (D-03)
+			}
+			subPaths := t.SubPaths
+			if len(subPaths) == 0 {
+				scanned, err := scanAntigravityBrowserProfile(ctx, c.exec, c.homeDir, domain.EcosystemRules{MaxAgeDays: 0})
+				if err == nil && len(scanned) > 0 {
+					subPaths = scanned[0].SubPaths
+				}
+			}
+			for _, sub := range subPaths {
+				cleanSub := filepath.Clean(sub)
+				if safety.IsCoreBlacklisted(cleanSub) {
+					continue
+				}
+				if isLink, err := safety.IsSymlink(cleanSub); err == nil && isLink {
+					continue
+				}
+				_ = os.RemoveAll(cleanSub)
+			}
+			continue
 		}
 
 		if t.IsVirtual() {
