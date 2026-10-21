@@ -66,10 +66,14 @@ func (c *aiCleaner) Scan(ctx context.Context, rules domain.EcosystemRules) ([]do
 		return targets, nil
 	}
 
-	// 1. Claude Code (~/.claude, ~/.local/share/claude/versions)
+	// 1. Claude Code (~/.claude, ~/.local/share/claude/versions) & Claude Desktop logs
 	claudeTargets, err := scanClaude(ctx, c.exec, c.homeDir, rules)
 	if err == nil {
 		targets = append(targets, claudeTargets...)
+	}
+	claudeDesktopTargets, err := scanClaudeDesktopLogs(ctx, c.exec, c.homeDir, rules)
+	if err == nil {
+		targets = append(targets, claudeDesktopTargets...)
 	}
 
 	if err := ctx.Err(); err != nil {
@@ -330,6 +334,32 @@ func (c *aiCleaner) Clean(ctx context.Context, targets []domain.Target) error {
 					continue
 				}
 				_ = os.RemoveAll(cleanSub)
+			}
+			continue
+		}
+
+		// Intercept Claude Desktop logs target for surgical unlinking
+		if t.Path == "ai://claude-desktop/logs" {
+			running, uncertain := checkProcessStatus(ctx, c.exec, "Claude", "claude-desktop")
+			if running || uncertain {
+				continue // Abort deleting Claude Desktop logs while active (D-07)
+			}
+			subPaths := t.SubPaths
+			if len(subPaths) == 0 {
+				scanned, err := scanClaudeDesktopLogs(ctx, c.exec, c.homeDir, domain.EcosystemRules{MaxAgeDays: 0})
+				if err == nil && len(scanned) > 0 {
+					subPaths = scanned[0].SubPaths
+				}
+			}
+			for _, sub := range subPaths {
+				cleanSub := filepath.Clean(sub)
+				if safety.IsCoreBlacklisted(cleanSub) {
+					continue
+				}
+				if isLink, err := safety.IsSymlink(cleanSub); err == nil && isLink {
+					continue
+				}
+				_ = os.Remove(cleanSub)
 			}
 			continue
 		}

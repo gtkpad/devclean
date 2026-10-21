@@ -387,4 +387,122 @@ func TestClaude_ProcessGuard_ActiveCLI(t *testing.T) {
 	}
 }
 
+func TestClaudeDesktopLogs_ScanAndClean(t *testing.T) {
+	home := t.TempDir()
+	logsDir := filepath.Join(home, "Library", "Logs", "Claude")
+	if err := os.MkdirAll(logsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	files := []string{"main.log", "chrome-native-host.log", "claude.ai-web.log"}
+	for _, f := range files {
+		p := filepath.Join(logsDir, f)
+		if err := os.WriteFile(p, []byte("log entry content line"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	mockExec := newMockExecutor()
+	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 0}
+
+	targets, err := scanClaudeDesktopLogs(context.Background(), mockExec, home, rules)
+	if err != nil {
+		t.Fatalf("scanClaudeDesktopLogs failed: %v", err)
+	}
+
+	if len(targets) != 1 {
+		t.Fatalf("expected 1 consolidated target, got %d", len(targets))
+	}
+
+	trg := targets[0]
+	if trg.Path != "ai://claude-desktop/logs" {
+		t.Errorf("expected Path 'ai://claude-desktop/logs', got %q", trg.Path)
+	}
+	if !trg.IsConsolidated {
+		t.Errorf("expected IsConsolidated=true, got false")
+	}
+	if trg.Category != "ai-claude-desktop-logs" {
+		t.Errorf("expected Category 'ai-claude-desktop-logs', got %q", trg.Category)
+	}
+	if trg.Risk != domain.RiskLow {
+		t.Errorf("expected RiskLow, got %v", trg.Risk)
+	}
+	if len(trg.SubPaths) != 3 {
+		t.Errorf("expected 3 subPaths, got %d (%v)", len(trg.SubPaths), trg.SubPaths)
+	}
+	if trg.EligibleBytes != trg.SizeBytes || trg.SizeBytes <= 0 {
+		t.Errorf("expected EligibleBytes == SizeBytes > 0, got EligibleBytes=%d, SizeBytes=%d", trg.EligibleBytes, trg.SizeBytes)
+	}
+
+	// Clean via aiCleaner
+	cleanerInstance := NewWithExecutorAndHome(mockExec, nil, home)
+	if err := cleanerInstance.Clean(context.Background(), targets); err != nil {
+		t.Fatalf("Clean failed: %v", err)
+	}
+
+	// Verify log files are deleted
+	for _, f := range files {
+		p := filepath.Join(logsDir, f)
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Errorf("expected log file %s to be deleted, but it exists", p)
+		}
+	}
+
+	// Verify parent directory ~/Library/Logs/Claude is preserved
+	if info, err := os.Stat(logsDir); err != nil || !info.IsDir() {
+		t.Errorf("expected parent directory %s to be preserved", logsDir)
+	}
+}
+
+func TestClaudeDesktopLogs_ProcessGuard(t *testing.T) {
+	home := t.TempDir()
+	logsDir := filepath.Join(home, "Library", "Logs", "Claude")
+	if err := os.MkdirAll(logsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	logFile := filepath.Join(logsDir, "main.log")
+	if err := os.WriteFile(logFile, []byte("active logs"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	mockExec := newMockExecutor()
+	mockExec.runningProcesses["Claude"] = true
+
+	rules := domain.EcosystemRules{Enabled: true, MaxAgeDays: 0}
+	targets, err := scanClaudeDesktopLogs(context.Background(), mockExec, home, rules)
+	if err != nil {
+		t.Fatalf("scanClaudeDesktopLogs failed: %v", err)
+	}
+
+	if len(targets) != 1 {
+		t.Fatalf("expected 1 target, got %d", len(targets))
+	}
+
+	trg := targets[0]
+	if !trg.ReviewOnly {
+		t.Errorf("expected ReviewOnly=true when Claude is running")
+	}
+	if trg.ReviewReason != domain.ReviewReasonActiveProcess {
+		t.Errorf("expected ReviewReason=%q, got %q", domain.ReviewReasonActiveProcess, trg.ReviewReason)
+	}
+	if trg.EligibleBytes != 0 {
+		t.Errorf("expected EligibleBytes=0 when Claude is running, got %d", trg.EligibleBytes)
+	}
+	if trg.TTLEligible {
+		t.Errorf("expected TTLEligible=false when Claude is running")
+	}
+
+	// Clean must abort
+	cleanerInstance := NewWithExecutorAndHome(mockExec, nil, home)
+	if err := cleanerInstance.Clean(context.Background(), targets); err != nil {
+		t.Fatalf("Clean failed: %v", err)
+	}
+
+	// File must NOT be deleted
+	if _, err := os.Stat(logFile); os.IsNotExist(err) {
+		t.Errorf("FAIL CLOSED VIOLATION: log file was deleted while Claude was running!")
+	}
+}
+
+
 

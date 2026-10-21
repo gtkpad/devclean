@@ -302,3 +302,84 @@ func scanClaude(ctx context.Context, exec cleaner.CommandExecutor, home string, 
 
 	return targets, nil
 }
+
+// scanClaudeDesktopLogs scans ~/Library/Logs/Claude/*.log into a consolidated target ai://claude-desktop/logs.
+func scanClaudeDesktopLogs(ctx context.Context, exec cleaner.CommandExecutor, home string, rules domain.EcosystemRules) ([]domain.Target, error) {
+	if home == "" {
+		return nil, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	logsDir := filepath.Join(home, "Library", "Logs", "Claude")
+	entries, err := os.ReadDir(logsDir)
+	if err != nil || len(entries) == 0 {
+		return nil, nil
+	}
+
+	var subPaths []string
+	var totalSize int64
+	var eligibleBytes int64
+	var hasEligible bool
+	var latestModTime time.Time
+
+	cutoff := time.Now().AddDate(0, 0, -rules.MaxAgeDays)
+
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".log") {
+			continue
+		}
+		p := filepath.Join(logsDir, e.Name())
+		info, err := e.Info()
+		if err != nil || info.Size() == 0 {
+			continue
+		}
+
+		sz := info.Size()
+		totalSize += sz
+		subPaths = append(subPaths, p)
+		if info.ModTime().After(latestModTime) {
+			latestModTime = info.ModTime()
+		}
+
+		if rules.MaxAgeDays == 0 || info.ModTime().Before(cutoff) {
+			eligibleBytes += sz
+			hasEligible = true
+		}
+	}
+
+	if totalSize == 0 {
+		return nil, nil
+	}
+
+	if latestModTime.IsZero() {
+		latestModTime = time.Now()
+	}
+
+	running, uncertain := checkProcessStatus(ctx, exec, "Claude", "claude-desktop")
+	isBlocked := running || uncertain
+
+	trg := domain.Target{
+		ID:             hashPath("ai://claude-desktop/logs"),
+		Name:           "Claude Desktop: Application Logs",
+		Path:           "ai://claude-desktop/logs",
+		SizeBytes:      totalSize,
+		EligibleBytes:  eligibleBytes,
+		TTLEligible:    hasEligible,
+		Risk:           domain.RiskLow,
+		LastAccessed:   latestModTime,
+		Category:       "ai-claude-desktop-logs",
+		IsConsolidated: true,
+		SubPaths:       subPaths,
+	}
+
+	if isBlocked {
+		trg.ReviewOnly = true
+		trg.ReviewReason = domain.ReviewReasonActiveProcess
+		trg.EligibleBytes = 0
+		trg.TTLEligible = false
+	}
+
+	return []domain.Target{trg}, nil
+}
