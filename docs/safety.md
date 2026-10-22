@@ -100,3 +100,62 @@ DevClean uses `os.Lstat` instead of `os.Stat`:
 On macOS, paths located under `/net/` are detected as NFS automounts and skipped by default. This avoids:
 - Accidental file removal on remote file servers.
 - Unresponsive terminal hangs caused by slow network I/O.
+
+---
+
+## 9. Process Safety Guards (`active_process`)
+
+Deleting active cache or database files while an application is running can cause state corruption, crashes, or sqlite lock conflicts.
+
+- **Fail-Closed Inspection**: DevClean inspects running processes (via `pgrep`) before scanning or cleaning targets for browsers (Chrome, Brave, Arc, Edge), editors (VS Code, Cursor, VSCodium, Positron), and Xcode.
+- **Fail-Closed on Ambiguity**: If process status cannot be determined with certainty (e.g., timeout, permission issue, exit code > 1), DevClean treats the state as ambiguous and refuses to delete.
+- **Differentiated Daemon Policy**: Always-on Apple background daemons (e.g., `mediaanalysisd`, `geod`) whose temporary cache stores can be emptied safely are unblocked from false process gating, while interactive user applications remain strictly protected.
+
+---
+
+## 10. Consolidated Target Sub-Path Surgical Unlinking (`SubPaths`)
+
+Container directories (such as `~/Library/Caches`, browser profile folders, and macOS sandboxed containers) often contain both disposable caches and persistent user configuration. Deleting the parent root container would destroy permissions and user state.
+
+- **Hierarchical Ownership Bypass**: In `internal/engine/ownership.go`, `ResolveCanonicalOwnership` detects consolidated targets (`IsConsolidated == true` or `len(SubPaths) > 0`) and bypasses child size subtraction, preserving true reporting numbers.
+- **Leaf-Only Unlinking**: The deletion coordinator unlinks only the explicit constituent leaf directories listed in `Target.SubPaths`, strictly preserving parent containers, permission bits, and unmanaged sibling folders.
+
+---
+
+## 11. Application Leftovers Multi-Source Verification
+
+Determining whether an application in `~/Library/Application Support` is truly uninstalled requires multi-layered validation to prevent catastrophic false positives.
+
+DevClean verifies candidate directories against four authoritative sources before flagging them as leftovers:
+1. **Static System Exclusions**: A hardcoded catalog protecting Apple system services, OS daemons, frameworks, and symbol stores (~36+ GB shielded).
+2. **Pure-Go Package Receipts**: Direct parsing of macOS installer receipts in `/var/db/receipts` without subprocess overhead.
+3. **Pure-Go Homebrew Indexing**: In-memory inspection of both Homebrew Caskroom and Cellar installed package metadata.
+4. **Spotlight & Toolchain Lookups**: Memoized, thread-safe Spotlight queries (`kMDItemCFBundleIdentifier`) combined with CLI `exec.LookPath` validation for developer toolchains.
+
+---
+
+## 12. Inviolable Leftovers Deletion Defense
+
+To provide defense in depth for personal user data:
+- All discovered leftovers and LaunchAgents are marked `ReviewOnly: true` (`ReviewReasonAppLeftover`).
+- The `leftoversCleaner.Clean` method enforces an inviolable internal guard that unconditionally returns `nil`.
+- This ensures that leftover application directories are surfaced strictly for user inspection and can never be deleted automatically during automated or bulk clean runs.
+
+---
+
+## 13. Location-Aware LaunchAgent Ownership
+
+LaunchAgent orphan detection validates filesystem ownership relative to daemon location:
+- `/Library/LaunchAgents`: Requires `root:wheel` (`UID 0`) ownership.
+- `~/Library/LaunchAgents`: Requires current user ownership (`UID == os.Getuid()`).
+
+Daemons with mismatched ownership or broken script targets are handled with strict location-aware security checks.
+
+---
+
+## 14. POSIX Recursive Chmod (`ChmodRecursive`)
+
+Package managers such as Conan (`~/.conan2/p`) and vcpkg (`vcpkg_installed`) frequently mark downloaded source and binary archives with read-only permissions (`0400` / `0500`).
+
+- Attempting standard deletion on read-only trees results in `EACCES` (permission denied) errors.
+- DevClean implements `internal/fs.ChmodRecursive`, which safely elevates write permissions on target child directories immediately prior to unlinking, ensuring clean deletion without requiring elevated `sudo` privileges.

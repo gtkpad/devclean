@@ -1,6 +1,6 @@
 # Cleaners
 
-DevClean ships with **13 ecosystem cleaners** that execute in parallel during discovery. Each cleaner targets ecosystem-specific cache and artifact directories while adhering to strict safety rules.
+DevClean ships with **22 ecosystem cleaners** that execute in parallel during discovery. Each cleaner targets ecosystem-specific cache and artifact directories while adhering to strict safety rules.
 
 ---
 
@@ -15,12 +15,21 @@ DevClean ships with **13 ecosystem cleaners** that execute in parallel during di
 | **Python** | uv cache (`~/.cache/uv`), `.venv`, `__pycache__` | Low | Automatic (`uv sync` / `uv pip install`) |
 | **Rust** | Project `target/` directories containing `Cargo.toml` | Medium | Moderate (`cargo build`) |
 | **Java / Kotlin** | Gradle caches, Maven repo, project `build/` & `target/` | Low–Medium | Moderate (`gradle build` / `mvn package`) |
-| **AI & Editors** | Claude Code cache, VS Code/Cursor caches, Ollama blobs, HuggingFace hub | Low | Re-cached on demand by respective tools |
+| **AI & Editors** | Claude Desktop/Code, VS Code / Cursor / VSCodium / Positron, Ollama, HuggingFace, Antigravity | Low | Re-cached on demand by respective tools |
 | **pnpm** | Global content-addressable store (`pnpm store prune`) | Low | Restored via `pnpm install` |
 | **Bun** | Global install cache (`~/.bun/install/cache`) | Low | Re-downloaded on next `bun install` |
 | **Next.js** | Project-specific `.next/cache` build outputs | Low | Rebuilt on next `next build` / `next dev` |
-| **Xcode** | `DerivedData` build caches and unavailable iOS simulators | Low | Rebuilt on next Xcode compile |
+| **Xcode** | `DerivedData`, simulators, App Cache, and CoreSimulator logs | Low | Rebuilt on next Xcode compile / run |
 | **Homebrew** | Formula & cask download cache (`brew cleanup -s --prune=all`) | Low | Packages remain installed; cache re-downloaded if needed |
+| **C++** | Conan packages (`~/.conan2/p`), vcpkg downloads/installed, project `build/` | Low–Medium | Rebuilt via CMake/Ninja or re-fetched by package manager |
+| **Flutter** | Pub cache (`~/.pub-cache`), `.dart_tool`, project `build/` | Low–Medium | Rebuilt via `flutter pub get` and `flutter build` |
+| **Terraform** | `.terraform/providers` cache and temporary plan outputs | Low | Re-downloaded on next `terraform init` |
+| **CocoaPods** | Global cache (`~/Library/Caches/CocoaPods`), project `Pods/` | Low–Medium | Reinstalled on `pod install` |
+| **Elixir** | Hex package cache (`~/.hex/packages`), project `_build` & `deps` | Low–Medium | Recompiled via `mix deps.get` and `mix compile` |
+| **Shell** | Zsh completion dumps (`~/.zcompdump*`), history backup files | Low | Regenerated automatically on next shell launch (0d TTL) |
+| **macOS** | User caches (`~/Library/Caches`), system logs (`~/Library/Logs`), Siri Suggestions, daemon temp | Low | Cleansed safely with child-only unlinking (0d TTL) |
+| **Browsers** | Chromium (Chrome, Brave, Arc, Edge) deep cache/models, Firefox, Safari | Low | Re-cached by browser; sessions and extensions protected (0d TTL) |
+| **Leftovers** | Uninstalled app remnants in `~/Library/Application Support`, orphaned LaunchAgents | Low | Cleaned only after multi-source non-installed verification |
 
 ---
 
@@ -190,27 +199,30 @@ Cleans global build caches and local compilation artifacts.
 
 ## 8. AI Tools & Editors
 
-Cleans caches, telemetry logs, and orphan model blobs left by modern developer AI tools.
+Cleans caches, telemetry logs, and orphan model blobs left by modern developer AI tools, coding assistants, and local AI runtimes.
 
 ### Targets
 
 | Category | Path | Risk |
 | :--- | :--- | :--- |
-| **Claude Code** | `~/.claude/cache`, `~/.claude/todos` (whitelists config/auth) | Low |
-| **VS Code & Cursor** | `CachedData`, `logs`, `.obsolete` in editor config directories | Low |
+| **Claude Code & Desktop** | `~/.claude/cache`, `~/.claude/todos`, `~/Library/Logs/Claude` | Low |
+| **VS Code & Derivatives** | `CachedData`, `logs`, `.obsolete`, `WebStorage/*/CacheStorage` in VS Code, VS Code Insiders, Cursor, VSCodium, and Positron | Low |
+| **Antigravity Profile** | `~/.gemini/antigravity-browser-profile` (`Cache`, `Code Cache`, `GPUCache`, `DawnGraphiteCache`, `Service Worker/CacheStorage`) | Low |
 | **Ollama** | Orphan blobs under `~/.ollama/models/blobs` not referenced by manifests | Low |
 | **HuggingFace** | Hub snapshots under `~/.cache/huggingface/hub` older than TTL | Low |
 
 ### How It Works
 
-- **Claude Code**: Preserves authentication credentials (`~/.claude/credentials.json`) while purging transient caches and session metadata.
-- **VS Code / Cursor**: Discovers application cache directories across macOS (`~/Library/Application Support/Code`) and Linux (`~/.config/Code`).
+- **Claude**: Preserves authentication credentials (`~/.claude/credentials.json`) while purging transient caches and session metadata. Scans Claude Desktop application logs with immediate retention eligibility.
+- **VS Code Ecosystem**: Discovers application cache and storage directories across macOS (`~/Library/Application Support/*`) and Linux (`~/.config/*`). Cleans stale `CacheStorage` within `WebStorage` partitions.
+- **Antigravity Browser Profile**: Aggregates Chromium-based profile ephemeral caches under `~/.gemini/antigravity-browser-profile` using surgical child-only unlinking.
+- **Process Guard**: Checks whether editor processes (`Code`, `Cursor`, `VSCodium`, `Positron`) are running and safely defers cleaning of active instances.
 - **Ollama**: Parses model manifest JSON files to identify and remove unreferenced orphan SHA256 blob layers.
 - **HuggingFace**: Identifies model snapshot directories and applies configured TTL thresholds.
 
 ### Risk Rationale
 
-- Rated **Low**; configuration and model manifests are preserved, and transient caches are regenerated on next run.
+- Rated **Low**; configuration, credentials, installed extensions, and active model manifests are strictly preserved.
 
 ---
 
@@ -280,23 +292,31 @@ Cleans isolated Next.js compiler and bundling caches across projects.
 
 ## 12. Xcode (macOS)
 
-Reclaims storage from Apple developer tools and iOS simulators.
+Reclaims storage from Apple developer tools, build caches, and iOS simulators.
 
 ### Targets
 
 | Category | Path / URI | Risk |
 | :--- | :--- | :--- |
 | **DerivedData** | `~/Library/Developer/Xcode/DerivedData` | Low |
+| **Xcode App Cache** | `~/Library/Caches/com.apple.dt.Xcode` | Low |
+| **CoreSimulator Logs** | `~/Library/Logs/CoreSimulator` (child-only unlinking) | Low |
+| **CoreSimulator Temp & Caches** | `~/Library/Developer/CoreSimulator/Caches`, `Temp` | Low |
+| **DeviceSupport** | `~/Library/Developer/Xcode/iOS DeviceSupport`, `watchOS DeviceSupport` | Low |
 | **Unavailable Simulators** | `xcode://simulators/unavailable` (virtual target) | Low |
+| **Xcode Archives** | `~/Library/Developer/Xcode/Archives` | High |
 
 ### How It Works
 
-- Discovers the default Xcode `DerivedData` directory.
-- Detects broken, orphaned, or unavailable iOS/watchOS/tvOS runtime simulators and prunes them via `xcrun simctl delete unavailable`.
+- Scans Xcode `DerivedData` and iOS/watchOS device support caches.
+- Integrates dedicated targets for Xcode App Cache and CoreSimulator Logs with immediate 0d retention eligibility.
+- For CoreSimulator Logs, uses surgical child-only unlinking (`childOnly: true`) to preserve the parent logging folder.
+- Prunes broken or unavailable simulators via `xcrun simctl delete unavailable`.
+- Excluded from generic macOS user cache scanning to eliminate double-counting.
 
 ### Risk Rationale
 
-- Rated **Low**; Xcode automatically indexes and regenerates `DerivedData` upon project build.
+- Derived data, simulator temp/logs, and caches are rated **Low**; Xcode automatically regenerates them on build. Archives are rated **High** to avoid accidental loss of release artifacts.
 
 ---
 
@@ -319,3 +339,224 @@ Cleans downloaded bottle archives and stale cache files.
 ### Risk Rationale
 
 - Rated **Low**; installed software is unaffected; only cached `.bottle.tar.gz` download installers are deleted.
+
+---
+
+## 14. C++ (Conan, vcpkg & CMake)
+
+Cleans package manager caches and local build artifacts for C and C++ projects.
+
+### Targets
+
+| Category | Path | Risk |
+| :--- | :--- | :--- |
+| **Conan Package Cache** | `~/.conan/data`, `~/.conan2/p` | Low |
+| **vcpkg Downloads** | `~/.vcpkg/downloads`, `$VCPKG_ROOT/downloads` | Low |
+| **Project vcpkg_installed** | `<scan_path>/**/vcpkg_installed` | Medium |
+| **Project CMake/Build dirs** | `<scan_path>/**/build`, `cmake-build-debug`, `cmake-build-release` | Medium |
+
+### How It Works
+
+- Discovers toolchains via `CMakeLists.txt`, `Makefile`, `meson.build`, `conanfile.txt`, or `vcpkg.json`.
+- Implements POSIX-compliant recursive permission elevation (`internal/fs.ChmodRecursive`) prior to deletion to safely handle read-only package trees (e.g., Conan package files mode `0400/0500`) without `EACCES` failures.
+
+### Risk Rationale
+
+- Global download caches are **Low**; local `build/` and `vcpkg_installed` directories are **Medium** because full recompilation is required.
+
+---
+
+## 15. Flutter
+
+Cleans global Pub package caches and project-level Flutter compilation outputs.
+
+### Targets
+
+| Category | Path | Risk |
+| :--- | :--- | :--- |
+| **Pub Cache** | `~/.pub-cache/hosted`, `~/.pub-cache/git` (preserves `bin`) | Low |
+| **Project .dart_tool** | `<scan_path>/**/.dart_tool` | Medium |
+| **Project build dir** | `<scan_path>/**/build` (adjacent to `pubspec.yaml`) | Medium |
+| **Ephemeral Engine Caches** | `~/.flutter` engine downloads | Low |
+
+### How It Works
+
+- Scans for Flutter project indicators (`pubspec.yaml`).
+- Preserves the executable directory `~/.pub-cache/bin` while purging stale hosted package archives.
+
+### Risk Rationale
+
+- Rated **Low** for global caches (`flutter pub get` restores them) and **Medium** for project build folders.
+
+---
+
+## 16. Terraform
+
+Cleans cached provider plugins, modules, and transient plan files across infrastructure repositories.
+
+### Targets
+
+| Category | Path | Risk |
+| :--- | :--- | :--- |
+| **Terraform Providers** | `<scan_path>/**/.terraform/providers` | Low |
+| **Terraform Modules** | `<scan_path>/**/.terraform/modules` | Low |
+| **Transient Plan Files** | `<scan_path>/**/tfplan`, `*.tfplan` | Medium |
+
+### How It Works
+
+- Discovers `.terraform` directories adjacent to `.tf` or `.tf.json` files.
+- Strictly preserves local state files (`terraform.tfstate`, `terraform.tfstate.backup`) and `.terraform.lock.hcl`.
+
+### Risk Rationale
+
+- Rated **Low** for provider plugins (re-downloaded via `terraform init`); plan files are rated **Medium**.
+
+---
+
+## 17. CocoaPods (macOS)
+
+Cleans the CocoaPods global cache and project-level Pods installations.
+
+### Targets
+
+| Category | Path | Risk |
+| :--- | :--- | :--- |
+| **CocoaPods Cache** | `~/Library/Caches/CocoaPods` | Low |
+| **Project Pods dir** | `<scan_path>/**/Pods` (adjacent to `Podfile`) | Medium |
+
+### How It Works
+
+- Scans user cache for downloaded pod tarballs.
+- Scans project paths containing `Podfile` and targets the generated `Pods/` directory.
+
+### Risk Rationale
+
+- Global cache is **Low**; project `Pods/` is **Medium** (`pod install` restores the directory).
+
+---
+
+## 18. Elixir / Erlang
+
+Cleans Hex package caches and project-level Mix compilation artifacts.
+
+### Targets
+
+| Category | Path | Risk |
+| :--- | :--- | :--- |
+| **Hex Package Cache** | `~/.hex/packages`, `~/.hex/cache.ets` | Low |
+| **Project _build dir** | `<scan_path>/**/_build` (adjacent to `mix.exs`) | Medium |
+| **Project deps dir** | `<scan_path>/**/deps` (adjacent to `mix.exs`) | Medium |
+
+### How It Works
+
+- Scans `scan_paths` for `mix.exs` project roots.
+- Identifies compiled BEAM byte code in `_build` and fetched dependencies in `deps`.
+
+### Risk Rationale
+
+- Global Hex caches are **Low**; local `_build` and `deps` are **Medium** (`mix deps.get` and `mix compile` restore them).
+
+---
+
+## 19. Shell
+
+Cleans transient shell compilation dumps and editor history backups.
+
+### Targets
+
+| Category | Path | Risk |
+| :--- | :--- | :--- |
+| **Zsh Compdump** | `~/.zcompdump*` completion cache files | Low |
+| **Bash History Backups** | `~/.bash_history.*.tmp`, `.bash_sessions/` | Low |
+| **Fish Completion Cache** | `~/.cache/fish` | Low |
+
+### How It Works
+
+- Default `max_age_days: 0` (immediate eligibility).
+- Scans user home directory for stale completion cache dumps.
+
+### Risk Rationale
+
+- Rated **Low**; shell completion dumps are automatically re-created on the next interactive shell startup.
+
+---
+
+## 20. macOS System & User Caches
+
+Cleans disposable user-space caches, system logs, diagnostic reports, and sandboxed daemon temporary stores.
+
+### Targets
+
+| Category | Path | Risk |
+| :--- | :--- | :--- |
+| **User Caches** | `~/Library/Caches/*` (surgical child-only unlinking) | Low |
+| **User Logs** | `~/Library/Logs/*` | Low |
+| **User Trash** | `~/.Trash/*` | Low |
+| **Apple Daemons** | `~/Library/Suggestions`, `mediaanalysisd/Data/tmp`, `geod/Data/tmp`, `GeoServices`, `shared-pasteboard` | Low |
+| **Group Containers** | Approved allowlist under `~/Library/Group Containers` | Low |
+| **Diagnostic Reports** | `~/Library/Logs/DiagnosticReports` (crash logs) | Low |
+
+### How It Works
+
+- Default `max_age_days: 0` for ephemeral caches and logs.
+- Uses consolidated target handling: constituent leaf paths are tracked in `Target.SubPaths` and deleted surgically without deleting container roots.
+- Deduplicates dedicated targets (Xcode, AI editors, browsers) to eliminate overlapping scans and double-counting.
+- Unconditionally unblocks always-on Apple daemons (e.g. `mediaanalysisd`, `geod`) from false `active_process` gating while retaining strict process gates on interactive applications.
+
+### Risk Rationale
+
+- Rated **Low**; targets are strictly ephemeral caches and diagnostics. Core user settings and application databases are excluded.
+
+---
+
+## 21. Web Browsers (macOS & Linux)
+
+Discovers and cleans deep browser caches, shader stores, and on-device AI model weights across Chromium-based browsers, Firefox, and Safari.
+
+### Targets
+
+| Category | Path | Risk |
+| :--- | :--- | :--- |
+| **Chromium Family** | Google Chrome, Brave, Arc, Microsoft Edge | Low |
+| **Deep Profile Caches** | `<Profile>/Cache`, `Code Cache`, `GPUCache`, `DawnGraphiteCache`, `Service Worker/CacheStorage` | Low |
+| **Root Model & Shaders** | `OptGuideOnDeviceModel`, `GraphiteDawnCache`, `GrShaderCache` | Low |
+| **Firefox** | `~/Library/Caches/Firefox/Profiles/*/cache2`, `~/.cache/mozilla/firefox` | Low |
+| **Safari** | `~/Library/Caches/com.apple.Safari` | Low |
+
+### How It Works
+
+- Default `max_age_days: 0` for immediate cache eligibility parity.
+- Traverses multi-profile directory layouts (`Default/`, `Profile 1/`, etc.) and discovers nested OS-level caches.
+- Safeguards user sessions, cookies, history, saved passwords, and installed browser extensions (`Extensions/` and extension CRX caches are protected).
+- Enforces strict process safety gating: if the browser process is running, scanning safely fails closed or defers cleaning.
+
+### Risk Rationale
+
+- Rated **Low**; only transient HTTP caches, GPU shaders, and discarded model weights are removed. User state remains intact.
+
+---
+
+## 22. Application Leftovers & LaunchAgents
+
+Identifies and cleans residual data left behind by uninstalled applications and orphaned LaunchAgent daemon plists.
+
+### Targets
+
+| Category | Path | Risk |
+| :--- | :--- | :--- |
+| **Application Leftovers** | Orphaned folders under `~/Library/Application Support` | Low |
+| **Orphaned LaunchAgents** | Unlinked `.plist` files in `~/Library/LaunchAgents` and `/Library/LaunchAgents` | Low |
+
+### How It Works
+
+- **Quad-Source Verification**: To ensure no active software is misidentified as an orphan, DevClean combines:
+  1. Static exclusions catalog (shielding ~36+ GB of Apple system services and development runtimes).
+  2. Pure-Go `/var/db/receipts` package receipt indexing.
+  3. Pure-Go Homebrew Caskroom and Cellar package indexing.
+  4. LookPath binary checks and memoized thread-safe Spotlight metadata queries (`kMDItemCFBundleIdentifier`).
+- **Location-Aware LaunchAgent Ownership**: Correctly validates `root:wheel` (`UID 0`) ownership for `/Library/LaunchAgents` versus user ownership for `~/Library/LaunchAgents`.
+- **ReviewOnly & Non-Deleting Defense**: All leftover targets are marked `ReviewOnly: true` (`ReviewReasonAppLeftover`). In `leftoversCleaner.Clean`, an inviolable refusal guard returns `nil` to prevent accidental deletion under any circumstances.
+
+### Risk Rationale
+
+- Rated **Low**; targets are orphaned residues, and defense-in-depth safety prevents unauthorized mutations.

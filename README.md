@@ -1,21 +1,25 @@
 # DevClean
 
-A high-performance CLI tool and interactive TUI that reclaims disk space across polyglot development environments. Scans caches, build artifacts, and orphaned dependencies across **13 ecosystems** in parallel.
+A high-performance CLI tool and interactive TUI that reclaims disk space across polyglot development environments. Scans caches, build artifacts, and orphaned dependencies across **22 ecosystems** in parallel.
 
 ---
 
 ## Features
 
-- **13 Ecosystems Supported** — Docker, Go, Node.js, .NET, Python (uv), Rust (Cargo), Java/Kotlin (Gradle & Maven), AI Tools & Editors (Claude Code, VS Code, Cursor, Ollama, HuggingFace), pnpm, Bun, Next.js, Xcode (DerivedData & iOS Simulators), and Homebrew.
-- **Interactive TUI** — Fullscreen [Bubble Tea](https://github.com/charmbracelet/bubbletea) interface with fuzzy filtering (`/`), multi-criteria sorting (`s`), risk filtering (`r`), mass selection (`m`), and instant real-time space calculation.
+- **22 Ecosystems Supported** — Docker, Go, Node.js, .NET, Python, Rust, Java/Kotlin, AI Tools & Editors (Claude, VS Code, Cursor, Ollama, HuggingFace, Antigravity), pnpm, Bun, Next.js, Xcode, Homebrew, C++, Flutter, Terraform, CocoaPods, Elixir, Shell, macOS System & User Caches, Web Browsers, and Application Leftovers & LaunchAgents.
+- **Interactive TUI** — Fullscreen [Bubble Tea](https://github.com/charmbracelet/bubbletea) interface with fuzzy filtering (`/`), multi-criteria sorting (`s`), risk filtering (`r`), mass selection (`m`), smart mode recommendations (`⚡`/`🛡️`), and instant real-time space calculation.
+- **Visual Disk Explorer (`devclean analyze`)** — Ncdu-style full-screen directory navigator with concurrent sizing, Lip Gloss proportion bars, large files detection, and protected trash deletion.
+- **TUI Configuration Manager (`devclean config`)** — 5-tab interactive settings manager with YAML AST comment preservation and live OS daemon synchronization.
+- **Installer Sanitizer (`devclean installer`)** — Automated discovery and cleaning of orphaned disk images (`.dmg`, `.iso`), installer packages (`.pkg`, `.deb`, `.rpm`), and installation archives.
+- **Cleanup Presets** — `--preset safe` (restricts to global low-risk caches, sparing project workspaces), `--preset standard` (configured TTLs), and `--preset aggressive` (authoritative 0d TTL across all 22 ecosystems).
 - **CLI Purge** — `devclean purge` expunges build artifacts and caches from inactive or merged Git repositories while automatically preserving dirty working trees.
 - **Whitelist & Blacklist Governance** — `devclean whitelist` CLI command to add, list, and remove exclusions in `config.yaml`, strictly guarded by the immutable system blacklist (`.git`, `.env`, `.ssh`, `secrets.json`).
 - **Visual Lip Gloss Report Card** — Beautiful post-cleanup summary with real filesystem disk delta via Statfs (zero CGO dependencies), proportional mini-bars per ecosystem, and machine-readable `--format json` support.
 - **Unified Deletion Coordinator** — Centralized architecture ensuring consistent safety, pre/post deletion hooks, history recording, and virtual target isolation across CLI, TUI, and MCP.
-- **Trash Staging & Instant Recovery** — Safely stage deleted files to trash with UUID-indexed manifests and restore them on demand (`devclean trash restore`).
+- **Trash Staging & Instant Recovery** — Safely stage deleted files to trash with UUID-indexed manifests, quota caps, retention policies, and restore them on demand (`devclean trash restore`).
 - **Heuristic Smart Scoring** — Intelligent reclaim scoring (0.0–1.0) taking into account artifact age, size, Git commit activity, and branch merge status.
-- **Background Watch Daemon & Scheduling** — Continuous filesystem threshold monitoring with desktop alerts (`devclean watch`) and native OS scheduling via Launchd (macOS) or Cron (Linux).
-- **MCP Server for AI Agents** — Model Context Protocol (stdio JSON-RPC) server exposing scan, proposal, explanation, and deletion tools to AI agents like Claude Code and Cursor.
+- **Background Watch Daemon & Scheduling** — Continuous filesystem threshold monitoring with desktop alerts (`devclean watch`) and native OS scheduling via Systemd User Timers (Linux) or Launchd (macOS).
+- **MCP Server for AI Agents** — Model Context Protocol (stdio JSON-RPC) server exposing 8 scan, proposal, explanation, statistics, and deletion tools to AI agents like Claude Code and Cursor.
 - **Zero Runtime Dependencies** — Single, portable static binary compiled with `CGO_ENABLED=0`.
 
 ---
@@ -48,6 +52,9 @@ devclean scan
 # Auto-clean stale targets using configured TTLs
 devclean clean --auto
 
+# Clean using safe preset (global caches only, skips project builds)
+devclean clean --auto --preset safe
+
 # Force clean all discovered targets (bypass TTL)
 devclean clean --force
 
@@ -56,6 +63,15 @@ devclean clean --auto --dry-run
 
 # Output cleanup report as JSON
 devclean clean --auto --format json
+
+# Interactive visual disk explorer (ncdu-style)
+devclean analyze
+
+# Manage settings in full-screen TUI
+devclean config
+
+# Find and clean orphaned installer archives (.dmg, .pkg, .iso)
+devclean installer
 
 # Purge build artifacts from repositories inactive for 60+ days
 devclean purge --inactive-days 60
@@ -72,7 +88,7 @@ devclean whitelist add --pattern "*/do-not-touch/*"
 devclean trash list
 devclean trash restore <target-id>
 
-# Schedule recurring daily cleanup
+# Schedule recurring daily cleanup via systemd/launchd
 devclean schedule --daily
 ```
 
@@ -84,11 +100,16 @@ devclean schedule --daily
 | :--- | :--- |
 | `devclean` | Launch interactive TUI (default entrypoint) |
 | `devclean scan` | Scan ecosystems and display targets without deleting |
-| `devclean clean` | Clean targets (`--auto` with TTL or `--force`) |
+| `devclean clean` | Clean targets (`--auto` with TTL, `--force`, or `--preset`) |
+| `devclean analyze [path]` | Interactive visual disk explorer (ncdu style) |
 | `devclean purge` | Purge build artifacts from inactive or merged Git repositories |
+| `devclean installer` | Scan and clean orphaned installer files and disk images |
+| `devclean config` | Interactive TUI configuration manager |
 | `devclean whitelist` | View, add, or remove paths and glob patterns from whitelist |
-| `devclean trash` | Manage trash staging (`list`, `restore <id>`, `empty`) |
-| `devclean schedule` | Register recurring cleanup via Launchd (macOS) or Cron (Linux) |
+| `devclean trash` | Manage trash staging (`list`, `restore <id>`, `clean --expired`, `empty`) |
+| `devclean schedule` | Register recurring cleanup via Systemd (Linux) or Launchd (macOS) |
+| `devclean schedule run` | Immediately trigger scheduled cleanup execution |
+| `devclean schedule logs` | View, stream, or clear scheduler execution audit logs |
 | `devclean unschedule` | Remove registered cleanup schedule |
 | `devclean watch` | Monitor disk threshold continuously and trigger notifications |
 | `devclean why <path>` | Explain why a path is flagged and display its risk analysis |
@@ -115,11 +136,24 @@ devclean schedule --daily
 | `--force` | Delete targets regardless of age (bypasses TTL) |
 | `--dry-run` | Simulate deletion and preview space without removing files |
 | `-e, --ecosystem` | Filter cleanup to a specific ecosystem |
+| `--preset <preset>` | Apply cleanup risk preset: `safe`, `standard` (default), or `aggressive` |
 | `--smart` | Only delete targets exceeding heuristic score threshold (with `--auto`) |
 | `--trash` | Move targets to trash instead of permanent deletion |
 | `--permanent` | Force permanent removal even when trash is globally enabled |
-| `--all` | Set zero TTL across all ecosystems for this run |
+| `--all` | Set zero TTL across all 22 ecosystems for this run |
 | `--format` | Output format: `table` (default) or `json` |
+
+### `schedule` Flags
+
+| Flag | Description |
+| :--- | :--- |
+| `--daily` | Register cleanup daily at noon |
+| `--weekly` | Register cleanup weekly on Sunday at midnight |
+| `--hourly` | Register cleanup every hour |
+| `--at <HH:MM>` | Register cleanup at specified time of day |
+| `--cron <expr>` | Custom 5-field cron expression |
+| `--watch` | Register threshold watch daemon rather than batch cleanup |
+| `--status` | Display current schedule and last run info |
 
 ### `purge` Flags
 
@@ -156,12 +190,21 @@ devclean schedule --daily
 | **Python** | Global uv cache (`~/.cache/uv`), `.venv`, `__pycache__` | Low |
 | **Rust** | Project `target/` directories containing `Cargo.toml` | Medium |
 | **Java / Kotlin** | Gradle caches, Maven repo (`~/.m2`), project `build/` & `target/` | Low–Medium |
-| **AI Tools** | Claude Code cache, VS Code / Cursor caches & logs, Ollama orphan blobs, HuggingFace hub | Low |
+| **AI Tools** | Claude Desktop/Code, VS Code / Cursor / VSCodium / Positron caches & logs, Ollama blobs, HuggingFace hub, Antigravity browser profile | Low |
 | **pnpm** | Global pnpm content-addressable store (`pnpm store prune`) | Low |
 | **Bun** | Bun global install cache (`~/.bun/install/cache`) | Low |
 | **Next.js** | Dedicated `.next/cache` build cache directories | Low |
-| **Xcode** | `~/Library/Developer/Xcode/DerivedData` and unavailable iOS simulators | Low |
+| **Xcode** | `DerivedData`, unavailable iOS simulators, Xcode App Cache (`com.apple.dt.Xcode`), CoreSimulator logs | Low |
 | **Homebrew** | Formula & cask download cache (`brew cleanup -s --prune=all`) | Low |
+| **C++** | Conan cache (`~/.conan2/p`), vcpkg downloads/installed, project `build/` and `cmake-build-*` | Low–Medium |
+| **Flutter** | Pub cache (`~/.pub-cache`), `.dart_tool`, project `build/` artifacts | Low–Medium |
+| **Terraform** | `.terraform/providers` caches and plan files across scan paths | Low |
+| **CocoaPods** | `~/Library/Caches/CocoaPods`, project `Pods/` directories | Low–Medium |
+| **Elixir** | Hex package cache (`~/.hex/packages`), project `_build` and `deps` | Low–Medium |
+| **Shell** | Zsh completion caches (`~/.zcompdump*`), history backups (0d TTL) | Low |
+| **macOS** | User caches (`~/Library/Caches`), system logs (`~/Library/Logs`), Siri Suggestions, sandboxed daemon temporary stores | Low |
+| **Browsers** | Chromium (Chrome, Brave, Arc, Edge) deep cache & on-device AI models, Firefox, Safari | Low |
+| **Leftovers** | Uninstalled app remnants in `~/Library/Application Support`, orphaned LaunchAgents | Low |
 
 ---
 
@@ -236,6 +279,42 @@ ecosystems:
     enabled: true
     max_age_days: 30
     fail_mode: continue
+  cpp:
+    enabled: true
+    max_age_days: 30
+    fail_mode: continue
+  flutter:
+    enabled: true
+    max_age_days: 30
+    fail_mode: continue
+  terraform:
+    enabled: true
+    max_age_days: 30
+    fail_mode: continue
+  cocoapods:
+    enabled: true
+    max_age_days: 14
+    fail_mode: continue
+  elixir:
+    enabled: true
+    max_age_days: 14
+    fail_mode: continue
+  shell:
+    enabled: true
+    max_age_days: 0
+    fail_mode: continue
+  macos:
+    enabled: true
+    max_age_days: 0
+    fail_mode: continue
+  browsers:
+    enabled: true
+    max_age_days: 0
+    fail_mode: continue
+  leftovers:
+    enabled: true
+    max_age_days: 0
+    fail_mode: continue
 
 safety:
   trash_enabled: true
@@ -254,9 +333,13 @@ See [docs/configuration.md](docs/configuration.md) for complete options and prof
 ## Safety Guarantees
 
 1. **Immutable Core Blacklist** — `.git`, `.env`, `.ssh`, `secrets.json`, and core system paths cannot be modified or deleted under any circumstance (even with `--force`). Attempting to remove them via `devclean whitelist remove` is rejected.
-2. **Git Dirty Tree Protection** — `devclean purge` inspects Git working trees and automatically skips any repository with uncommitted or unstaged changes.
-3. **Virtual Target Isolation** — Non-filesystem targets (`docker://`, `pnpm://`, `homebrew://`) safely bypass trash staging without causing filesystem I/O errors.
-4. **Symlink & Network Mount Guard** — Evaluates paths using `os.Lstat` without traversing symlinks; network automounts (`/net/` on macOS) are bypassed.
+2. **Process Safety Guards** — Fail-closed protection checks if target applications (browsers, IDEs, Xcode, daemons) are actively running before cleaning to prevent lock conflicts or corruption.
+3. **Consolidated SubPath Leaf Unlinking** — For container directories (e.g. `~/Library/Caches`, browser profiles, sandboxed containers), DevClean cleans only constituent leaf sub-paths without destroying parent roots or unmanaged siblings.
+4. **Git Dirty Tree Protection** — `devclean purge` inspects Git working trees and automatically skips any repository with uncommitted or unstaged changes.
+5. **App Leftovers Multi-Source Verification** — Quad-source verification combining static exclusions, pure-Go `/var/db/receipts` indexing, Homebrew Cask/Cellar indexing, CLI lookups, and Spotlight ensures no installed software is misidentified.
+6. **Inviolable Leftovers Deletion Defense** — Refusal guard in leftovers cleaner returns `nil` to prevent accidental removal of user application data.
+7. **Virtual Target Isolation** — Non-filesystem targets (`docker://`, `pnpm://`, `homebrew://`) safely bypass trash staging without causing filesystem I/O errors.
+8. **Symlink & Network Mount Guard** — Evaluates paths using `os.Lstat` without traversing symlinks; network automounts (`/net/` on macOS) are bypassed.
 
 See [docs/safety.md](docs/safety.md) for full details.
 
@@ -264,7 +347,24 @@ See [docs/safety.md](docs/safety.md) for full details.
 
 ## Documentation
 
-- [Cleaners Guide](docs/cleaners.md) — Exhaustive details on all 13 cleaners, targets, and mechanisms
+- [Cleaners Guide](docs/cleaners.md) — Exhaustive details on all 22 cleaners, targets, and mechanisms
+- [Configuration Reference](docs/configuration.md) — Complete YAML schema, defaults, presets, hooks, and profiles
+- [Safety Architecture](docs/safety.md) — Blacklist, process guards, subpath unlinking, trash staging, and Git guards
+- [Interactive TUI](docs/tui.md) — Keybindings, visual disk analyzer (`analyze`), TUI purge, and settings manager (`config`)
+- [Scheduling & Automation](docs/scheduling.md) — Systemd user timers, Launchd, logs, and watch daemon
+- [MCP Server](docs/mcp.md) — Model Context Protocol integration for AI agents (8 tools across 22 ecosystems)
+
+---
+
+## Requirements
+
+- Go 1.25+ (for source builds)
+- macOS or Linux (amd64 / arm64)
+- Optional CLI tools detected automatically: Docker, uv, pnpm, bun, xcode/xcrun, brew
+
+## License
+
+MIT
 - [Configuration Reference](docs/configuration.md) — Complete YAML schema, defaults, hooks, and profiles
 - [Safety Architecture](docs/safety.md) — Blacklist, risk scoring, trash staging, and Git guards
 - [Interactive TUI](docs/tui.md) — Keybindings, search, filtering, and navigation

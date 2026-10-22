@@ -1,28 +1,22 @@
 # TUI (Terminal User Interface)
 
-DevClean's default mode launches an interactive terminal interface built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) and styled with [Lip Gloss](https://github.com/charmbracelet/lipgloss).
+DevClean offers rich interactive terminal interfaces built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) and styled with [Lip Gloss](https://github.com/charmbracelet/lipgloss).
 
 ---
 
-## Launch
+## 1. Main Cleanup Interface (`devclean`)
 
-```bash
-devclean
-```
+Launched as the default entrypoint when running `devclean` without subcommands.
 
----
-
-## State Flow
+### State Flow
 
 ```
 scanning ➔ selecting ➔ confirming ➔ deleting ➔ done
 ```
 
----
+### Screens
 
-## Screens
-
-### 1. Scanning Screen
+#### Scanning Screen
 
 ```
 ⠙ Scanning ecosystems...
@@ -32,11 +26,9 @@ scanning ➔ selecting ➔ confirming ➔ deleting ➔ done
   • ai: scanning
 ```
 
-A live spinner and per-ecosystem status indicators show progress as all 13 cleaners execute in parallel.
+A live spinner and per-ecosystem status indicators show progress as all **22 cleaners** execute in parallel.
 
----
-
-### 2. Selecting Screen
+#### Selecting Screen
 
 ```
 DevClean                                        Selected: 12 targets (6.8 GB)
@@ -66,9 +58,7 @@ Features:
 - Fuzzy search bar (`/`) filtering paths and names in real time.
 - Interactive multi-criteria sorting (`s`) and risk cycling (`r`).
 
----
-
-### 3. Confirming Screen
+#### Confirming Screen
 
 ```
 Confirm deletion?
@@ -87,9 +77,7 @@ Paths:
 [y] confirm  [n] cancel
 ```
 
----
-
-### 4. Done Screen (Report Card)
+#### Done Screen (Report Card)
 
 ```
 DevClean Cleanup Summary
@@ -101,9 +89,7 @@ Disk Space: 142.3 GB free ➔ 149.1 GB free (+6.8 GB)
 
 Displays the post-cleanup summary with real Statfs disk recovery metrics and exits cleanly.
 
----
-
-## Complete Keybindings
+### Keybindings (Main Interface)
 
 | Key | Action | Description |
 | :--- | :--- | :--- |
@@ -124,8 +110,77 @@ Displays the post-cleanup summary with real Statfs disk recovery metrics and exi
 
 ---
 
+## 2. Visual Disk Explorer (`devclean analyze`)
+
+An interactive visual disk usage explorer inspired by `ncdu`, designed for investigating deep directories, identifying disk hogs, and deleting items safely with trash staging.
+
+```bash
+# Explore current directory
+devclean analyze
+
+# Explore specific directory path
+devclean analyze ~/Projects
+```
+
+```
+devclean analyze: /Users/user/Projects
+──────────────────────────────────────────────────────────────────────────────
+   3.4 GB  [████████████████████]  /legacy-monorepo
+   1.8 GB  [██████████          ]  /frontend-app
+ 850.0 MB  [█████               ]  /api-gateway
+  42.0 MB  [                    ]  /mobile-app
+   1.2 KB  [                    ]  .gitignore
+
+[Total: 6.0 GB in 5 items] | Sort: Size | Depth: 1
+↑/↓/jk: Navigate | Enter/l: Open | Esc/h: Parent | s: Sort | L: Large Files | d: Delete | q: Quit
+```
+
+### Key Features
+- **Concurrent Sizing**: Background directory scanning with live progress spinners.
+- **Proportion Bars**: Lip Gloss visual percentage bars showing relative size contribution.
+- **Large Files View (`L`)**: Instantly inspect individual large files (>100 MB) across subdirectories.
+- **Protected Trash Deletion (`d`)**: Deletes highlighted folders/files directly into DevClean's managed trash, protected by the immutable blacklist and confirmation dialogs.
+
+### Keybindings (Analyzer)
+
+| Key | Action | Description |
+| :--- | :--- | :--- |
+| `j` / `↓` | Down | Move cursor down |
+| `k` / `↑` | Up | Move cursor up |
+| `Enter` / `l` | Open | Drill into highlighted directory |
+| `Esc` / `h` | Back | Return to parent directory |
+| `s` | Sort | Toggle sort mode: **Size Descending** ➔ **Name Ascending** ➔ **Item Count** |
+| `L` | Large files | Toggle large files discovery list |
+| `d` | Delete | Stage highlighted directory/file into trash (with confirmation) |
+| `?` | Help | Toggle keybindings help overlay |
+| `q` / `Ctrl-C` | Quit | Exit disk analyzer |
+
+---
+
+## 3. Interactive Purge Interface (`devclean purge`)
+
+When run in an interactive terminal, `devclean purge` launches a specialized Bubble Tea interface for cleaning Git repositories:
+
+- **Repository Grouping**: Visual headers per repository showing latest commit date and branch merge status.
+- **Dirty Tree Protection**: Repositories with uncommitted changes or active branch modifications are marked with security warnings and spared by default.
+- **Fuzzy Search (`/`)**: Instantly filter repositories by folder name or remote repository name.
+
+---
+
+## 4. TUI Configuration Manager (`devclean config`)
+
+Opens a full-screen 5-tab settings manager:
+
+- **Tab 1: Ecosystems** — Enable/disable any of the 22 cleaners and adjust individual `max_age_days`.
+- **Tab 2: Scan Paths** — Add or remove directories searched during project traversal.
+- **Tab 3: Safety & Trash** — Configure trash quota limits, auto-expiration days, and view the immutable blacklist.
+- **Tab 4: Watcher** — Configure background threshold alerting limits and scan intervals.
+- **Tab 5: Scheduler** — Select automated schedule frequencies, customize execution times, and sync with systemd user timers or Launchd.
+
+---
+
 ## Pro Tips
 
-- **Safe One-Key Cleanup**: Press `l` immediately after scan completes to select only low-risk caches across all 13 ecosystems, then hit `Enter`.
+- **Safe One-Key Cleanup**: Press `l` immediately after scan completes in `devclean` to select only low-risk caches across all 22 ecosystems, then hit `Enter`.
 - **Target Heavy Hogs**: Press `m` to select only artifacts above the configured `mass_select_threshold_mb` (default: 1 GB).
 - **Fast Jump**: Use `Tab` to leap across huge lists without holding down the arrow keys.

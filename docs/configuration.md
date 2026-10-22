@@ -44,7 +44,7 @@ protected_patterns:
   - "*/do-not-delete/*"
   - "*/critical/*"
 
-# Ecosystem policies (all 13 ecosystems)
+# Ecosystem policies (all 22 ecosystems)
 ecosystems:
   docker:
     enabled: true
@@ -122,6 +122,61 @@ ecosystems:
   homebrew:
     enabled: true
     max_age_days: 30
+    fail_mode: continue
+    exclude_paths: []
+
+  cpp:
+    enabled: true
+    max_age_days: 30
+    fail_mode: continue
+    exclude_paths: []
+
+  flutter:
+    enabled: true
+    max_age_days: 30
+    fail_mode: continue
+    exclude_paths: []
+
+  terraform:
+    enabled: true
+    max_age_days: 30
+    fail_mode: continue
+    exclude_paths: []
+
+  cocoapods:
+    enabled: true
+    max_age_days: 14
+    fail_mode: continue
+    exclude_paths: []
+
+  elixir:
+    enabled: true
+    max_age_days: 14
+    fail_mode: continue
+    exclude_paths: []
+
+  # Ephemeral caches and system logs default to 0d for immediate cache eligibility parity
+  shell:
+    enabled: true
+    max_age_days: 0
+    fail_mode: continue
+    exclude_paths: []
+
+  macos:
+    enabled: true
+    max_age_days: 0
+    fail_mode: continue
+    exclude_paths: []
+
+  browsers:
+    enabled: true
+    max_age_days: 0
+    fail_mode: continue
+    exclude_paths: []
+
+  leftovers:
+    enabled: true
+    max_age_days: 0
     fail_mode: continue
     exclude_paths: []
 
@@ -222,3 +277,44 @@ Instead of editing `config.yaml` manually, use the `devclean whitelist` command:
 
 > [!NOTE]
 > `devclean whitelist` uses YAML AST parsing to modify `config.yaml` while preserving existing comments, indentation, and structure.
+
+---
+
+## Cleanup Presets
+
+DevClean includes three pre-defined operational presets accessible via `--preset <name>` on `devclean clean`:
+
+| Preset | Target Scope | TTL Behavior | Use Case |
+| :--- | :--- | :--- | :--- |
+| **`safe`** | Global caches and logs only (`RiskLow`). Strictly skips project-level builds and dependencies (`node_modules`, `target/`, `build/`, `.next/cache`, `vcpkg_installed`). | Standard TTLs applied. | Zero-risk developer maintenance without triggering any local project rebuilds. |
+| **`standard`** | All enabled ecosystems and configured target directories. | Uses per-ecosystem `max_age_days` from `config.yaml`. | Default routine developer cleanup. |
+| **`aggressive`** | All enabled ecosystems and configured target directories. | Authoritatively zeroes `max_age_days` (`0d`) across all 22 ecosystems. | Maximum immediate disk reclamation before large migrations or low-disk emergencies. |
+
+Example:
+```bash
+# Run safe cleanup preview
+devclean clean --auto --preset safe --dry-run
+
+# Run aggressive cleanup staging into trash
+devclean clean --auto --preset aggressive
+```
+
+---
+
+## Interactive TUI Configuration (`devclean config`)
+
+To configure DevClean without editing YAML directly, launch the interactive configuration editor:
+
+```bash
+devclean config
+```
+
+The full-screen Bubble Tea manager offers 5 configuration tabs:
+1. **Ecosystems**: Toggle individual ecosystem cleaners on/off and adjust `max_age_days` TTL thresholds.
+2. **Scan Paths**: Add, edit, or remove project scan roots (`scan_paths`).
+3. **Safety & Trash**: Configure trash staging, retention days, maximum quota (`max_size_mb`), and view the immutable blacklist.
+4. **Watcher**: Adjust disk threshold limits (`threshold_mb`) and monitoring intervals (`interval`).
+5. **Scheduler**: Configure automated scheduling frequency, specific times, and synchronize with Systemd User Timers (Linux) or Launchd (macOS).
+
+> [!TIP]
+> The configuration editor uses `internal/config/ast.go` to parse and mutate the YAML AST directly, preserving all hand-crafted comments and document formatting.
